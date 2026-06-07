@@ -3,7 +3,8 @@
 A Thing Description and an agent's tools are two different shapes, and something
 has to convert between them. That conversion is the one layer thingctx defines
 that is not already a W3C standard. The description format, the transport
-bindings, and discovery are W3C Recommendations; this mapping sits on top of them.
+bindings, and discovery are W3C Recommendations; this mapping sits one layer above
+the W3C standards.
 
 This document specifies the mapping so the conversion is not an implementation
 detail. It is deterministic: anyone who implements it produces the same tools
