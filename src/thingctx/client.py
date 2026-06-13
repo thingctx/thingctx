@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from thingctx.contrib.llm import LLMHost
 from thingctx.invokers import HttpInvoker, Invoker, LocalInvoker
@@ -26,10 +26,10 @@ def _default_invokers() -> list[Invoker]:
 
 
 def from_td(
-    td: "dict[str, Any] | list[dict[str, Any]]",
+    td: dict[str, Any] | list[dict[str, Any]],
     *,
     model: str = "anthropic/claude-sonnet-4-6",
-    invokers: Optional[list[Invoker]] = None,
+    invokers: list[Invoker] | None = None,
     validate: bool = False,
     **host_kwargs: Any,
 ) -> LLMHost:
@@ -46,10 +46,10 @@ def from_td(
 
 
 def from_file(
-    path: "str | Path",
+    path: str | Path,
     *,
     model: str = "anthropic/claude-sonnet-4-6",
-    invokers: Optional[list[Invoker]] = None,
+    invokers: list[Invoker] | None = None,
     **host_kwargs: Any,
 ) -> LLMHost:
     """From a ``.td.json`` file (one TD or a list of TDs)."""
@@ -61,7 +61,7 @@ async def from_url(
     url: str,
     *,
     model: str = "anthropic/claude-sonnet-4-6",
-    invokers: Optional[list[Invoker]] = None,
+    invokers: list[Invoker] | None = None,
     **host_kwargs: Any,
 ) -> LLMHost:
     """Fetch a live Thing's TD from ``url`` and return a ready host.

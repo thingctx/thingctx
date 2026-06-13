@@ -33,7 +33,7 @@ validate = ["jsonschema>=4.0"]
 mcp = ["mcp>=1.0"]
 # Everything.
 all = ["litellm>=1.0", "httpx>=0.25", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0"]
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.25"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.25", "ruff>=0.6"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
@@ -49,3 +49,11 @@ thingctx = ["data/*.json"]
 markers = ["network: hits the network; deselect with -m 'not network'"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# pycodestyle errors, pyflakes, import sorting, pyupgrade, bugbear.
+select = ["E", "F", "I", "UP", "B"]

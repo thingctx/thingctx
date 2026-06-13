@@ -39,8 +39,11 @@ class FileRegistry:
         if s.startswith(("http://", "https://")):
             return [_get_json(s, self.timeout)]
         if os.path.isdir(s):
-            files = [os.path.join(s, f) for f in sorted(os.listdir(s))
-                     if f.endswith((".td.json", ".json"))]
+            files = [
+                os.path.join(s, f)
+                for f in sorted(os.listdir(s))
+                if f.endswith((".td.json", ".json"))
+            ]
             return [json.loads(open(f).read()) for f in files]
         return [json.loads(open(s).read())]
 
@@ -58,7 +61,7 @@ class TDDRegistry:
         if not url.endswith("/things"):
             url += "/things"
         data = _get_json(url, self.timeout)
-        if isinstance(data, dict):       # some TDDs wrap the list
+        if isinstance(data, dict):  # some TDDs wrap the list
             data = data.get("members") or data.get("things") or [data]
         return list(data)
 
@@ -93,5 +96,6 @@ def from_args(args: list[str]) -> Registry:
 
 def _get_json(url: str, timeout: float):
     import urllib.request
+
     with urllib.request.urlopen(url, timeout=timeout) as r:
         return json.loads(r.read().decode())

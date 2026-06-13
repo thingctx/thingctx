@@ -15,7 +15,8 @@ For the pure client without an LLM, build a ThingClient directly.
 """
 
 # ThingClient: TD -> tools + invoke/read/write/observe/subscribe. No LLM.
-from thingctx.runtime import ThingClient
+from thingctx.client import from_file, from_td, from_url
+
 # LLMHost: optional tool-calling loop, in thingctx.contrib.
 from thingctx.contrib.llm import LLMHost
 from thingctx.invokers import (
@@ -24,6 +25,14 @@ from thingctx.invokers import (
     LocalInvoker,
     MqttInvoker,
 )
+from thingctx.registry import (
+    FileRegistry,
+    Registry,
+    TDDRegistry,
+    from_arg,
+    from_args,
+)
+from thingctx.runtime import ThingClient
 from thingctx.thing import (
     WoTAction,
     WoTEvent,
@@ -33,15 +42,7 @@ from thingctx.thing import (
     actions_to_tools,
     parse_thing,
 )
-from thingctx.client import from_file, from_td, from_url
 from thingctx.validate import TDValidationError, validate_td
-from thingctx.registry import (
-    FileRegistry,
-    Registry,
-    TDDRegistry,
-    from_args,
-    from_arg,
-)
 
 __version__ = "0.1.0"
 

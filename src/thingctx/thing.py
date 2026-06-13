@@ -5,7 +5,7 @@ and their transport bindings. Stdlib only.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 
@@ -15,7 +15,7 @@ class WoTForm:
 
     href: str
     op: tuple[str, ...] = ()
-    content_type: Optional[str] = None
+    content_type: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -37,6 +37,7 @@ class WoTForm:
             if key in args:
                 used.add(key)
                 from urllib.parse import quote
+
                 return quote(str(args[key]), safe="")
             return m.group(0)
 
@@ -53,7 +54,7 @@ class WoTAction:
     thing_id: str
     description: str
     input_schema: dict[str, Any]
-    output_schema: Optional[dict[str, Any]]
+    output_schema: dict[str, Any] | None
     idempotent: bool
     forms: tuple[WoTForm, ...]
     # JSON-LD @type annotations (e.g. tc:PromptTemplate). raw keeps the
@@ -91,7 +92,7 @@ class WoTAction:
         non-safe action). Used for MCP destructiveHint."""
         return self.requires_approval() or not self.idempotent
 
-    def primary_form(self, *, prefer: tuple[str, ...] = ()) -> Optional[WoTForm]:
+    def primary_form(self, *, prefer: tuple[str, ...] = ()) -> WoTForm | None:
         """Pick a form by preferred transport scheme order; else the
         first."""
         for scheme in prefer:
@@ -115,7 +116,7 @@ class WoTProperty:
     observable: bool
     forms: tuple[WoTForm, ...]
 
-    def primary_form(self, *, prefer: tuple[str, ...] = ()) -> Optional[WoTForm]:
+    def primary_form(self, *, prefer: tuple[str, ...] = ()) -> WoTForm | None:
         for scheme in prefer:
             for f in self.forms:
                 if f.scheme == scheme:
@@ -130,10 +131,10 @@ class WoTEvent:
     name: str
     thing_id: str
     description: str
-    data_schema: Optional[dict[str, Any]]
+    data_schema: dict[str, Any] | None
     forms: tuple[WoTForm, ...]
 
-    def primary_form(self, *, prefer: tuple[str, ...] = ()) -> Optional[WoTForm]:
+    def primary_form(self, *, prefer: tuple[str, ...] = ()) -> WoTForm | None:
         for scheme in prefer:
             for f in self.forms:
                 if f.scheme == scheme:
@@ -147,9 +148,9 @@ class WoTSecurityScheme:
     the TD."""
 
     name: str
-    scheme: str                       # bearer, basic, apikey, nosec
-    in_: str = "header"               # apikey location: header or query
-    key_name: str = "Authorization"   # header/query name for apikey
+    scheme: str  # bearer, basic, apikey, nosec
+    in_: str = "header"  # apikey location: header or query
+    key_name: str = "Authorization"  # header/query name for apikey
 
 
 @dataclass
@@ -160,11 +161,11 @@ class WoTThing:
     title: str
     description: str
     actions: dict[str, WoTAction]
-    properties: dict[str, "WoTProperty"] = field(default_factory=dict)
-    events: dict[str, "WoTEvent"] = field(default_factory=dict)
-    security: tuple[str, ...] = ()                          # active scheme names
-    security_schemes: dict[str, "WoTSecurityScheme"] = field(default_factory=dict)
-    base: Optional[str] = None
+    properties: dict[str, WoTProperty] = field(default_factory=dict)
+    events: dict[str, WoTEvent] = field(default_factory=dict)
+    security: tuple[str, ...] = ()  # active scheme names
+    security_schemes: dict[str, WoTSecurityScheme] = field(default_factory=dict)
+    base: str | None = None
     uri_variables: dict[str, Any] = field(default_factory=dict)
 
 
@@ -176,10 +177,11 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
     """
     if validate:
         from thingctx.validate import assert_valid_td
+
         assert_valid_td(td)
     thing_id = td.get("id") or td.get("@id") or td.get("title", "thing")
     title = td.get("title", thing_id)
-    base = td.get("base")          # relative form hrefs resolve against this
+    base = td.get("base")  # relative form hrefs resolve against this
     thing_uri_vars = td.get("uriVariables") or {}
     actions: dict[str, WoTAction] = {}
     for name, adef in (td.get("actions") or {}).items():
@@ -188,9 +190,7 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
         actions[name] = WoTAction(
             name=name,
             thing_id=thing_id,
-            description=(
-                adef.get("description") or adef.get("title") or name
-            ),
+            description=(adef.get("description") or adef.get("title") or name),
             input_schema=adef.get("input") or {"type": "object"},
             output_schema=adef.get("output"),
             idempotent=bool(adef.get("idempotent") or adef.get("safe")),
@@ -252,14 +252,15 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
 
 
 def _parse_forms(
-    defn: dict[str, Any], *, base: "str | None" = None,
+    defn: dict[str, Any],
+    *,
+    base: str | None = None,
 ) -> tuple[WoTForm, ...]:
     return tuple(
         WoTForm(
             href=_resolve_href(f.get("href", ""), base),
             op=tuple(
-                f["op"] if isinstance(f.get("op"), list)
-                else ([f["op"]] if f.get("op") else [])
+                f["op"] if isinstance(f.get("op"), list) else ([f["op"]] if f.get("op") else [])
             ),
             content_type=f.get("contentType"),
             raw=f,
@@ -275,19 +276,20 @@ def _as_tuple(v: Any) -> tuple[str, ...]:
     return (str(v),) if v else ()
 
 
-def _resolve_href(href: str, base: "str | None") -> str:
+def _resolve_href(href: str, base: str | None) -> str:
     """Resolve a relative href against base; absolute hrefs pass through."""
     if not href or not base:
         return href
     if urlparse(href).scheme:
         return href
     from urllib.parse import urljoin
+
     return urljoin(base if base.endswith("/") else base + "/", href.lstrip("/"))
 
 
 def _all_ops(defn: dict[str, Any]) -> set[str]:
     ops: set[str] = set()
-    for f in (defn.get("forms") or []):
+    for f in defn.get("forms") or []:
         op = f.get("op")
         if isinstance(op, list):
             ops.update(op)
@@ -298,8 +300,7 @@ def _all_ops(defn: dict[str, Any]) -> set[str]:
 
 def _value_schema(pdef: dict[str, Any]) -> dict[str, Any]:
     # The property def minus housekeeping keys is its value schema.
-    drop = {"forms", "observable", "writeOnly", "readOnly", "title",
-            "description", "@type", "op"}
+    drop = {"forms", "observable", "writeOnly", "readOnly", "title", "description", "@type", "op"}
     schema = {k: v for k, v in pdef.items() if k not in drop}
     return schema or {"type": "string"}
 
@@ -338,13 +339,15 @@ def actions_to_tools(
             # output schema into the description.
             if action.output_schema:
                 desc = f"{desc}\nReturns: {_json.dumps(action.output_schema)}"
-            specs.append({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": desc,
-                    "parameters": action.input_schema or {"type": "object"},
-                },
-            })
+            specs.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": desc,
+                        "parameters": action.input_schema or {"type": "object"},
+                    },
+                }
+            )
             route[name] = action
     return specs, route

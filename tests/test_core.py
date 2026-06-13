@@ -9,22 +9,27 @@ from thingctx import LocalInvoker, ThingClient
 
 TD = {
     "@context": "https://www.w3.org/2022/wot/td/v1.1",
-    "id": "urn:demo:pump:v1", "title": "Pump",
-    "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}}, "security": ["nosec_sc"],
-    "properties": {"rpm": {"type": "integer", "readOnly": True,
-                           "forms": [{"href": "local://rpm"}]},
-                   "target_rpm": {"type": "integer",
-                                  "forms": [{"href": "local://target_rpm"}]}},
-    "actions": {"set_speed": {"input": {"type": "object",
-                              "properties": {"rpm": {"type": "integer"}}},
-                              "forms": [{"href": "local://set_speed"}]}},
+    "id": "urn:demo:pump:v1",
+    "title": "Pump",
+    "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+    "security": ["nosec_sc"],
+    "properties": {
+        "rpm": {"type": "integer", "readOnly": True, "forms": [{"href": "local://rpm"}]},
+        "target_rpm": {"type": "integer", "forms": [{"href": "local://target_rpm"}]},
+    },
+    "actions": {
+        "set_speed": {
+            "input": {"type": "object", "properties": {"rpm": {"type": "integer"}}},
+            "forms": [{"href": "local://set_speed"}],
+        }
+    },
 }
 
 
 class Pump:
     def __init__(self):
         self._rpm = 0
-        self.target_rpm = 0          # plain attribute (LocalInvoker setattr path)
+        self.target_rpm = 0  # plain attribute (LocalInvoker setattr path)
 
     def rpm(self):
         return self._rpm

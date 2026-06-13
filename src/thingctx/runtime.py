@@ -9,7 +9,7 @@ subscribe to events. No LLM.
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from thingctx.invokers import Invoker, select_invoker
 from thingctx.thing import (
@@ -25,7 +25,7 @@ class ThingClient:
     agnostic; no LLM."""
 
     @classmethod
-    def from_registry(cls, registry, *, invokers=None, **kwargs) -> "ThingClient":
+    def from_registry(cls, registry, *, invokers=None, **kwargs) -> ThingClient:
         """Build a client over every TD a registry yields. `registry` is
         anything with fetch() -> list[dict] (see thingctx.registry)."""
         return cls(tds=registry.fetch(), invokers=invokers, **kwargs)
@@ -34,22 +34,22 @@ class ThingClient:
         self,
         *,
         tds: list[dict[str, Any]],
-        invokers: Optional[list[Invoker]] = None,
+        invokers: list[Invoker] | None = None,
         only_idempotent: bool = False,
         validate: bool = False,
     ) -> None:
         # validate=True checks each TD against the W3C TD 1.1 schema and
         # raises TDValidationError on nonconformance (needs [validate]).
-        self._things: list[WoTThing] = [
-            parse_thing(td, validate=validate) for td in tds
-        ]
+        self._things: list[WoTThing] = [parse_thing(td, validate=validate) for td in tds]
         self._invokers = list(invokers or [])
         self._tool_specs, self._route = actions_to_tools(
-            self._things, only_idempotent=only_idempotent,
+            self._things,
+            only_idempotent=only_idempotent,
         )
         # Telemetry name to (Thing, Property/Event) maps, keyed by the
         # same short ``<slug>.<name>`` scheme as actions.
         from thingctx.thing import _tool_name
+
         self._props: dict[str, Any] = {}
         self._events: dict[str, Any] = {}
         for thing in self._things:
@@ -68,8 +68,7 @@ class ThingClient:
 
         # Preferred transport order = the order invokers were given.
         self._prefer = tuple(
-            s for inv in self._invokers
-            for s in (getattr(inv, "schemes", None) or (inv.scheme,))
+            s for inv in self._invokers for s in (getattr(inv, "schemes", None) or (inv.scheme,))
         )
 
     def list_actions(self) -> list[dict[str, Any]]:
@@ -85,14 +84,14 @@ class ThingClient:
     def tool_specs(self) -> list[dict[str, Any]]:
         return self._tool_specs
 
-    def action_for(self, tool_name: str) -> Optional[WoTAction]:
+    def action_for(self, tool_name: str) -> WoTAction | None:
         return self._route.get(tool_name)
 
     @property
     def things(self) -> list[WoTThing]:
         return self._things
 
-    async def invoke(self, tool_name: str, arguments: "dict[str, Any] | None" = None) -> Any:
+    async def invoke(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
         """Invoke one action by routing to the transport its form names.
         ``arguments`` defaults to ``{}`` (for no-input actions)."""
         arguments = arguments or {}
@@ -106,13 +105,13 @@ class ThingClient:
         if invoker is None:
             return {
                 "error": (
-                    f"no invoker for transport {form.scheme!r} "
-                    f"(action {tool_name}); register one"
+                    f"no invoker for transport {form.scheme!r} (action {tool_name}); register one"
                 ),
                 "transport": form.scheme,
             }
         # Resolve uriVariables: {id} fills from args and leaves the body.
         import dataclasses
+
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
         return await invoker.invoke(action, filled, rest)
@@ -169,7 +168,8 @@ async def _empty_aiter(err: str):
     if False:  # pragma: no cover, make this an async generator
         yield None
     import warnings
-    warnings.warn(err)
+
+    warnings.warn(err, stacklevel=2)
 
 
 def to_text(value: Any) -> str:

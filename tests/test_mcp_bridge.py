@@ -8,13 +8,16 @@ from thingctx import LocalInvoker, ThingClient
 
 TD = {
     "@context": "https://www.w3.org/2022/wot/td/v1.1",
-    "id": "urn:demo:pump:v1", "title": "Pump",
-    "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}}, "security": ["nosec_sc"],
+    "id": "urn:demo:pump:v1",
+    "title": "Pump",
+    "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+    "security": ["nosec_sc"],
     "actions": {
         "status": {"idempotent": True, "forms": [{"href": "local://status"}]},
-        "set_speed": {"input": {"type": "object",
-                      "properties": {"rpm": {"type": "integer"}}},
-                      "forms": [{"href": "local://set_speed"}]},
+        "set_speed": {
+            "input": {"type": "object", "properties": {"rpm": {"type": "integer"}}},
+            "forms": [{"href": "local://set_speed"}],
+        },
     },
 }
 
@@ -23,10 +26,12 @@ TD = {
 async def test_td_becomes_callable_mcp_tools():
     pytest.importorskip("mcp")
     from mcp.shared.memory import create_connected_server_and_client_session as connect
+
     from thingctx.integrations.mcp import build_mcp_server
 
-    inv = LocalInvoker({"status": lambda: {"rpm": 0},
-                        "set_speed": lambda rpm=0: {"ok": True, "rpm": rpm}})
+    inv = LocalInvoker(
+        {"status": lambda: {"rpm": 0}, "set_speed": lambda rpm=0: {"ok": True, "rpm": rpm}}
+    )
     server = build_mcp_server(ThingClient(tds=[TD], invokers=[inv]), name="pump")
     async with connect(server) as s:
         await s.initialize()

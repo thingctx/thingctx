@@ -11,7 +11,8 @@ A new transport is one more Invoker; the TD is unchanged.
 from __future__ import annotations
 
 import json
-from typing import Any, Awaitable, Callable, Optional, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import Any, Protocol, runtime_checkable
 
 from thingctx.thing import WoTAction, WoTForm
 
@@ -38,9 +39,11 @@ class Invoker(Protocol):
     scheme: str
 
     async def invoke(
-        self, action: WoTAction, form: WoTForm, arguments: dict[str, Any],
-    ) -> Any:
-        ...
+        self,
+        action: WoTAction,
+        form: WoTForm,
+        arguments: dict[str, Any],
+    ) -> Any: ...
 
 
 class LocalInvoker:
@@ -74,7 +77,7 @@ class LocalInvoker:
     def register(self, key: str, fn: Callable[..., Any]) -> None:
         self._fns[key] = fn
 
-    def _resolve(self, name: str) -> "Callable[..., Any] | None":
+    def _resolve(self, name: str) -> Callable[..., Any] | None:
         if name in self._fns:
             return self._fns[name]
         if self._obj is not None:
@@ -90,6 +93,7 @@ class LocalInvoker:
         if fn is None:
             return {"error": f"no local callable registered for {key!r}"}
         import inspect
+
         try:
             result = fn(**arguments)
         except TypeError as e:
@@ -105,10 +109,10 @@ class LocalInvoker:
         """Read a property's current value. Resolves ``get_<name>`` /
         ``<name>`` on the device object, else a same-named attribute."""
         key = (form.href.split("://", 1)[-1] if form.href else "") or prop.name
-        fn = self._resolve(f"get_{prop.name}") or self._resolve(key) \
-            or self._resolve(prop.name)
+        fn = self._resolve(f"get_{prop.name}") or self._resolve(key) or self._resolve(prop.name)
         if fn is not None:
             import inspect
+
             r = fn()
             return await r if inspect.isawaitable(r) else r
         # Fall back to a plain attribute on the device object.
@@ -120,6 +124,7 @@ class LocalInvoker:
         """Write a property: call ``set_<name>(value)`` on the device,
         else set a same-named attribute."""
         import inspect
+
         fn = self._resolve(f"set_{prop.name}")
         if fn is not None:
             r = fn(value)
@@ -171,18 +176,18 @@ class HttpInvoker:
         self,
         *,
         timeout: float = 30.0,
-        headers: Optional[dict] = None,
-        credentials: Optional[dict] = None,
+        headers: dict | None = None,
+        credentials: dict | None = None,
     ) -> None:
         self._timeout = timeout
         self._headers = headers or {}
         self._credentials = credentials or {}
-        self._schemes_by_name: dict = {}   # set by with_security()
+        self._schemes_by_name: dict = {}  # set by with_security()
         self._active: tuple = ()
         # This invoker also claims https.
         self.schemes = ("http", "https")
 
-    def with_security(self, thing) -> "HttpInvoker":
+    def with_security(self, thing) -> HttpInvoker:
         """Bind a parsed Thing's declared security schemes so requests
         carry the right auth. Returns self (chainable)."""
         self._schemes_by_name = dict(getattr(thing, "security_schemes", {}) or {})
@@ -203,6 +208,7 @@ class HttpInvoker:
                 headers["Authorization"] = f"Bearer {secret}"
             elif scheme.scheme == "basic":
                 import base64
+
                 token = base64.b64encode(secret.encode()).decode()
                 headers["Authorization"] = f"Basic {token}"
             elif scheme.scheme == "apikey":
@@ -230,12 +236,17 @@ class HttpInvoker:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             if method.upper() == "GET":
                 resp = await client.get(
-                    form.href, headers=headers, params={**params, **arguments},
+                    form.href,
+                    headers=headers,
+                    params={**params, **arguments},
                 )
             else:
                 resp = await client.request(
-                    method, form.href, json=arguments,
-                    headers=headers, params=params,
+                    method,
+                    form.href,
+                    json=arguments,
+                    headers=headers,
+                    params=params,
                 )
             resp.raise_for_status()
             return _decode(resp)
@@ -258,7 +269,10 @@ class HttpInvoker:
         headers, params = self._hp()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.put(
-                form.href, json=value, headers=headers, params=params,
+                form.href,
+                json=value,
+                headers=headers,
+                params=params,
             )
             resp.raise_for_status()
             return _decode(resp, empty={"ok": True})
@@ -298,7 +312,7 @@ class MqttInvoker:
 
     scheme = "mqtt"
 
-    def __init__(self, *, broker: Optional[str] = None, timeout: float = 10.0) -> None:
+    def __init__(self, *, broker: str | None = None, timeout: float = 10.0) -> None:
         self._broker = broker
         self._timeout = timeout
 
@@ -382,8 +396,9 @@ class MqttInvoker:
 
 
 def select_invoker(
-    invokers: list[Invoker], form: WoTForm,
-) -> Optional[Invoker]:
+    invokers: list[Invoker],
+    form: WoTForm,
+) -> Invoker | None:
     """Pick the invoker that handles ``form``'s transport scheme."""
     want = form.scheme
     for inv in invokers:
