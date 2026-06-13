@@ -40,9 +40,50 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true
 
+  # Prove the *published* TestPyPI artifact is installable on every supported
+  # Python and that the offline suite passes against it -- not the local tree.
+  # Gates the real PyPI publish, so a broken release can't reach the gate.
+  smoke:
+    name: smoke (TestPyPI)
+    needs: testpypi
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install from TestPyPI (retry until index propagates)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Installing thingctx[dev]==${VERSION} from TestPyPI"
+          for i in $(seq 1 12); do
+            if pip install \
+                --index-url https://test.pypi.org/simple/ \
+                --extra-index-url https://pypi.org/simple/ \
+                "thingctx[dev]==${VERSION}"; then
+              break
+            fi
+            echo "attempt $i: not on TestPyPI yet, waiting 10s..."
+            sleep 10
+          done
+          python -c "import thingctx; assert thingctx.__version__ == '${VERSION}', thingctx.__version__; print('installed', thingctx.__version__)"
+      - name: Import optional surfaces
+        run: python -c "import thingctx.validate, thingctx.invokers, thingctx.runtime, thingctx.integrations.mcp; print('imports OK')"
+      - name: Test installed package (offline, isolated from source)
+        run: |
+          mkdir -p "$RUNNER_TEMP/t"
+          cp tests/*.py "$RUNNER_TEMP/t/"
+          printf '[pytest]\nmarkers = network: hits the network; deselect with -m "not network"\nasyncio_mode = auto\n' > "$RUNNER_TEMP/t/pytest.ini"
+          cd "$RUNNER_TEMP/t"
+          pytest -m "not network" -q
+
   pypi:
     name: publish to PyPI
-    needs: testpypi
+    needs: smoke
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
