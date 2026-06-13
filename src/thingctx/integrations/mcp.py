@@ -21,10 +21,31 @@ In an MCP client config (e.g. Claude CLI .mcp.json):
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Any
 
 from thingctx.runtime import ThingClient, to_text
+
+
+def _credentials_from_env() -> dict[str, str]:
+    """Collect per-Thing secrets from the environment.
+
+    ``THINGCTX_TOKEN_<SLUG>=<secret>`` binds a secret to the Thing whose slug
+    is ``<SLUG>`` (lowercased, with ``_`` mapped to ``-`` so
+    ``THINGCTX_TOKEN_GOOGLE_MAPS`` -> ``google-maps``). The slug is the same
+    one used in tool names. The secret is applied per the Thing's declared
+    scheme (bearer/basic/apikey). Secrets live only in the process
+    environment -- never in a TD or on disk here.
+    """
+    prefix = "THINGCTX_TOKEN_"
+    creds: dict[str, str] = {}
+    for key, val in os.environ.items():
+        if key.startswith(prefix) and val:
+            slug = key[len(prefix) :].lower().replace("_", "-")
+            if slug:
+                creds[slug] = val
+    return creds
 
 
 def build_mcp_server(client: ThingClient, *, name: str = "thingctx"):
@@ -153,10 +174,21 @@ def client_from_registry(registry, credentials: dict | None = None) -> ThingClie
 
 
 async def serve(registry) -> None:
-    """Run the stdio MCP server over a registry of TDs."""
+    """Run the stdio MCP server over a registry of TDs.
+
+    Per-Thing secrets are read from the environment (THINGCTX_TOKEN_<SLUG>)
+    and bound to each Thing's declared security scheme, so authenticated
+    surfaces are drivable without baking secrets into any TD.
+    """
     from mcp.server.stdio import stdio_server
 
-    client = client_from_registry(registry)
+    creds = _credentials_from_env()
+    client = client_from_registry(registry, credentials=creds)
+    if creds:
+        print(
+            f"thingctx-mcp: loaded {len(creds)} credential(s) for {', '.join(sorted(creds))}",
+            file=sys.stderr,
+        )
     n = len(client.things)
     name = client.things[0].title if n == 1 else f"things ({n})"
     server = build_mcp_server(client, name=name or "things")

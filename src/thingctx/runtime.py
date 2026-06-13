@@ -57,14 +57,15 @@ class ThingClient:
                 self._props[_tool_name(thing.id, p.name)] = p
             for e in thing.events.values():
                 self._events[_tool_name(thing.id, e.name)] = e
-        # Bind the TD's declared security to any invoker that honors it,
-        # so requests carry the right auth without the adopter wiring it.
-        # (Single-Thing common case; the first Thing's schemes apply.)
-        if self._things:
-            thing = self._things[0]
-            for inv in self._invokers:
-                if hasattr(inv, "with_security"):
-                    inv.with_security(thing)
+        # Bind the TDs' declared security to any invoker that honors it, so
+        # requests carry the right auth without the adopter wiring it. A
+        # fleet-aware invoker (with_things) authenticates each call as its
+        # owning Thing; otherwise fall back to the first Thing's schemes.
+        for inv in self._invokers:
+            if hasattr(inv, "with_things"):
+                inv.with_things(self._things)
+            elif hasattr(inv, "with_security") and self._things:
+                inv.with_security(self._things[0])
 
         # Preferred transport order = the order invokers were given.
         self._prefer = tuple(

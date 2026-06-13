@@ -164,10 +164,12 @@ class LocalInvoker:
 class HttpInvoker:
     """POST the action input as JSON to the form's http(s) URL.
 
-    Honors TD-declared security: pass ``credentials={scheme_name: secret}``
-    and, when a parsed :class:`WoTThing` is bound (via ``with_security``),
-    the matching auth header is applied per request. The TD names the
-    scheme; you supply the secret.
+    Honors TD-declared security. Bind one Thing with ``with_security`` or a
+    whole fleet with ``with_things``; each request then authenticates as the
+    Thing that owns the action being invoked. Supply secrets in
+    ``credentials``, keyed by Thing id, Thing slug, or scheme name (looked up
+    in that order) -- so a multi-Thing client can carry a different secret per
+    Thing. The TD names the scheme; you supply the secret.
     """
 
     scheme = "http"
@@ -184,6 +186,9 @@ class HttpInvoker:
         self._credentials = credentials or {}
         self._schemes_by_name: dict = {}  # set by with_security()
         self._active: tuple = ()
+        # thing_id -> (active security names, schemes_by_name); set by
+        # with_security/with_things so auth resolves per owning Thing.
+        self._things_by_id: dict = {}
         # This invoker also claims https.
         self.schemes = ("http", "https")
 
@@ -192,17 +197,55 @@ class HttpInvoker:
         carry the right auth. Returns self (chainable)."""
         self._schemes_by_name = dict(getattr(thing, "security_schemes", {}) or {})
         self._active = tuple(getattr(thing, "security", ()) or ())
+        self._register(thing)
         return self
 
-    def _auth(self) -> tuple[dict, dict]:
-        """Build (extra_headers, query_params) from the active scheme +
-        the supplied credential."""
+    def with_things(self, things) -> HttpInvoker:
+        """Bind many Things so each request authenticates as the Thing that
+        owns the action. Returns self (chainable)."""
+        for thing in things or ():
+            self._register(thing)
+        return self
+
+    def _register(self, thing) -> None:
+        tid = getattr(thing, "id", None)
+        if tid is None:
+            return
+        self._things_by_id[tid] = (
+            tuple(getattr(thing, "security", ()) or ()),
+            dict(getattr(thing, "security_schemes", {}) or {}),
+        )
+
+    @staticmethod
+    def _slug(thing_id: str) -> str:
+        """Thing-id -> short slug, matching the tool-name scheme
+        (urn:thingctx:google-maps -> google-maps)."""
+        parts = [p for p in str(thing_id).split(":") if p]
+        if len(parts) >= 2 and parts[-1].lower().lstrip("v").isdigit():
+            parts = parts[:-1]
+        slug = parts[-1] if parts else str(thing_id)
+        return "".join(c if (c.isalnum() or c in "._-") else "-" for c in slug)
+
+    def _auth(self, owner_id: str | None = None) -> tuple[dict, dict]:
+        """Build (extra_headers, query_params) for the Thing that owns the
+        interaction. Resolves that Thing's active scheme(s) and the matching
+        secret (by Thing id, then slug, then scheme name)."""
         headers: dict = {}
         params: dict = {}
-        for sname in self._active:
-            scheme = self._schemes_by_name.get(sname)
-            secret = self._credentials.get(sname)
-            if scheme is None or secret is None or scheme.scheme == "nosec":
+        active, schemes = self._active, self._schemes_by_name
+        if owner_id is not None and owner_id in self._things_by_id:
+            active, schemes = self._things_by_id[owner_id]
+        slug = self._slug(owner_id) if owner_id is not None else None
+        for sname in active:
+            scheme = schemes.get(sname)
+            if scheme is None or scheme.scheme == "nosec":
+                continue
+            secret = None
+            for key in (owner_id, slug, sname):
+                if key is not None and key in self._credentials:
+                    secret = self._credentials[key]
+                    break
+            if secret is None:
                 continue
             if scheme.scheme == "bearer":
                 headers["Authorization"] = f"Bearer {secret}"
@@ -218,15 +261,15 @@ class HttpInvoker:
                     headers[scheme.key_name] = secret
         return headers, params
 
-    def _hp(self):
+    def _hp(self, owner_id: str | None = None):
         """Merge static headers with TD-security auth to (headers, params)."""
-        auth_h, params = self._auth()
+        auth_h, params = self._auth(owner_id)
         return {**self._headers, **auth_h}, params
 
     async def invoke(self, action, form, arguments):  # noqa: ANN001
         import httpx
 
-        headers, params = self._hp()
+        headers, params = self._hp(getattr(action, "thing_id", None))
         # WoT HTTP binding: honor the form's declared method, else default
         # by safety. Idempotent (safe) actions GET with args as query
         # params; others POST with a JSON body.
@@ -255,7 +298,7 @@ class HttpInvoker:
         """GET the property's current value from its form URL."""
         import httpx
 
-        headers, params = self._hp()
+        headers, params = self._hp(getattr(prop, "thing_id", None))
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(form.href, headers=headers, params=params)
             resp.raise_for_status()
@@ -266,7 +309,7 @@ class HttpInvoker:
         ``writeproperty`` HTTP binding default)."""
         import httpx
 
-        headers, params = self._hp()
+        headers, params = self._hp(getattr(prop, "thing_id", None))
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.put(
                 form.href,
