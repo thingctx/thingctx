@@ -9,7 +9,8 @@ lazily here only, so the pure ThingClient has no LLM dependency.
 from __future__ import annotations
 
 import json
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from thingctx.runtime import ThingClient, to_text
 
@@ -46,9 +47,9 @@ class LLMHost:
         client: ThingClient,
         *,
         model: str = "anthropic/claude-sonnet-4-6",
-        system: Optional[str] = None,
+        system: str | None = None,
         max_rounds: int = 8,
-        chat_fn: Optional[ChatFn] = None,
+        chat_fn: ChatFn | None = None,
         resilient: bool = False,
     ) -> None:
         self._client = client
@@ -83,7 +84,7 @@ class LLMHost:
 
         tools = self._client.list_actions()
         chat = self._chat_fn or self._litellm_chat
-        memo: dict[tuple, str] = {}          # only used when resilient
+        memo: dict[tuple, str] = {}  # only used when resilient
 
         for _ in range(self._max_rounds):
             assistant = await chat(messages, tools)
@@ -102,18 +103,20 @@ class LLMHost:
                 except json.JSONDecodeError:
                     args = {}
                 if self._resilient and (name, raw_args) in memo:
-                    result_text = memo[(name, raw_args)]   # cached; don't re-run
+                    result_text = memo[(name, raw_args)]  # cached; don't re-run
                 else:
                     all_repeats = False
                     result_text = to_text(await self._client.invoke(name, args))
                     if self._resilient:
                         memo[(name, raw_args)] = result_text
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.get("id", name),
-                    "name": name,
-                    "content": result_text,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id", name),
+                        "name": name,
+                        "content": result_text,
+                    }
+                )
 
             # resilient: all calls were repeats, so force a no-tools turn.
             if self._resilient and all_repeats:
@@ -175,7 +178,9 @@ class LLMHost:
         )
 
     async def _litellm_chat(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]],
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
     ) -> dict[str, Any]:
         import asyncio
 

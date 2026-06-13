@@ -36,9 +36,11 @@ async def main() -> None:
         # mqtt, covering the full surface.
         client = ThingClient(
             tds=[td],
-            invokers=[LocalInvoker(pump),
-                      HttpInvoker(credentials={"bearer_sc": DEVICE_TOKEN}),
-                      MqttInvoker(timeout=5)],
+            invokers=[
+                LocalInvoker(pump),
+                HttpInvoker(credentials={"bearer_sc": DEVICE_TOKEN}),
+                MqttInvoker(timeout=5),
+            ],
             validate=True,
         )
 
@@ -53,34 +55,58 @@ async def main() -> None:
             assert got == expected, f"{label}: thingctx {got!r}, device {expected!r}"
             print(f"{label:<34}-> {got}  ok == device")
 
-        check("COMMAND    set_speed(900)",
-              await client.invoke("pump.set_speed", {"rpm": 900}), oracle.set_speed(900))
-        check("COMMAND    estop()",
-              await client.invoke("pump.estop"), oracle.estop())
-        check("PATH-READ  read_sensor('temp-1')   [uriVar {id}, no hand-coded REST]",
-              await client.invoke("pump.read_sensor", {"id": "temp-1"}), oracle.read_sensor("temp-1"))
-        check("WRITE      target_rpm <- 1500       [a typed property, not a pair]",
-              await client.write_property("pump.target_rpm", 1500), oracle.set_target_rpm(1500))
-        check("READ       target_rpm",
-              await client.read_property("pump.target_rpm"), oracle.get_target_rpm())
-        check("READ-ONLY  rpm write rejected",
-              await client.write_property("pump.rpm", 5), {"error": "property pump.rpm is read-only"})
-        check("STATE      status()",
-              await client.invoke("pump.status"), oracle.status())
+        check(
+            "COMMAND    set_speed(900)",
+            await client.invoke("pump.set_speed", {"rpm": 900}),
+            oracle.set_speed(900),
+        )
+        check("COMMAND    estop()", await client.invoke("pump.estop"), oracle.estop())
+        check(
+            "PATH-READ  read_sensor('temp-1')   [uriVar {id}, no hand-coded REST]",
+            await client.invoke("pump.read_sensor", {"id": "temp-1"}),
+            oracle.read_sensor("temp-1"),
+        )
+        check(
+            "WRITE      target_rpm <- 1500       [a typed property, not a pair]",
+            await client.write_property("pump.target_rpm", 1500),
+            oracle.set_target_rpm(1500),
+        )
+        check(
+            "READ       target_rpm",
+            await client.read_property("pump.target_rpm"),
+            oracle.get_target_rpm(),
+        )
+        check(
+            "READ-ONLY  rpm write rejected",
+            await client.write_property("pump.rpm", 5),
+            {"error": "property pump.rpm is read-only"},
+        )
+        check("STATE      status()", await client.invoke("pump.status"), oracle.status())
         # MQTT, set_coolant routes over a real broker (the form is mqtt://)
-        check("MQTT       set_coolant(open=True)    [routed over real MQTT]",
-              await client.invoke("pump.set_coolant", {"open": True}), oracle.set_coolant(True))
+        check(
+            "MQTT       set_coolant(open=True)    [routed over real MQTT]",
+            await client.invoke("pump.set_coolant", {"open": True}),
+            oracle.set_coolant(True),
+        )
 
         # PROMPT, the WoT-native equivalent of MCP's get_prompt, via the
         # tc:PromptTemplate extension. The template lives in the TD, so it
         # expands CLIENT-SIDE, no device call (the device has no diagnose
         # method). The TD is self-sufficient.
         from thingctx.extensions.prompts import get_prompt
+
         msgs = await get_prompt(client, "pump.diagnose", {"severity": "high"})
-        check("PROMPT     get_prompt(diagnose)     [tc:template, no device call]",
-              msgs, [{"role": "user", "content":
-                      "Severity high: read the pump status, list any sensor "
-                      "reading over its limit, and say whether the pump is healthy."}])
+        check(
+            "PROMPT     get_prompt(diagnose)     [tc:template, no device call]",
+            msgs,
+            [
+                {
+                    "role": "user",
+                    "content": "Severity high: read the pump status, list any sensor "
+                    "reading over its limit, and say whether the pump is healthy.",
+                }
+            ],
+        )
 
         # EVENT, a real subscription; the typed payload arrives INLINE.
         # Assert the pushed value is the device's event, not a URI.

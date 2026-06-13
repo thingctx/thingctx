@@ -22,7 +22,7 @@ class PumpDevice:
         self.stopped = False
         self.coolant_open = False
         self._sensors = {"temp-1": 72, "vibration": 3}
-        self._listeners: list = []   # local invokers subscribed for pushes
+        self._listeners: list = []  # local invokers subscribed for pushes
         self._sse_queues: list = []  # HTTP/SSE client queues (over the wire)
 
     # actions
@@ -38,10 +38,10 @@ class PumpDevice:
         self.rpm = 0
         return {"stopped": True, "reason": reason}
 
-    def read_sensor(self, id: str) -> dict:           # uriVariable: {id}
+    def read_sensor(self, id: str) -> dict:  # uriVariable: {id}
         return {"id": id, "value": self._sensors.get(id, 0)}
 
-    def set_coolant(self, open: bool) -> dict:        # the mqtt action
+    def set_coolant(self, open: bool) -> dict:  # the mqtt action
         self.coolant_open = open
         return {"ok": True, "coolant_open": open}
 
@@ -51,6 +51,7 @@ class PumpDevice:
         import io
 
         from PIL import Image, ImageDraw
+
         over = self.temp > 80
         img = Image.new("RGB", (160, 120), (20, 20, 24))
         d = ImageDraw.Draw(img)
@@ -107,7 +108,7 @@ class PumpDevice:
         return asyncio.ensure_future(_emit_loop())
 
 
-DEVICE_TOKEN = "demo-bearer-token"   # the secret the TD's bearer_sc expects
+DEVICE_TOKEN = "demo-bearer-token"  # the secret the TD's bearer_sc expects
 
 
 def start_http_server(device: PumpDevice):
@@ -194,7 +195,7 @@ def start_device():
     what you write against thingctx."""
     pump = PumpDevice()
     url, server = start_http_server(pump)
-    broker = start_mqtt_broker(pump)              # real mosquitto, or None
+    broker = start_mqtt_broker(pump)  # real mosquitto, or None
     mqtt_addr = f"{broker[0]}:{broker[1]}" if broker else "broker"
     td = pump_td(url, mqtt_addr)
 
@@ -233,9 +234,10 @@ def start_mqtt_broker(device: PumpDevice):
     conf.close()
     proc = subprocess.Popen(
         ["mosquitto", "-c", conf.name],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-    time.sleep(0.4)   # let the broker come up
+    time.sleep(0.4)  # let the broker come up
 
     # device-side subscriber: receive set_coolant, run it, reply.
     sub = mqtt.Client()
@@ -273,15 +275,15 @@ def pump_td(http_url: str, mqtt_broker: str = "broker") -> dict:
     from pathlib import Path
 
     raw = (Path(__file__).parent / "pump.td.json").read_text()
-    return json.loads(
-        raw.replace("{BASE_URL}", http_url).replace("{MQTT_BROKER}", mqtt_broker)
-    )
+    return json.loads(raw.replace("{BASE_URL}", http_url).replace("{MQTT_BROKER}", mqtt_broker))
 
 
 #  pick a model for each modality, or None if none is reachable
 
+
 def _ollama_models() -> list[str]:
     import urllib.request
+
     try:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=1) as r:
             return [m["name"] for m in json.loads(r.read()).get("models", [])]
@@ -293,6 +295,7 @@ def pick_llm_model() -> str | None:
     """A text LLM litellm can drive: a local Ollama Qwen, else an API key,
     else None."""
     import os
+
     names = [n for n in _ollama_models() if "vl" not in n]
     for want in ("qwen2.5:7b", "qwen3:8b"):
         if want in names:

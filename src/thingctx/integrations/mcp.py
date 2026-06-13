@@ -21,7 +21,6 @@ In an MCP client config (e.g. Claude CLI .mcp.json):
 
 from __future__ import annotations
 
-import json
 import sys
 from typing import Any
 
@@ -58,12 +57,14 @@ def build_mcp_server(client: ThingClient, *, name: str = "thingctx"):
                 explicit = action.raw.get("tc:mcp") or action.raw.get("mcp") or {}
                 hints.update({k: v for k, v in explicit.items() if k in valid})
                 ann = types.ToolAnnotations(**hints)
-            out.append(types.Tool(
-                name=fn["name"],
-                description=fn.get("description", ""),
-                inputSchema=fn.get("parameters", {"type": "object"}),
-                annotations=ann,
-            ))
+            out.append(
+                types.Tool(
+                    name=fn["name"],
+                    description=fn.get("description", ""),
+                    inputSchema=fn.get("parameters", {"type": "object"}),
+                    annotations=ann,
+                )
+            )
         return out
 
     @server.call_tool()
@@ -79,9 +80,9 @@ def build_mcp_server(client: ThingClient, *, name: str = "thingctx"):
     async def list_resources():
         out = []
         for name in client.list_properties():
-            out.append(types.Resource(
-                uri=_prop_uri(name), name=name,
-                description=f"Property {name}"))
+            out.append(
+                types.Resource(uri=_prop_uri(name), name=name, description=f"Property {name}")
+            )
         return out
 
     @server.read_resource()
@@ -96,25 +97,34 @@ def build_mcp_server(client: ThingClient, *, name: str = "thingctx"):
     async def list_prompts_handler():
         out = []
         for p in list_prompts(client):
-            out.append(types.Prompt(
-                name=p["name"], description=p.get("description", ""),
-                arguments=[
-                    types.PromptArgument(
-                        name=a["name"], description=a.get("description", ""),
-                        required=a.get("required", False))
-                    for a in p.get("arguments", [])
-                ]))
+            out.append(
+                types.Prompt(
+                    name=p["name"],
+                    description=p.get("description", ""),
+                    arguments=[
+                        types.PromptArgument(
+                            name=a["name"],
+                            description=a.get("description", ""),
+                            required=a.get("required", False),
+                        )
+                        for a in p.get("arguments", [])
+                    ],
+                )
+            )
         return out
 
     @server.get_prompt()
     async def get_prompt_handler(name: str, arguments: dict | None):
         messages = await get_prompt(client, name, arguments or {})
-        return types.GetPromptResult(messages=[
-            types.PromptMessage(
-                role=m.get("role", "user"),
-                content=types.TextContent(type="text", text=str(m.get("content", ""))))
-            for m in messages
-        ])
+        return types.GetPromptResult(
+            messages=[
+                types.PromptMessage(
+                    role=m.get("role", "user"),
+                    content=types.TextContent(type="text", text=str(m.get("content", ""))),
+                )
+                for m in messages
+            ]
+        )
 
     return server
 
@@ -124,15 +134,18 @@ def client_from_registry(registry, credentials: dict | None = None) -> ThingClie
     invokers whose deps are installed (local always; http/mqtt if
     importable). `registry` is anything with a fetch() -> list[dict]."""
     from thingctx.invokers import LocalInvoker
+
     tds = registry.fetch()
     invokers: list[Any] = [LocalInvoker()]
     try:
         from thingctx.invokers import HttpInvoker
+
         invokers.append(HttpInvoker(credentials=credentials or {}))
     except Exception:  # noqa: BLE001
         pass
     try:
         from thingctx.invokers import MqttInvoker
+
         invokers.append(MqttInvoker())
     except Exception:  # noqa: BLE001
         pass
@@ -153,11 +166,15 @@ async def serve(registry) -> None:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("usage: python -m thingctx.integrations.mcp <dir | file | url | tdd:url> ...",
-              file=sys.stderr)
+        print(
+            "usage: python -m thingctx.integrations.mcp <dir | file | url | tdd:url> ...",
+            file=sys.stderr,
+        )
         raise SystemExit(2)
     import asyncio
+
     from thingctx.registry import from_args
+
     asyncio.run(serve(from_args(sys.argv[1:])))
 
 

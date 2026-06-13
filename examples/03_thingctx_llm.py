@@ -37,10 +37,13 @@ async def main() -> None:
         # Same TD + invokers as 02, the full surface. The only new thing
         # is `model=`: the LLM now drives it.
         host = thingctx.from_td(
-            td, model=model,
-            invokers=[LocalInvoker(pump),
-                      HttpInvoker(credentials={"bearer_sc": DEVICE_TOKEN}),
-                      MqttInvoker(timeout=5)],
+            td,
+            model=model,
+            invokers=[
+                LocalInvoker(pump),
+                HttpInvoker(credentials={"bearer_sc": DEVICE_TOKEN}),
+                MqttInvoker(timeout=5),
+            ],
             resilient=True,
         )
         print(f"model: {model}\n")
@@ -53,13 +56,12 @@ async def main() -> None:
 
         # 2) PROMPT, a user picks a declared template; it seeds the agent.
         prompts = list_prompts(host.client)
-        print(f"PROMPTS the Thing declares (tc:PromptTemplate): "
-              f"{[p['name'] for p in prompts]}")
+        print(f"PROMPTS the Thing declares (tc:PromptTemplate): {[p['name'] for p in prompts]}")
         msgs = await get_prompt(host.client, "pump.diagnose", {"severity": "high"})
-        seed = msgs[0]["content"]              # the expanded template text
-        print(f"  get_prompt('pump.diagnose', severity=high) ->")
+        seed = msgs[0]["content"]  # the expanded template text
+        print("  get_prompt('pump.diagnose', severity=high) ->")
         print(f"    {seed!r}")
-        diagnosis = await host.chat(seed)       # feed it to the LLM
+        diagnosis = await host.chat(seed)  # feed it to the LLM
         print(f"  LLM acted on the prompt -> {diagnosis}")
 
         print("\nNo tool-calling written. The model drove the same TD as 02;")

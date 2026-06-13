@@ -32,6 +32,7 @@ def list_prompts(client: Any) -> list[dict[str, Any]]:
     description, arguments}] with arguments from the input schema."""
     out: list[dict[str, Any]] = []
     from thingctx.thing import _tool_name
+
     for thing in client.things:
         for action in thing.actions.values():
             if not action.has_type(TERM):
@@ -39,20 +40,24 @@ def list_prompts(client: Any) -> list[dict[str, Any]]:
             schema = action.input_schema or {}
             props = schema.get("properties", {})
             required = set(schema.get("required", []))
-            out.append({
-                "name": _tool_name(thing.id, action.name),
-                "description": action.description,
-                "arguments": [
-                    {"name": k,
-                     "description": v.get("description", ""),
-                     "required": k in required}
-                    for k, v in props.items()
-                ],
-            })
+            out.append(
+                {
+                    "name": _tool_name(thing.id, action.name),
+                    "description": action.description,
+                    "arguments": [
+                        {
+                            "name": k,
+                            "description": v.get("description", ""),
+                            "required": k in required,
+                        }
+                        for k, v in props.items()
+                    ],
+                }
+            )
     return out
 
 
-async def get_prompt(client: Any, name: str, arguments: "dict[str, Any] | None" = None):
+async def get_prompt(client: Any, name: str, arguments: dict[str, Any] | None = None):
     """Expand a prompt template into [{role, content}] messages. If the
     TD carries tc:template, expand it client-side ({arg} filled from
     arguments); else invoke the action. Raises ValueError if name is not
@@ -67,9 +72,10 @@ async def get_prompt(client: Any, name: str, arguments: "dict[str, Any] | None" 
     return await client.invoke(name, args)
 
 
-def _expand(template: Any, args: "dict[str, Any]") -> list[dict[str, Any]]:
+def _expand(template: Any, args: dict[str, Any]) -> list[dict[str, Any]]:
     """Fill {arg} placeholders. A string becomes one user message; a list
     of {role, content} messages is filled per message."""
+
     def fill(s: str) -> str:
         for k, v in args.items():
             s = s.replace("{" + k + "}", str(v))
@@ -80,8 +86,12 @@ def _expand(template: Any, args: "dict[str, Any]") -> list[dict[str, Any]]:
     out = []
     for msg in template:
         content = msg.get("content", "")
-        out.append({"role": msg.get("role", "user"),
-                    "content": fill(content) if isinstance(content, str) else content})
+        out.append(
+            {
+                "role": msg.get("role", "user"),
+                "content": fill(content) if isinstance(content, str) else content,
+            }
+        )
     return out
 
 
