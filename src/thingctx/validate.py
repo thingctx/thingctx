@@ -1,5 +1,6 @@
-"""Validate a TD against the bundled W3C WoT TD 1.1 schema (REC,
-2023-11-09). Needs the [validate] extra (jsonschema).
+"""Validate a TD against the bundled W3C WoT TD 1.1 schema
+(1.1-12-March-2025, official W3C validation schema). Needs the [validate]
+extra (jsonschema).
 
     problems = validate_td(my_td)        # [] if conformant
     thingctx.from_td(td, validate=True)  # raises TDValidationError
