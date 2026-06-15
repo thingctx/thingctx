@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thingctx"
-version = "0.1.2"
+version = "0.1.3"
 description = "Drive any agent against any W3C WoT Thing, over any transport. No per-integration server."
 readme = "README-pypi.md"
 requires-python = ">=3.10"
