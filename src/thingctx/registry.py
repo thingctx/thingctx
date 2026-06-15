@@ -94,8 +94,21 @@ def from_args(args: list[str]) -> Registry:
     return regs[0] if len(regs) == 1 else _Multi(regs)
 
 
+def _user_agent() -> str:
+    """A real User-Agent. Some hosts (e.g. Cloudflare) reject the default
+    ``Python-urllib/x.y`` UA with HTTP 403, which would break fetching a TD
+    from a hosted registry."""
+    try:
+        from importlib.metadata import version
+
+        return f"thingctx/{version('thingctx')}"
+    except Exception:  # noqa: BLE001
+        return "thingctx"
+
+
 def _get_json(url: str, timeout: float):
     import urllib.request
 
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())

@@ -102,11 +102,17 @@ calling isn't available.
 
 ## Why not MCP
 
-To expose a system over MCP you write a server, deploy it, and keep it
-running, one per integration. N systems means N processes to operate. A Thing
-Description is a static file: write it (or generate it), check it into git, or
-serve it from a URL. There is nothing to run, nothing to keep alive.
-Integration becomes data, not a service, and data scales to a fleet for free.
+MCP solves the wrong problem. Calling a real system from a model was always a
+tooling limitation, not a protocol one: read an interface, hand the model tool
+specs, route each call to its transport , all client-side, drivable from a plain
+description. MCP turns that gap into infrastructure you operate instead of data
+you read.
+
+To expose a system over MCP you write a server, deploy it, and keep it running,
+one per integration. N systems means N processes to operate. A Thing Description
+is a static file: write it (or generate it), check it into git, or serve it from
+a URL. There is nothing to run, nothing to keep alive. Integration becomes data,
+not a service, and data scales to a fleet for free.
 
 A messy device (binary protocol, a session dance) gets one thin connector that
 exposes a clean WoT face; the TD describes *that*. The connector is consumed
@@ -116,7 +122,21 @@ See [`examples/01_mcp_baseline.py`](examples/01_mcp_baseline.py) (a server per
 integration) and
 [`examples/02_thingctx_baseline.py`](examples/02_thingctx_baseline.py) (no
 server). Both drive the same pump; every result is asserted equal to calling
-the system directly.
+the system directly. The difference is what you build and run to get there:
+
+| per integration     | MCP (stdio) | MCP (http)   | thingctx |
+| -------------------- | ----------- | ------------ | -------- |
+| server process       | per session | 1, long-run  | 0        |
+| hand-written lines   | 142         | 142          | 10       |
+| time to first call   | 540 ms      | 13 ms        | 2 ms     |
+
+thingctx calls in milliseconds because there is no server to start. MCP needs
+one, and the transport sets the cost: stdio spawns it per session (the first
+call pays process startup, 540 ms), streamable-HTTP is a server you keep running
+and connect to (13 ms, warm). Once connected, per-call latency is small for all
+three; the difference is the server you build and run to get there. The Thing
+Description is data, about 145 lines of JSON, written once and read by every
+consumer. Reproduce with `python examples/_measure.py`.
 
 ## Reference
 

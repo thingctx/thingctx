@@ -72,7 +72,9 @@ async def from_url(
     """
     import httpx
 
-    async with httpx.AsyncClient() as http:
+    from thingctx.registry import _user_agent
+
+    async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}) as http:
         resp = await http.get(url)
         resp.raise_for_status()
         td = resp.json()

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from thingctx.invokers import Invoker, select_invoker
+from thingctx.invokers import HttpInvoker, Invoker, LocalInvoker, select_invoker
 from thingctx.thing import (
     WoTAction,
     WoTThing,
@@ -41,7 +41,11 @@ class ThingClient:
         # validate=True checks each TD against the W3C TD 1.1 schema and
         # raises TDValidationError on nonconformance (needs [validate]).
         self._things: list[WoTThing] = [parse_thing(td, validate=validate) for td in tds]
-        self._invokers = list(invokers or [])
+        # Default to HTTP + local so the documented quickstart (consume a TD,
+        # then invoke) routes without manual wiring; matches from_url. Pass
+        # invokers=[] explicitly for a client that registers none, or add
+        # MQTT/others as needed.
+        self._invokers = list(invokers) if invokers is not None else [HttpInvoker(), LocalInvoker()]
         self._tool_specs, self._route = actions_to_tools(
             self._things,
             only_idempotent=only_idempotent,
