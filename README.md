@@ -188,6 +188,23 @@ three; the difference is the server you build and run to get there. The Thing
 Description is data, about 145 lines of JSON, written once and read by every
 consumer. Reproduce with `python examples/_measure.py`.
 
+## Interoperability
+
+thingctx consumes a Thing Description whoever wrote it — including TDs emitted
+by standards-compliant producers, not just hand-written ones. Two demos under
+[`examples/interop/`](examples/interop/) prove it end to end:
+
+- [**node-wot**](examples/interop/nodewot/) — the
+  [W3C WoT reference implementation](https://github.com/eclipse-thingweb/node-wot)
+  exposes a `counter` Thing; thingctx fetches its served TD and drives it
+  (read, increment, read) with no node-wot client in the loop.
+- [**Eclipse Ditto**](examples/interop/ditto/) — Ditto generates a TD for a
+  digital twin; thingctx consumes it and round-trips twin state straight
+  through Ditto's API.
+
+Same consumer, different producers, zero glue: any conformant TD producer →
+thingctx.
+
 ## Reference
 
 ### ThingClient: the core
