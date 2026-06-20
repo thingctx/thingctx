@@ -18,6 +18,14 @@ from thingctx.thing import (
     actions_to_tools,
     parse_thing,
 )
+from thingctx.trust import (
+    ApprovePolicy,
+    Approver,
+    VerifyReport,
+    gate_action,
+    gate_write,
+    verify_thing,
+)
 
 
 class ThingClient:
@@ -37,9 +45,18 @@ class ThingClient:
         invokers: list[Invoker] | None = None,
         only_idempotent: bool = False,
         validate: bool = False,
+        approve: Approver | None = None,
+        approve_when: ApprovePolicy = "declared",
     ) -> None:
         # validate=True checks each TD against the W3C TD 1.1 schema and
         # raises TDValidationError on nonconformance (needs [validate]).
+        #
+        # approve / approve_when gate risky calls behind a human/policy: see
+        # thingctx.trust. With approve_when="declared" (default) only actions
+        # the TD marks risky are gated, and a gated call with no approver is
+        # denied (a safe default). approve_when="never" disables the gate.
+        self._approve = approve
+        self._approve_when: ApprovePolicy = approve_when
         self._things: list[WoTThing] = [parse_thing(td, validate=validate) for td in tds]
         # Default to HTTP + local so the documented quickstart (consume a TD,
         # then invoke) routes without manual wiring; matches from_url. Pass
@@ -96,6 +113,16 @@ class ThingClient:
     def things(self) -> list[WoTThing]:
         return self._things
 
+    def set_approval(
+        self, approve: Approver | None, *, approve_when: ApprovePolicy | None = None
+    ) -> None:
+        """Set or replace the approval gate after construction. The MCP bridge
+        uses this to bind an approver to the live server session (which does
+        not exist when the client is built)."""
+        self._approve = approve
+        if approve_when is not None:
+            self._approve_when = approve_when
+
     async def invoke(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
         """Invoke one action by routing to the transport its form names.
         ``arguments`` defaults to ``{}`` (for no-input actions)."""
@@ -103,6 +130,11 @@ class ThingClient:
         action = self._route.get(tool_name)
         if action is None:
             return {"error": f"unknown action: {tool_name}"}
+        blocked = await gate_action(
+            action, tool_name, arguments, approve=self._approve, policy=self._approve_when
+        )
+        if blocked is not None:
+            return blocked
         form = action.primary_form(prefer=self._prefer)
         if form is None:
             return {"error": f"action {tool_name} has no form (no transport)"}
@@ -145,6 +177,11 @@ class ThingClient:
             return {"error": f"unknown property: {name}"}
         if not prop.writable:
             return {"error": f"property {name} is read-only"}
+        blocked = await gate_write(
+            prop.thing_id, name, value, approve=self._approve, policy=self._approve_when
+        )
+        if blocked is not None:
+            return blocked
         form = prop.primary_form(prefer=self._prefer)
         invoker = select_invoker(self._invokers, form) if form else None
         if invoker is None or not hasattr(invoker, "write"):
@@ -167,6 +204,18 @@ class ThingClient:
             return _empty_aiter(f"no subscribable transport for {name}")
         bare = target.name
         return await invoker.subscribe(bare, form)
+
+    async def verify(self, thing_id: str | None = None) -> list[VerifyReport]:
+        """Ground each Thing's TD against the live endpoint: read every
+        readable property and check it answers and matches its declared type.
+        Read-only and safe (actions are never invoked). Returns one report per
+        Thing; ``thing_id`` limits it to a single Thing.
+
+            for report in await client.verify():
+                assert report.ok, report.as_dict()
+        """
+        things = [t for t in self._things if thing_id is None or t.id == thing_id]
+        return [await verify_thing(self, t) for t in things]
 
 
 async def _empty_aiter(err: str):

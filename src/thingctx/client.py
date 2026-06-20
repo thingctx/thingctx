@@ -31,16 +31,21 @@ def from_td(
     model: str = "anthropic/claude-sonnet-4-6",
     invokers: list[Invoker] | None = None,
     validate: bool = False,
+    approve: Any = None,
+    approve_when: str = "declared",
     **host_kwargs: Any,
 ) -> LLMHost:
     """From one or more TD dicts. Defaults to HTTP + local invokers;
     pass ``invokers=`` for MQTT/CoAP/custom transports a TD uses.
-    ``validate=True`` checks each TD against the W3C TD 1.1 schema."""
+    ``validate=True`` checks each TD against the W3C TD 1.1 schema.
+    ``approve`` / ``approve_when`` gate risky calls (see thingctx.trust)."""
     tds = td if isinstance(td, list) else [td]
     client = ThingClient(
         tds=tds,
         invokers=invokers if invokers is not None else _default_invokers(),
         validate=validate,
+        approve=approve,
+        approve_when=approve_when,
     )
     return LLMHost(client, model=model, **host_kwargs)
 

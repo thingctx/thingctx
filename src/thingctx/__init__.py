@@ -67,6 +67,11 @@ from thingctx.registry import (
     from_args,
 )
 from thingctx.runtime import ThingClient
+from thingctx.trust import (
+    ApprovalRequest,
+    Check,
+    VerifyReport,
+)
 from thingctx.thing import (
     WoTAction,
     WoTEvent,
@@ -133,4 +138,7 @@ __all__ = [
     "register_signer",
     "apply_mqtt",
     "MqttAuthPlan",
+    "ApprovalRequest",
+    "VerifyReport",
+    "Check",
 ]
