@@ -35,13 +35,20 @@ mqtt = ["paho-mqtt>=2.0"]
 validate = ["jsonschema>=4.0"]
 # Expose a Thing (or a whole fleet of TDs) to any MCP client.
 mcp = ["mcp>=1.0"]
+# Import OpenAPI specs (YAML support; JSON works without it).
+openapi = ["httpx>=0.25", "pyyaml>=6"]
+# Cloud auth: OAuth2 JWT-bearer assertions need RS256 JWT signing (pyjwt);
+# signature-based schemes are stdlib-only.
+cloud = ["httpx>=0.25", "pyjwt[crypto]>=2.8"]
 # Everything.
-all = ["litellm>=1.0", "httpx>=0.25", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0"]
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.25", "ruff>=0.6"]
+all = ["litellm>=1.0", "httpx>=0.25", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0", "pyyaml>=6", "pyjwt[crypto]>=2.8"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.25", "pyyaml>=6", "pyjwt[crypto]>=2.8", "ruff>=0.6"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
 thingctx-mcp = "thingctx.integrations.mcp:main"
+# Thing Description tooling (import openapi, ...).
+thingctx = "thingctx.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
