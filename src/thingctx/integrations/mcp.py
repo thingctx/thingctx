@@ -86,18 +86,20 @@ def build_mcp_server(
 
     The trust gate (thingctx.trust) is enforced on the same ``client.invoke``
     path used here, so risky tools are gated for MCP clients too. ``approve``:
-    ``"elicit"`` (default) asks the connected client to confirm a gated call;
-    a callable uses your own approver; ``None`` leaves the client's gate as-is.
-    ``approve_when`` overrides the client's policy (declared/destructive/all/never).
+    ``"elicit"`` (default) asks the connected client to confirm a gated call,
+    but only installs elicitation when the client has no approver yet, so an
+    approver the caller already configured is never clobbered; a callable uses
+    your own approver; ``None`` leaves the client's gate as-is. ``approve_when``
+    overrides the client's policy (declared/destructive/all/never).
     """
     import mcp.types as types
     from mcp.server.lowlevel import Server
 
     server: Server = Server(name)
-    if approve == "elicit":
-        client.set_approval(_elicit_approver(server), approve_when=approve_when)
-    elif callable(approve):
+    if callable(approve):
         client.set_approval(approve, approve_when=approve_when)
+    elif approve == "elicit" and client._approve is None:
+        client.set_approval(_elicit_approver(server), approve_when=approve_when)
     elif approve_when is not None:
         client.set_approval(client._approve, approve_when=approve_when)
 

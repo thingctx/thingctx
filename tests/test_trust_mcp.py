@@ -68,6 +68,18 @@ async def test_mcp_safe_action_not_gated():
 
 
 @pytest.mark.asyncio
+async def test_default_elicit_keeps_existing_approver():
+    pytest.importorskip("mcp")
+    from thingctx.integrations.mcp import build_mcp_server
+
+    own = lambda req: True  # noqa: E731
+    client = ThingClient(tds=[TD], invokers=[_inv()], approve=own)
+    build_mcp_server(client)  # default approve="elicit" must not clobber it
+    assert client._approve is own
+    assert "wiped" in await _call(build_mcp_server(client), "vault.wipe")
+
+
+@pytest.mark.asyncio
 async def test_elicit_approver_accept_deny_and_fallback():
     pytest.importorskip("mcp")
     from thingctx.integrations.mcp import _elicit_approver
