@@ -48,13 +48,54 @@ def _credentials_from_env() -> dict[str, str]:
     return creds
 
 
-def build_mcp_server(client: ThingClient, *, name: str = "thingctx"):
+def _elicit_approver(server):
+    """An approver that asks the connected MCP client (Claude/Copilot CLI) to
+    confirm a gated call, via MCP elicitation. Denies if the client cannot
+    elicit or there is no live session , a gate with nobody to open it stays
+    shut. This is the human-in-the-loop for the CLI integrations."""
+
+    async def approve(req) -> bool:
+        try:
+            session = server.request_context.session
+        except Exception:  # noqa: BLE001 , no active request/session
+            return False
+        message = (
+            f"Approve {req.tool_name}({req.arguments})?  "
+            f"Reason: {req.reason}."
+            + (f"  {req.description}" if req.description else "")
+        )
+        try:
+            # An empty object schema asks for a plain accept / decline / cancel.
+            result = await session.elicit(message=message, requestedSchema={
+                "type": "object", "properties": {}})
+        except Exception:  # noqa: BLE001 , client has no elicitation capability
+            return False
+        return getattr(result, "action", None) == "accept"
+
+    return approve
+
+
+def build_mcp_server(client: ThingClient, *, name: str = "thingctx", approve: Any = "elicit",
+                     approve_when: str | None = None):
     """Build an mcp Server that bridges `client` to MCP. Needs the `mcp`
-    package."""
+    package.
+
+    The trust gate (thingctx.trust) is enforced on the same ``client.invoke``
+    path used here, so risky tools are gated for MCP clients too. ``approve``:
+    ``"elicit"`` (default) asks the connected client to confirm a gated call;
+    a callable uses your own approver; ``None`` leaves the client's gate as-is.
+    ``approve_when`` overrides the client's policy (declared/destructive/all/never).
+    """
     import mcp.types as types
     from mcp.server.lowlevel import Server
 
     server: Server = Server(name)
+    if approve == "elicit":
+        client.set_approval(_elicit_approver(server), approve_when=approve_when)
+    elif callable(approve):
+        client.set_approval(approve, approve_when=approve_when)
+    elif approve_when is not None:
+        client.set_approval(client._approve, approve_when=approve_when)
 
     # actions -> tools, carrying MCP annotations so a client can gate or
     # label them. The common hints are derived from the TD's own
@@ -150,10 +191,13 @@ def build_mcp_server(client: ThingClient, *, name: str = "thingctx"):
     return server
 
 
-def client_from_registry(registry, credentials: dict | None = None) -> ThingClient:
+def client_from_registry(
+    registry, credentials: dict | None = None, approve_when: str = "declared"
+) -> ThingClient:
     """Build one ThingClient over all the TDs a registry yields, with the
     invokers whose deps are installed (local always; http/mqtt if
-    importable). `registry` is anything with a fetch() -> list[dict]."""
+    importable). `registry` is anything with a fetch() -> list[dict].
+    ``approve_when`` sets the trust policy (the MCP server wires the approver)."""
     from thingctx.invokers import LocalInvoker
 
     tds = registry.fetch()
@@ -170,7 +214,7 @@ def client_from_registry(registry, credentials: dict | None = None) -> ThingClie
         invokers.append(MqttInvoker())
     except Exception:  # noqa: BLE001
         pass
-    return ThingClient(tds=tds, invokers=invokers)
+    return ThingClient(tds=tds, invokers=invokers, approve_when=approve_when)
 
 
 async def serve(registry) -> None:
@@ -183,12 +227,17 @@ async def serve(registry) -> None:
     from mcp.server.stdio import stdio_server
 
     creds = _credentials_from_env()
-    client = client_from_registry(registry, credentials=creds)
+    # Trust policy from the environment; default "declared" honors exactly what
+    # each TD marks risky. The server wires an elicitation approver, so a gated
+    # tool prompts the CLI user to confirm before it runs.
+    approve_when = os.environ.get("THINGCTX_APPROVE_WHEN", "declared")
+    client = client_from_registry(registry, credentials=creds, approve_when=approve_when)
     if creds:
         print(
             f"thingctx-mcp: loaded {len(creds)} credential(s) for {', '.join(sorted(creds))}",
             file=sys.stderr,
         )
+    print(f"thingctx-mcp: approval policy = {approve_when}", file=sys.stderr)
     n = len(client.things)
     name = client.things[0].title if n == 1 else f"things ({n})"
     server = build_mcp_server(client, name=name or "things")
