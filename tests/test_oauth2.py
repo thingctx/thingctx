@@ -84,6 +84,57 @@ async def test_token_is_cached_across_calls(mock_http):
     assert mock_http["token_calls"] == 1  # second call reused the cached token
 
 
+async def test_password_grant_sends_resource_owner_creds(monkeypatch):
+    """The password grant carries the resource owner's username/password
+    alongside the client credentials in the token request."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "auth.local":
+            seen["body"] = request.content.decode()
+            return httpx.Response(200, json={"access_token": "pw-tok", "expires_in": 3600})
+        seen["auth"] = request.headers.get("Authorization")
+        return httpx.Response(200, json={"ok": True})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *a, **k: real(*a, **{**k, "transport": httpx.MockTransport(handler)}),
+    )
+
+    td = {
+        **TD,
+        "securityDefinitions": {
+            "oauth": {
+                "scheme": "oauth2",
+                "flow": "password",
+                "token": "https://auth.local/token",
+                "scopes": ["read"],
+            }
+        },
+    }
+    thing = parse_thing(td)
+    inv = HttpInvoker(
+        credentials={
+            "urn:dev:svc": {
+                "client_id": "cid",
+                "client_secret": "sec",
+                "username": "alice",
+                "password": "pw",
+            }
+        }
+    ).with_security(thing)
+    action, form = _action_form()
+
+    await inv.invoke(action, form, {})
+
+    assert "grant_type=password" in seen["body"]
+    assert "username=alice" in seen["body"]
+    assert "password=pw" in seen["body"]
+    assert seen["auth"] == "Bearer pw-tok"
+
+
 async def test_static_token_used_directly(mock_http):
     """A plain-string credential with no token endpoint is used as a bearer
     token (no client-credentials exchange)."""

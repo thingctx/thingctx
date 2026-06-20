@@ -157,10 +157,26 @@ def _security_from_spec(spec: dict) -> tuple[dict, list[str]]:
                 "token": flow.get("tokenUrl", ""),
                 "scopes": list((flow.get("scopes") or {}).keys()),
             }
-    active = [next(iter(g)) for g in spec.get("security", []) if g] or list(defs.keys())
+    groups = [g for g in spec.get("security", []) if g]
+    # A requirement object lists every scheme that must be satisfied together
+    # (AND), so keep all of its keys, not just the first. Fall back to every
+    # defined scheme when no global requirement is declared.
+    active = list(groups[0].keys()) if groups else list(defs.keys())
     # Keep only active schemes we understand.
     active = [a for a in active if a in defs]
     return defs, active
+
+
+def _op_security(op: dict, defs: dict) -> list[str] | None:
+    """Map an operation's own ``security`` (if any) to TD form-level scheme
+    names. Returns None when the operation inherits the Thing-level security,
+    and [] when the operation explicitly requires no auth."""
+    if "security" not in op:
+        return None
+    groups = [g for g in (op.get("security") or []) if g]
+    if not groups:
+        return []
+    return [a for a in groups[0].keys() if a in defs]
 
 
 def from_openapi(
@@ -196,7 +212,13 @@ def from_openapi(
     else:
         keep = lambda n, m, p: True  # noqa: E731
 
+    if security is not None:
+        defs, active = dict(security.get("definitions", {})), list(security.get("active", []))
+    else:
+        defs, active = _security_from_spec(spec)
+
     actions: dict[str, Any] = {}
+    needs_nosec = False
     for path, item in (spec.get("paths") or {}).items():
         if not isinstance(item, dict):
             continue
@@ -207,18 +229,26 @@ def from_openapi(
             name = _action_name(op, method, path)
             if not keep(name, method, path):
                 continue
+            form: dict[str, Any] = {
+                "href": base + path,
+                "htv:methodName": method.upper(),
+                "contentType": "application/json",
+            }
+            # An operation may override the Thing-level security; carry that
+            # onto the form so the generated TD authenticates per-operation.
+            op_sec = _op_security(op, defs)
+            if op_sec is not None and op_sec != active:
+                if op_sec:
+                    form["security"] = op_sec
+                else:
+                    form["security"] = ["nosec_sc"]
+                    needs_nosec = True
             action: dict[str, Any] = {
                 "title": name,
                 "description": op.get("summary") or op.get("description") or name,
                 "safe": _safe(method),
                 "idempotent": _safe(method) or method in ("put", "delete"),
-                "forms": [
-                    {
-                        "href": base + path,
-                        "htv:methodName": method.upper(),
-                        "contentType": "application/json",
-                    }
-                ],
+                "forms": [form],
             }
             inp = _input_schema(spec, op)
             if inp:
@@ -227,12 +257,10 @@ def from_openapi(
             key = name if name not in actions else f"{method}_{name}"
             actions[key] = action
 
-    if security is not None:
-        defs, active = dict(security.get("definitions", {})), list(security.get("active", []))
-    else:
-        defs, active = _security_from_spec(spec)
     if not defs:
         defs, active = {"nosec_sc": {"scheme": "nosec"}}, ["nosec_sc"]
+    if needs_nosec and "nosec_sc" not in defs:
+        defs["nosec_sc"] = {"scheme": "nosec"}
 
     return {
         "@context": [TD_CONTEXT, {"htv": HTV}],

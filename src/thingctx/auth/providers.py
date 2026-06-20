@@ -193,11 +193,12 @@ def _cache_put(cache: dict, key: tuple, token: str, expires_in: Any) -> None:
 
 
 class OAuth2ClientCredentialsAuth(_BaseAuth):
-    """OAuth2 ``client_credentials`` with a shared secret.
+    """OAuth2 ``client_credentials`` and ``password`` grants with a shared secret.
 
     Sends the secret as HTTP Basic, falling back to a form field if the endpoint
-    rejects it. A static ``{"access_token": ...}`` is used as-is. Returns a
-    :class:`BearerToken`.
+    rejects it. For the ``password`` grant the resource-owner ``username`` and
+    ``password`` from the credential are added to the token request. A static
+    ``{"access_token": ...}`` is used as-is. Returns a :class:`BearerToken`.
     """
 
     name = "oauth2-client-credentials"
@@ -221,10 +222,17 @@ class OAuth2ClientCredentialsAuth(_BaseAuth):
         return (cred if isinstance(cred, str) else None), None
 
     @staticmethod
-    def _token_request(method: str, cid, secret, grant, scopes):
+    def _token_request(method: str, cid, secret, grant, scopes, owner=None):
         data = {"grant_type": grant}
         if scopes:
             data["scope"] = " ".join(scopes)
+        # The password grant carries the resource owner's credentials alongside
+        # the client's.
+        if grant == "password" and owner:
+            if owner.get("username") is not None:
+                data["username"] = owner["username"]
+            if owner.get("password") is not None:
+                data["password"] = owner["password"]
         headers: dict = {}
         if method == "basic" and secret is not None:
             raw = f"{cid}:{secret}".encode()
@@ -255,6 +263,9 @@ class OAuth2ClientCredentialsAuth(_BaseAuth):
 
         _guard_tls(token_url, ctx.allow_insecure_oauth)
         grant = getattr(scheme, "flow", "") or "client_credentials"
+        owner = None
+        if grant == "password" and isinstance(cred, dict):
+            owner = {"username": cred.get("username"), "password": cred.get("password")}
         methods_key = ("cc-method", token_url)
         if secret is None:
             methods = ["post"]
@@ -266,7 +277,7 @@ class OAuth2ClientCredentialsAuth(_BaseAuth):
         tok = None
         async with httpx.AsyncClient(timeout=ctx.timeout) as client:
             for i, method in enumerate(methods):
-                data, headers = self._token_request(method, cid, secret, grant, scopes)
+                data, headers = self._token_request(method, cid, secret, grant, scopes, owner)
                 resp = await client.post(token_url, data=data, headers=headers)
                 if resp.status_code in (400, 401) and i < len(methods) - 1:
                     continue

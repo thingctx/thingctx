@@ -104,6 +104,28 @@ def test_security_maps_and_parses():
     assert thing.security_schemes["oauth"].flow == "client_credentials"
 
 
+def test_combined_security_keeps_every_scheme():
+    # A requirement object listing two schemes means both apply (AND); neither
+    # should be dropped.
+    spec = dict(SPEC, security=[{"oauth": ["widgets:read"], "key": []}])
+    td = from_openapi(spec)
+    assert set(td["security"]) == {"oauth", "key"}
+
+
+def test_per_operation_security_override_on_form():
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/widgets"]["get"]["security"] = [{"key": []}]
+    spec["paths"]["/widgets"]["post"]["security"] = []  # explicitly public
+    td = from_openapi(spec)
+    assert td["actions"]["listWidgets"]["forms"][0]["security"] == ["key"]
+    assert td["actions"]["createWidget"]["forms"][0]["security"] == ["nosec_sc"]
+    # An operation that inherits the Thing-level security carries no override.
+    assert "security" not in td["actions"]["deleteWidget"]["forms"][0]
+    assert "nosec_sc" in td["securityDefinitions"]
+    validate_td = pytest.importorskip("thingctx.validate").validate_td
+    assert validate_td(td) == []
+
+
 def test_base_url_override():
     td = from_openapi(SPEC, base_url="https://staging.example.com")
     assert td["actions"]["listWidgets"]["forms"][0]["href"] == "https://staging.example.com/widgets"
