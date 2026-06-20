@@ -52,7 +52,10 @@ class HmacHeaderAuth(_BaseAuth):
 
 def _td(slug: str, scheme: dict, host: str) -> dict:
     return {
-        "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"htv": "http://www.w3.org/2011/http#"}],
+        "@context": [
+            "https://www.w3.org/2022/wot/td/v1.1",
+            {"htv": "http://www.w3.org/2011/http#"},
+        ],
         "@type": "Thing",
         "id": f"urn:thingctx:{slug}",
         "title": slug,

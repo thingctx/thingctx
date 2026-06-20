@@ -50,9 +50,7 @@ class _DemoHeaderAuth(_BaseAuth):
 
 
 async def test_custom_scheme_via_extra_auth():
-    http = HttpInvoker(
-        credentials={"thingy": "SEKRET"}, extra_auth=[_DemoHeaderAuth()]
-    )
+    http = HttpInvoker(credentials={"thingy": "SEKRET"}, extra_auth=[_DemoHeaderAuth()])
     client = ThingClient(tds=[_td("thingy", {"scheme": "x-demo"})], invokers=[http])
     action = client.action_for("thingy.ping")
     headers, params, signers, _cert = await http._prepare(action.thing_id)

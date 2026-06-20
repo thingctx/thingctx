@@ -92,9 +92,7 @@ def _thing(base):
                 }
             },
             "security": ["oauth"],
-            "actions": {
-                "do": {"forms": [{"href": f"{base}/api/do", "htv:methodName": "POST"}]}
-            },
+            "actions": {"do": {"forms": [{"href": f"{base}/api/do", "htv:methodName": "POST"}]}},
         }
     )
 

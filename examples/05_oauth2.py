@@ -97,7 +97,10 @@ def _td(base: str) -> dict:
     The TD declares the *scheme and token endpoint*; the secret is supplied to
     the invoker at runtime, so this document is safe to commit and share."""
     return {
-        "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"htv": "http://www.w3.org/2011/http#"}],
+        "@context": [
+            "https://www.w3.org/2022/wot/td/v1.1",
+            {"htv": "http://www.w3.org/2011/http#"},
+        ],
         "id": "urn:thingctx:demo-pump",
         "title": "Demo Pump (OAuth2)",
         "securityDefinitions": {

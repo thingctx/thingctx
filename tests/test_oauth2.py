@@ -22,9 +22,7 @@ TD = {
         }
     },
     "security": ["oauth"],
-    "actions": {
-        "do": {"forms": [{"href": "https://api.local/api/do", "htv:methodName": "POST"}]}
-    },
+    "actions": {"do": {"forms": [{"href": "https://api.local/api/do", "htv:methodName": "POST"}]}},
 }
 
 

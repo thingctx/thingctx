@@ -41,9 +41,7 @@ class MqttAuthPlan:
 
     @property
     def has_credentials(self) -> bool:
-        return any(
-            (self.username is not None, self.password is not None, self.tls, self.enhanced)
-        )
+        return any((self.username is not None, self.password is not None, self.tls, self.enhanced))
 
 
 def apply_mqtt(creds: list[Credential]) -> MqttAuthPlan:

@@ -124,7 +124,10 @@ def test_matches_botocore_s3_signer():
 
 def _aws_td(host: str, scheme: dict) -> dict:
     return {
-        "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"htv": "http://www.w3.org/2011/http#"}],
+        "@context": [
+            "https://www.w3.org/2022/wot/td/v1.1",
+            {"htv": "http://www.w3.org/2011/http#"},
+        ],
         "@type": "Thing",
         "id": "urn:thingctx:awsthing",
         "title": "awsthing",

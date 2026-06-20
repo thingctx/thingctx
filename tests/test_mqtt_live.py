@@ -63,9 +63,7 @@ def broker(tmp_path: Path):
     )
     port = _free_port()
     conf = tmp_path / "mosquitto.conf"
-    conf.write_text(
-        f"listener {port} 127.0.0.1\nallow_anonymous false\npassword_file {pwfile}\n"
-    )
+    conf.write_text(f"listener {port} 127.0.0.1\nallow_anonymous false\npassword_file {pwfile}\n")
     proc = subprocess.Popen(
         [MOSQUITTO, "-c", str(conf)],
         stdout=subprocess.DEVNULL,

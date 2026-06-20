@@ -304,8 +304,10 @@ class OAuth2JwtBearerAuth(_BaseAuth):
 
     async def resolve(self, ctx: AuthContext) -> Credential | None:
         cred, scheme = ctx.credential, ctx.scheme
-        token_url = cred.get("token_uri") or getattr(scheme, "token", "") or (
-            "https://oauth2.googleapis.com/token"
+        token_url = (
+            cred.get("token_uri")
+            or getattr(scheme, "token", "")
+            or ("https://oauth2.googleapis.com/token")
         )
         scopes = tuple(cred.get("scopes") or getattr(scheme, "scopes", ()) or ())
         iss = cred.get("client_email") or cred.get("iss") or cred.get("client_id")

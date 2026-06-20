@@ -57,8 +57,9 @@ def _aws_region_service(scheme: Any, cred: Any, host: str) -> tuple[str, str]:
     otherwise derive from the AWS host."""
     raw = getattr(scheme, "raw", {}) or {}
     cred = cred if isinstance(cred, dict) else {}
-    return _region_service(cred.get("region") or raw.get("region"),
-                           cred.get("service") or raw.get("service"), host)
+    return _region_service(
+        cred.get("region") or raw.get("region"), cred.get("service") or raw.get("service"), host
+    )
 
 
 def _sha256_hex(data: bytes) -> str:

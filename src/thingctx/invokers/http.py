@@ -103,9 +103,7 @@ class HttpInvoker(_AuthBinding):
 
         headers, params, signers, cert = await self._prepare(getattr(prop, "thing_id", None))
         async with httpx.AsyncClient(timeout=self._timeout, cert=cert) as client:
-            req = client.build_request(
-                "PUT", form.href, json=value, headers=headers, params=params
-            )
+            req = client.build_request("PUT", form.href, json=value, headers=headers, params=params)
             await self._sign_request(signers, req)
             resp = await client.send(req)
             resp.raise_for_status()
