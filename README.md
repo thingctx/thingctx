@@ -79,6 +79,45 @@ await client.read_property("pump.rpm")
 
 Add a Thing by pointing at one more description.
 
+## Safe by default: approval + grounding
+
+Two opt-in layers stand between an agent and a real system.
+
+**Approval** gates risky calls behind a human or a policy. Risk is read from the
+TD (`tc:requiresApproval`, or `@type tc:Destructive`) and from a policy you pick:
+
+```python
+def approve(req):                      # sync or async; return True to allow
+    return input(f"run {req.tool_name}{req.arguments}? [y/N] ").lower() == "y"
+
+client = thingctx.ThingClient(
+    tds=[td], invokers=[...], approve=approve, approve_when="declared")
+
+await client.invoke("pump.estop")      # asks approve() first; if denied, never runs
+```
+
+`approve_when` is `declared` (default, only TD-marked risky actions),
+`destructive` (the above plus any non-idempotent action and every property
+write), `all`, or `never`. A gated call with no approver is **denied** , a gate
+with nobody to open it stays shut. The check sits in `ThingClient.invoke`, so it
+applies to the LLM loop and to direct callers alike.
+
+**Grounding** checks a description against the *live* Thing before you trust it.
+`verify()` reads every readable property and confirms it answers and matches its
+declared type. It is read-only and safe , actions are never invoked.
+
+```python
+for report in await client.verify():
+    assert report.ok, report.as_dict()
+```
+
+The gate is on `ThingClient.invoke`, so it holds for any caller , a hand loop,
+the LLM host, or an MCP client (Claude/Copilot CLI; see
+[Reach a closed agent](#reach-a-closed-agent-the-mcp-bridge) below).
+
+Runnable: [`examples/04_trust.py`](examples/04_trust.py). Full model:
+[`docs/TRUST.md`](docs/TRUST.md).
+
 ## Reach a closed agent: the MCP bridge
 
 Some agents are closed: you can't hand their model tools directly, only
@@ -95,6 +134,17 @@ thingctx-mcp ./examples/registry/        # a folder, a URL, or a TD Directory
 ```json
 { "mcpServers": { "things": { "command": "thingctx-mcp",
   "args": ["./examples/registry/"] } } }
+```
+
+Risky tools are gated here too (see [Safe by default](#safe-by-default-approval--grounding)
+above): the bridge sends MCP destructive hints and asks the client to confirm a
+gated call (elicitation); decline , or a client that can't ask , means denied.
+Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
+`destructive` / `all` / `never`):
+
+```json
+{ "mcpServers": { "things": { "command": "thingctx-mcp", "args": ["./examples/registry/"],
+  "env": { "THINGCTX_APPROVE_WHEN": "destructive" } } } }
 ```
 
 MCP is just one way to deliver the description, for agents where direct tool
