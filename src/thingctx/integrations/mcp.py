@@ -59,15 +59,14 @@ def _elicit_approver(server):
             session = server.request_context.session
         except Exception:  # noqa: BLE001 , no active request/session
             return False
-        message = (
-            f"Approve {req.tool_name}({req.arguments})?  "
-            f"Reason: {req.reason}."
-            + (f"  {req.description}" if req.description else "")
+        message = f"Approve {req.tool_name}({req.arguments})?  Reason: {req.reason}." + (
+            f"  {req.description}" if req.description else ""
         )
         try:
             # An empty object schema asks for a plain accept / decline / cancel.
-            result = await session.elicit(message=message, requestedSchema={
-                "type": "object", "properties": {}})
+            result = await session.elicit(
+                message=message, requestedSchema={"type": "object", "properties": {}}
+            )
         except Exception:  # noqa: BLE001 , client has no elicitation capability
             return False
         return getattr(result, "action", None) == "accept"
@@ -75,8 +74,13 @@ def _elicit_approver(server):
     return approve
 
 
-def build_mcp_server(client: ThingClient, *, name: str = "thingctx", approve: Any = "elicit",
-                     approve_when: str | None = None):
+def build_mcp_server(
+    client: ThingClient,
+    *,
+    name: str = "thingctx",
+    approve: Any = "elicit",
+    approve_when: str | None = None,
+):
     """Build an mcp Server that bridges `client` to MCP. Needs the `mcp`
     package.
 

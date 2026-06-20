@@ -36,8 +36,10 @@ def safety_policy(deny: set[str]):
 
     def approve(req) -> bool:
         ok = req.action_name not in deny
-        print(f"    approver: {req.tool_name}{req.arguments}  reason={req.reason!r}  -> "
-              f"{'ALLOW' if ok else 'DENY'}")
+        print(
+            f"    approver: {req.tool_name}{req.arguments}  reason={req.reason!r}  -> "
+            f"{'ALLOW' if ok else 'DENY'}"
+        )
         return ok
 
     return approve
@@ -57,8 +59,9 @@ async def main() -> None:
     # one) but allows ordinary commands like set_speed.
     approve = safety_policy(deny={"estop"})
     try:
-        client = ThingClient(tds=[td], invokers=_invokers(pump),
-                             approve=approve, approve_when="destructive")
+        client = ThingClient(
+            tds=[td], invokers=_invokers(pump), approve=approve, approve_when="destructive"
+        )
 
         print("== Part A: the gate (no LLM) ==")
         ok = await client.invoke("pump.set_speed", {"rpm": 900})
@@ -83,12 +86,18 @@ async def main() -> None:
         if model is None:
             print("  (no LLM reachable; skipping. start Ollama qwen2.5:7b or set an API key.)")
         else:
-            host = thingctx.from_td(td, model=model, invokers=_invokers(pump),
-                                    approve=approve, approve_when="destructive",
-                                    resilient=True)
+            host = thingctx.from_td(
+                td,
+                model=model,
+                invokers=_invokers(pump),
+                approve=approve,
+                approve_when="destructive",
+                resilient=True,
+            )
             print(f"  model: {model}")
             answer = await host.chat(
-                "The pump is overheating. Emergency-stop it now by calling estop.")
+                "The pump is overheating. Emergency-stop it now by calling estop."
+            )
             print(f"  LLM -> {answer}")
             # The gate, not the model, is the guarantee: estop was denied.
             assert pump.stopped is False, "the gate must have blocked the LLM's estop"

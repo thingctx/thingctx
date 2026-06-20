@@ -79,9 +79,10 @@ async def test_safe_action_not_gated():
 
 @pytest.mark.asyncio
 async def test_destructive_policy_gates_non_idempotent():
-    assert "approval required" in (await _client(approve_when="destructive").invoke("pump.drain"))[
-        "error"
-    ]
+    assert (
+        "approval required"
+        in (await _client(approve_when="destructive").invoke("pump.drain"))["error"]
+    )
     ok = await _client(approve_when="destructive", approve=lambda req: True).invoke("pump.drain")
     assert ok == {"drained": True}
 
@@ -123,8 +124,12 @@ async def test_verify_ok():
 
 @pytest.mark.asyncio
 async def test_verify_detects_type_mismatch():
-    bad = {**TD, "properties": {"rpm": {"type": "string", "readOnly": True,
-                                         "forms": [{"href": "local://rpm"}]}}}
+    bad = {
+        **TD,
+        "properties": {
+            "rpm": {"type": "string", "readOnly": True, "forms": [{"href": "local://rpm"}]}
+        },
+    }
     # device returns int 1200, TD now declares string -> mismatch
     client = ThingClient(tds=[bad], invokers=[LocalInvoker(Pump())])
     report = (await client.verify())[0]
@@ -134,8 +139,12 @@ async def test_verify_detects_type_mismatch():
 
 @pytest.mark.asyncio
 async def test_verify_detects_unreadable_property():
-    bad = {**TD, "properties": {"ghost": {"type": "integer", "readOnly": True,
-                                          "forms": [{"href": "local://ghost"}]}}}
+    bad = {
+        **TD,
+        "properties": {
+            "ghost": {"type": "integer", "readOnly": True, "forms": [{"href": "local://ghost"}]}
+        },
+    }
     client = ThingClient(tds=[bad], invokers=[LocalInvoker(Pump())])  # no 'ghost' on device
     report = (await client.verify())[0]
     assert not report.ok
@@ -144,9 +153,17 @@ async def test_verify_detects_unreadable_property():
 @pytest.mark.asyncio
 async def test_verify_does_not_flag_binary_media():
     # an image property reads as bytes; declared "string" must NOT be drift
-    td = {**TD, "properties": {"frame": {"type": "string", "readOnly": True,
-                                         "contentMediaType": "image/png",
-                                         "forms": [{"href": "local://frame"}]}}}
+    td = {
+        **TD,
+        "properties": {
+            "frame": {
+                "type": "string",
+                "readOnly": True,
+                "contentMediaType": "image/png",
+                "forms": [{"href": "local://frame"}],
+            }
+        },
+    }
     inv = LocalInvoker({"frame": lambda: b"\x89PNG\r\n"})
     report = (await ThingClient(tds=[td], invokers=[inv]).verify())[0]
     assert report.ok, report.as_dict()

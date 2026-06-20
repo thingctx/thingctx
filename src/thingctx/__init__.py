@@ -67,11 +67,6 @@ from thingctx.registry import (
     from_args,
 )
 from thingctx.runtime import ThingClient
-from thingctx.trust import (
-    ApprovalRequest,
-    Check,
-    VerifyReport,
-)
 from thingctx.thing import (
     WoTAction,
     WoTEvent,
@@ -80,6 +75,11 @@ from thingctx.thing import (
     WoTThing,
     actions_to_tools,
     parse_thing,
+)
+from thingctx.trust import (
+    ApprovalRequest,
+    Check,
+    VerifyReport,
 )
 from thingctx.validate import TDValidationError, validate_td
 

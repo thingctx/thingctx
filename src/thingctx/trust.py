@@ -15,9 +15,9 @@ Both are opt-in and have no LLM dependency.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from thingctx.thing import WoTAction
