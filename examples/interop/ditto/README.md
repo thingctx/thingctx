@@ -77,5 +77,5 @@ Credentials default to Ditto's compose defaults (`ditto:ditto`); override with
 Ditto (and Bosch IoT Things behind it) is a credible, standards-compliant TD
 producer for industrial digital twins. That a twin it generated drops straight
 into thingctx with zero glue is the point: **any conformant TD producer →
-thingctx**. thingctx is a consumer, complementary to Ditto, td-registry, and
-thingdir — not a competitor to any of them.
+thingctx**. thingctx is a consumer, complementary to TD producers and
+directories — not a competitor to any of them.
