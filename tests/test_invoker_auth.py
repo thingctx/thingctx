@@ -28,25 +28,26 @@ def _td(slug: str, scheme: dict, security: str = "sc") -> dict:
     }
 
 
-def _headers_for(http: HttpInvoker, client: ThingClient, tool: str):
+async def _headers_for(http: HttpInvoker, client: ThingClient, tool: str):
     """(headers, params) the invoker would send for `tool`."""
     action = client.action_for(tool)
-    return http._hp(action.thing_id)
+    headers, params, _signers, _cert = await http._prepare(action.thing_id)
+    return headers, params
 
 
-def test_bearer_resolves_distinct_secret_per_thing():
+async def test_bearer_resolves_distinct_secret_per_thing():
     http = HttpInvoker(credentials={"alpha": "AAA", "beta": "BBB"})
     client = ThingClient(
         tds=[_td("alpha", {"scheme": "bearer"}), _td("beta", {"scheme": "bearer"})],
         invokers=[http],
     )
-    ha, _ = _headers_for(http, client, "alpha.ping")
-    hb, _ = _headers_for(http, client, "beta.ping")
+    ha, _ = await _headers_for(http, client, "alpha.ping")
+    hb, _ = await _headers_for(http, client, "beta.ping")
     assert ha["Authorization"] == "Bearer AAA"
     assert hb["Authorization"] == "Bearer BBB"
 
 
-def test_apikey_query_and_header():
+async def test_apikey_query_and_header():
     http = HttpInvoker(credentials={"mapsvc": "GKEY", "searchsvc": "BKEY"})
     client = ThingClient(
         tds=[
@@ -55,49 +56,49 @@ def test_apikey_query_and_header():
         ],
         invokers=[http],
     )
-    hq, pq = _headers_for(http, client, "mapsvc.ping")
-    hh, ph = _headers_for(http, client, "searchsvc.ping")
+    hq, pq = await _headers_for(http, client, "mapsvc.ping")
+    hh, ph = await _headers_for(http, client, "searchsvc.ping")
     assert pq["key"] == "GKEY" and "Authorization" not in hq
     assert hh["X-Token"] == "BKEY" and ph == {}
 
 
-def test_basic_is_base64_encoded():
+async def test_basic_is_base64_encoded():
     http = HttpInvoker(credentials={"acct": "user:pass"})
     client = ThingClient(tds=[_td("acct", {"scheme": "basic"})], invokers=[http])
-    h, _ = _headers_for(http, client, "acct.ping")
+    h, _ = await _headers_for(http, client, "acct.ping")
     assert h["Authorization"] == "Basic " + base64.b64encode(b"user:pass").decode()
 
 
-def test_nosec_thing_gets_no_auth():
+async def test_nosec_thing_gets_no_auth():
     http = HttpInvoker(credentials={"openthing": "ignored"})
     client = ThingClient(tds=[_td("openthing", {"scheme": "nosec"})], invokers=[http])
-    h, p = _headers_for(http, client, "openthing.ping")
+    h, p = await _headers_for(http, client, "openthing.ping")
     assert "Authorization" not in h and p == {}
 
 
-def test_missing_credential_sends_no_header():
+async def test_missing_credential_sends_no_header():
     http = HttpInvoker(credentials={})
     client = ThingClient(tds=[_td("alpha", {"scheme": "bearer"})], invokers=[http])
-    h, _ = _headers_for(http, client, "alpha.ping")
+    h, _ = await _headers_for(http, client, "alpha.ping")
     assert "Authorization" not in h
 
 
-def test_legacy_scheme_name_keying_still_works():
+async def test_legacy_scheme_name_keying_still_works():
     # Single-Thing adopters key credentials by scheme name, not Thing slug.
     http = HttpInvoker(credentials={"sc": "LEGACY"})
     client = ThingClient(tds=[_td("alpha", {"scheme": "bearer"})], invokers=[http])
-    h, _ = _headers_for(http, client, "alpha.ping")
+    h, _ = await _headers_for(http, client, "alpha.ping")
     assert h["Authorization"] == "Bearer LEGACY"
 
 
-def test_one_thing_secret_does_not_leak_to_another():
+async def test_one_thing_secret_does_not_leak_to_another():
     # alpha has a secret; beta does not -> beta must send no auth.
     http = HttpInvoker(credentials={"alpha": "AAA"})
     client = ThingClient(
         tds=[_td("alpha", {"scheme": "bearer"}), _td("beta", {"scheme": "bearer"})],
         invokers=[http],
     )
-    ha, _ = _headers_for(http, client, "alpha.ping")
-    hb, _ = _headers_for(http, client, "beta.ping")
+    ha, _ = await _headers_for(http, client, "alpha.ping")
+    hb, _ = await _headers_for(http, client, "beta.ping")
     assert ha["Authorization"] == "Bearer AAA"
     assert "Authorization" not in hb
