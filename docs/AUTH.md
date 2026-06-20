@@ -204,7 +204,7 @@ with Secret(raw_token) as tok:
 cred.wipe()  # zero every secret field of a resolved credential
 ```
 
-### The honest ceiling
+### The ceiling
 
 `Secret` shrinks the window and blast radius; it does **not** make leakage
 impossible, because CPython itself caps this:
