@@ -22,10 +22,20 @@ jobs:
         with:
           fetch-depth: 0 # full history so the scan covers every commit
 
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+      - name: Install gitleaks
+        # Use the MIT-licensed binary directly; the gitleaks-action wrapper
+        # requires a paid license on organization accounts.
         env:
-          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_VERSION: "8.21.2"
+        run: |
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: gitleaks (full history)
+        run: gitleaks git . --config .gitleaks.toml --redact --verbose
 
       - name: internal/private strings
         # The forbidden list is provided out-of-band as a repo secret so the
