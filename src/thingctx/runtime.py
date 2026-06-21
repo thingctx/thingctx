@@ -93,6 +93,20 @@ class ThingClient:
             s for inv in self._invokers for s in (getattr(inv, "schemes", None) or (inv.scheme,))
         )
 
+    async def aclose(self) -> None:
+        """Release any pooled transport resources (e.g. an invoker's reused
+        HTTP client). Safe to call more than once."""
+        for inv in self._invokers:
+            closer = getattr(inv, "aclose", None)
+            if closer is not None:
+                await closer()
+
+    async def __aenter__(self) -> ThingClient:
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.aclose()
+
     def list_actions(self) -> list[dict[str, Any]]:
         """OpenAI-format tool specs for every exposed action."""
         return self._tool_specs
