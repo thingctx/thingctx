@@ -1,0 +1,42 @@
+# Run `pre-commit install` once to enable these on every commit.
+# See SECURITY.md for the full setup (including the local internal-name guard).
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-yaml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+      - id: debug-statements
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  # Local guard: block internal/private strings. The forbidden list is NOT in
+  # this repo (it lives in a gitignored file); without it this hook is a no-op.
+  - repo: local
+    hooks:
+      - id: no-internal-leaks
+        name: no internal/private strings
+        entry: scripts/check_no_internal_leaks.sh
+        language: script
+        pass_filenames: true
+        require_serial: true

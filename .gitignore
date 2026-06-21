@@ -6,10 +6,31 @@ __pycache__/
 dist/
 build/
 
-# Local secrets , never commit (.env.example template is fine)
-.env
-.env.local
-.env.*.local
+# Logs and local scratch
+*.log
+node_modules/
 
-# Agent contract / internal instructions , never public
+# Secrets and credentials -- never commit (a *.example template is fine)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*service-account*.json
+*credentials*.json
+*-key.json
+.netrc
+.npmrc
+
+# Local-only security config (banned-substring list, etc.) -- never public
+.security/
+
+# Agent contract / internal instructions -- never public
 .claude/
