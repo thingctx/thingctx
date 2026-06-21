@@ -148,9 +148,19 @@ class WoTSecurityScheme:
     the TD."""
 
     name: str
-    scheme: str  # bearer, basic, apikey, nosec
+    scheme: str  # bearer, basic, apikey, oauth2, nosec
     in_: str = "header"  # apikey location: header or query
     key_name: str = "Authorization"  # header/query name for apikey
+    # oauth2 (the TD declares the endpoints; the client supplies client creds)
+    flow: str = ""  # client_credentials, password, code, ...
+    token: str = ""  # token endpoint URL
+    authorization: str = ""  # authorization endpoint URL
+    refresh: str = ""  # refresh endpoint URL
+    scopes: tuple[str, ...] = ()
+    # The full security-definition dict, verbatim. Carries vendor/extension
+    # fields (e.g. an AWS region/service, a custom scheme's settings) so that
+    # custom auth strategies can read whatever the TD declared.
+    raw: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -233,6 +243,12 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
             scheme=sdef.get("scheme", "nosec"),
             in_=sdef.get("in", "header"),
             key_name=sdef.get("name", "Authorization"),
+            flow=sdef.get("flow", ""),
+            token=sdef.get("token", ""),
+            authorization=sdef.get("authorization", ""),
+            refresh=sdef.get("refresh", ""),
+            scopes=tuple(sdef.get("scopes") or ()),
+            raw=dict(sdef),
         )
     sec = td.get("security")
     security = tuple(sec) if isinstance(sec, list) else ((sec,) if sec else ())

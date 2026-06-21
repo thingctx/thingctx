@@ -15,6 +15,37 @@ For the pure client without an LLM, build a ThingClient directly.
 """
 
 # ThingClient: TD -> tools + invoke/read/write/observe/subscribe. No LLM.
+# Transport-neutral auth: providers resolve a scheme+secret into neutral
+# Credential material; per-transport appliers map it onto HTTP/MQTT/etc.
+from thingctx.auth import (
+    ApiKeyAuth,
+    ApiKeyCredential,
+    AuthContext,
+    AuthRegistry,
+    AuthStrategy,
+    AwsSigV4Auth,
+    BasicAuth,
+    BasicCredential,
+    BearerToken,
+    ClientCertificate,
+    Credential,
+    CredentialProvider,
+    EnhancedAuth,
+    HttpAuthPlan,
+    MqttAuthPlan,
+    OAuth2ClientCredentialsAuth,
+    OAuth2JwtBearerAuth,
+    RequestSigner,
+    Secret,
+    SignatureCredential,
+    StaticBearerAuth,
+    apply_http,
+    apply_mqtt,
+    register_auth,
+    register_signer,
+    resolve_credentials,
+    sigv4_sign,
+)
 from thingctx.client import from_file, from_td, from_url
 
 # LLMHost: optional tool-calling loop, in thingctx.contrib.
@@ -25,6 +56,9 @@ from thingctx.invokers import (
     LocalInvoker,
     MqttInvoker,
 )
+
+# Compile a non-WoT description (OpenAPI) into a TD.
+from thingctx.openapi import from_openapi, load_spec
 from thingctx.registry import (
     FileRegistry,
     Registry,
@@ -50,6 +84,8 @@ __all__ = [
     "from_url",
     "from_file",
     "from_td",
+    "from_openapi",
+    "load_spec",
     "ThingClient",
     "LLMHost",
     "Registry",
@@ -70,4 +106,31 @@ __all__ = [
     "HttpInvoker",
     "MqttInvoker",
     "LocalInvoker",
+    "register_auth",
+    "resolve_credentials",
+    "AuthStrategy",
+    "CredentialProvider",
+    "AuthRegistry",
+    "AuthContext",
+    "StaticBearerAuth",
+    "BasicAuth",
+    "ApiKeyAuth",
+    "OAuth2ClientCredentialsAuth",
+    "OAuth2JwtBearerAuth",
+    "AwsSigV4Auth",
+    "sigv4_sign",
+    "Credential",
+    "Secret",
+    "BearerToken",
+    "BasicCredential",
+    "ApiKeyCredential",
+    "SignatureCredential",
+    "ClientCertificate",
+    "EnhancedAuth",
+    "RequestSigner",
+    "apply_http",
+    "HttpAuthPlan",
+    "register_signer",
+    "apply_mqtt",
+    "MqttAuthPlan",
 ]
