@@ -205,6 +205,32 @@ by standards-compliant producers, not just hand-written ones. Two demos under
 Same consumer, different producers, zero glue: any conformant TD producer →
 thingctx.
 
+## And UTCP
+
+[UTCP](https://www.utcp.io/) shares thingctx's thesis: the integration is a
+description the client reads, not a server you operate. The difference is the
+description. UTCP defines its own *manual* format and ships SDKs in several
+languages today. thingctx builds on the **ratified [W3C Web of Things](https://www.w3.org/WoT/)
+Thing Description** instead, which buys four things a bespoke manual does not:
+
+- **One format for devices and APIs.** A TD describes a REST endpoint, an MQTT
+  topic, an SSE event stream, or a piece of hardware in the same document, so an
+  agent reaches an industrial gateway and a SaaS API through one interface.
+- **Discovery built in.** The [WoT Thing Description Directory](https://www.w3.org/TR/wot-discovery/)
+  is a standard for serving and searching a whole fleet of Things; thingctx reads
+  any compliant TDD.
+- **Vendor-neutral and stable.** It is a W3C Recommendation, not a single
+  project's schema, so a TD you write is portable across consumers.
+- **Built for device interaction patterns.** A TD models properties, actions,
+  and **events** as first-class affordances, so a consumer can observe a property
+  or subscribe to a stream of readings straight from the description. UTCP's
+  manual centers on describing callable tools; event subscription is not part of
+  what it defines.
+
+The trade-off: UTCP's manual is lighter to hand-write and UTCP ships more
+language clients today. thingctx bets that a ratified standard, read the same way
+by an LLM, an MCP client, and a factory gateway, is worth that.
+
 ## Reference
 
 ### ThingClient: the core
