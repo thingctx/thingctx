@@ -1,0 +1,188 @@
+{
+  "@context": [
+    "https://www.w3.org/2022/wot/td/v1.1",
+    {
+      "htv": "http://www.w3.org/2011/http#"
+    }
+  ],
+  "@type": "Thing",
+  "id": "urn:thingctx:xquik:v1",
+  "title": "Xquik",
+  "description": "Read-only X data actions for tweet search, tweet lookup, user search, user lookup, and trends through the public Xquik REST API.",
+  "securityDefinitions": {
+    "apiKey": {
+      "scheme": "apikey",
+      "in": "header",
+      "name": "x-api-key"
+    }
+  },
+  "security": ["apiKey"],
+  "actions": {
+    "getXTrends": {
+      "title": "Get X Trends",
+      "description": "Get trending hashtags and topics from X by region.",
+      "safe": true,
+      "idempotent": true,
+      "input": {
+        "type": "object",
+        "properties": {
+          "woeid": {
+            "type": "integer",
+            "description": "Region WOEID. Defaults to worldwide."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of trends to return.",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "description": "Trending topics response."
+      },
+      "forms": [
+        {
+          "href": "https://xquik.com/api/v1/x/trends",
+          "htv:methodName": "GET",
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "searchTweets": {
+      "title": "Search Tweets",
+      "description": "Search tweets by query, tweet ID, X status URL, or account date window.",
+      "safe": true,
+      "idempotent": true,
+      "input": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query, tweet ID, or X status URL."
+          },
+          "queryType": {
+            "type": "string",
+            "enum": ["Latest", "Top"],
+            "description": "Sort order."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response."
+          },
+          "sinceTime": {
+            "type": "string",
+            "description": "ISO 8601 lower time bound."
+          },
+          "untilTime": {
+            "type": "string",
+            "description": "ISO 8601 upper time bound."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum tweets to return.",
+            "maximum": 200
+          }
+        },
+        "required": ["q"]
+      },
+      "output": {
+        "type": "object",
+        "description": "Tweet search response."
+      },
+      "forms": [
+        {
+          "href": "https://xquik.com/api/v1/x/tweets/search",
+          "htv:methodName": "GET",
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "lookupTweet": {
+      "title": "Lookup Tweet",
+      "description": "Get a tweet with text, author, metrics, and media.",
+      "safe": true,
+      "idempotent": true,
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Tweet ID."
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "description": "Tweet lookup response."
+      },
+      "forms": [
+        {
+          "href": "https://xquik.com/api/v1/x/tweets/{id}",
+          "htv:methodName": "GET",
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "searchUsers": {
+      "title": "Search Users",
+      "description": "Search X users by name or username.",
+      "safe": true,
+      "idempotent": true,
+      "input": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "User search query."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response."
+          }
+        },
+        "required": ["q"]
+      },
+      "output": {
+        "type": "object",
+        "description": "User search response."
+      },
+      "forms": [
+        {
+          "href": "https://xquik.com/api/v1/x/users/search",
+          "htv:methodName": "GET",
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "getUser": {
+      "title": "Get User",
+      "description": "Get an X user profile by username or user ID.",
+      "safe": true,
+      "idempotent": true,
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Username without @, or user ID."
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "description": "User lookup response."
+      },
+      "forms": [
+        {
+          "href": "https://xquik.com/api/v1/x/users/{id}",
+          "htv:methodName": "GET",
+          "contentType": "application/json"
+        }
+      ]
+    }
+  }
+}
