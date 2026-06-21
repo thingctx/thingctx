@@ -66,6 +66,7 @@ from thingctx.registry import (
     from_arg,
     from_args,
 )
+from thingctx.reliability import RetryPolicy, TransportError
 from thingctx.runtime import ThingClient
 from thingctx.thing import (
     WoTAction,
@@ -141,4 +142,6 @@ __all__ = [
     "ApprovalRequest",
     "VerifyReport",
     "Check",
+    "RetryPolicy",
+    "TransportError",
 ]
