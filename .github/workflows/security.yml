@@ -1,0 +1,47 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the scan covers every commit
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: internal/private strings
+        # The forbidden list is provided out-of-band as a repo secret so the
+        # names never live in source. No secret configured => safe no-op.
+        env:
+          BANNED: ${{ secrets.BANNED_SUBSTRINGS }}
+        run: |
+          if [ -z "${BANNED}" ]; then
+            echo "BANNED_SUBSTRINGS not set; skipping internal-name guard."
+            exit 0
+          fi
+          mkdir -p .security
+          printf '%s\n' "${BANNED}" > .security/banned-substrings.txt
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=0 || true
+            scripts/check_no_internal_leaks.sh --range "origin/${{ github.base_ref }}...HEAD"
+          else
+            scripts/check_no_internal_leaks.sh --range "HEAD~1...HEAD"
+          fi

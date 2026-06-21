@@ -1,0 +1,24 @@
+# gitleaks configuration. Extends the built-in ruleset and adds a narrow
+# allowlist for deterministic, non-secret test vectors so legitimate fixtures
+# do not block commits.
+title = "thingctx gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Non-secret fixtures and public test vectors"
+# Canonical AWS SigV4 example credentials from the AWS docs/test suite. These
+# are published, non-functional vectors used only to assert signing output.
+regexes = [
+  '''AKIDEXAMPLE''',
+  '''wJalrXUtnFEMI/K7MDENG\+bPxRfiCYEXAMPLEKEY''',
+]
+# Obvious placeholder tokens used in tests and examples.
+stopwords = [
+  "example",
+  "placeholder",
+  "changeme",
+  "dummy",
+  "test-token",
+]
