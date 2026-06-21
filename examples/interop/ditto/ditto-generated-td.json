@@ -1,0 +1,423 @@
+{
+    "@context": [
+        "https://www.w3.org/2022/wot/td/v1.1",
+        {
+            "om2": "http://www.ontology-of-units-of-measure.org/resource/om-2/"
+        }
+    ],
+    "title": "Dimmable Colored Lamp",
+    "@type": "Thing",
+    "id": "urn:org.thingctx:lamp-1",
+    "base": "http://localhost:8080/api/2/things/org.thingctx:lamp-1/",
+    "version": {
+        "model": "1.0.0",
+        "instance": "1.0.0"
+    },
+    "links": [
+        {
+            "rel": "type",
+            "href": "https://eclipse.dev/ditto/wot/example-models/dimmable-colored-lamp-1.0.0.tm.jsonld",
+            "type": "application/tm+json"
+        }
+    ],
+    "security": "basic_sc",
+    "securityDefinitions": {
+        "basic_sc": {
+            "in": "header",
+            "scheme": "basic"
+        }
+    },
+    "support": "https://www.eclipse.dev/ditto/",
+    "created": "2026-06-18T02:05:31.521229997Z",
+    "forms": [
+        {
+            "op": "readallproperties",
+            "href": "attributes",
+            "htv:methodName": "GET",
+            "contentType": "application/json",
+            "additionalResponses": [
+                {
+                    "success": false,
+                    "schema": "dittoError"
+                }
+            ]
+        },
+        {
+            "op": "readmultipleproperties",
+            "href": "attributes",
+            "htv:methodName": "GET",
+            "contentType": "application/json",
+            "additionalResponses": [
+                {
+                    "success": false,
+                    "schema": "dittoError"
+                }
+            ]
+        },
+        {
+            "op": "writeallproperties",
+            "href": "attributes",
+            "htv:methodName": "PUT",
+            "contentType": "application/json",
+            "additionalResponses": [
+                {
+                    "success": false,
+                    "schema": "dittoError"
+                }
+            ]
+        },
+        {
+            "op": "writemultipleproperties",
+            "href": "attributes",
+            "htv:methodName": "PATCH",
+            "contentType": "application/merge-patch+json",
+            "additionalResponses": [
+                {
+                    "success": false,
+                    "schema": "dittoError"
+                }
+            ]
+        },
+        {
+            "op": [
+                "observeallproperties",
+                "unobserveallproperties"
+            ],
+            "href": "attributes",
+            "htv:methodName": "GET",
+            "subprotocol": "sse",
+            "contentType": "text/event-stream",
+            "additionalResponses": [
+                {
+                    "success": false,
+                    "schema": "dittoError"
+                }
+            ]
+        },
+        {
+            "op": [
+                "subscribeallevents",
+                "unsubscribeallevents"
+            ],
+            "href": "outbox/messages",
+            "htv:methodName": "GET",
+            "subprotocol": "sse",
+            "contentType": "text/event-stream",
+            "additionalResponses": [
+                {
+                    "success": false,
+                    "schema": "dittoError"
+                }
+            ]
+        }
+    ],
+    "properties": {
+        "on": {
+            "title": "On",
+            "description": "Whether the switch is on or off.",
+            "type": "boolean",
+            "observable": true,
+            "forms": [
+                {
+                    "op": "readproperty",
+                    "href": "attributes/on",
+                    "htv:methodName": "GET",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": "writeproperty",
+                    "href": "attributes/on",
+                    "htv:methodName": "PUT",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": "writeproperty",
+                    "href": "attributes/on",
+                    "htv:methodName": "PATCH",
+                    "contentType": "application/merge-patch+json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": [
+                        "observeproperty",
+                        "unobserveproperty"
+                    ],
+                    "href": "attributes/on",
+                    "htv:methodName": "GET",
+                    "subprotocol": "sse",
+                    "contentType": "text/event-stream",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                }
+            ]
+        },
+        "color": {
+            "title": "Color",
+            "description": "The current color.",
+            "type": "object",
+            "properties": {
+                "r": {
+                    "title": "Red",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                },
+                "g": {
+                    "title": "Green",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                },
+                "b": {
+                    "title": "Blue",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                },
+                "w": {
+                    "title": "White",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                }
+            },
+            "required": [
+                "r",
+                "g",
+                "b"
+            ],
+            "observable": true,
+            "forms": [
+                {
+                    "op": "readproperty",
+                    "href": "attributes/color",
+                    "htv:methodName": "GET",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": "writeproperty",
+                    "href": "attributes/color",
+                    "htv:methodName": "PUT",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": "writeproperty",
+                    "href": "attributes/color",
+                    "htv:methodName": "PATCH",
+                    "contentType": "application/merge-patch+json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": [
+                        "observeproperty",
+                        "unobserveproperty"
+                    ],
+                    "href": "attributes/color",
+                    "htv:methodName": "GET",
+                    "subprotocol": "sse",
+                    "contentType": "text/event-stream",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                }
+            ]
+        },
+        "dimmer-level": {
+            "@type": "om2:Percentage",
+            "title": "Dimmer level",
+            "type": "number",
+            "unit": "om2:percent",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "multipleOf": 0.001,
+            "observable": true,
+            "forms": [
+                {
+                    "op": "readproperty",
+                    "href": "attributes/dimmer-level",
+                    "htv:methodName": "GET",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": "writeproperty",
+                    "href": "attributes/dimmer-level",
+                    "htv:methodName": "PUT",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": "writeproperty",
+                    "href": "attributes/dimmer-level",
+                    "htv:methodName": "PATCH",
+                    "contentType": "application/merge-patch+json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                },
+                {
+                    "op": [
+                        "observeproperty",
+                        "unobserveproperty"
+                    ],
+                    "href": "attributes/dimmer-level",
+                    "htv:methodName": "GET",
+                    "subprotocol": "sse",
+                    "contentType": "text/event-stream",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    "actions": {
+        "toggle": {
+            "title": "Toggle",
+            "description": "Toggles/inverts the current 'on' state.",
+            "output": {
+                "title": "New 'on' state",
+                "type": "boolean"
+            },
+            "synchronous": true,
+            "forms": [
+                {
+                    "op": "invokeaction",
+                    "href": "inbox/messages/toggle",
+                    "htv:methodName": "POST",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                }
+            ]
+        },
+        "switch-on-for-duration": {
+            "title": "Switch on for duration",
+            "description": "Switches the switchable on for a given duration, then switches back to the previous state.",
+            "input": {
+                "@type": "time:Duration",
+                "title": "Duration in seconds",
+                "type": "integer",
+                "unit": "time:seconds"
+            },
+            "synchronous": true,
+            "forms": [
+                {
+                    "op": "invokeaction",
+                    "href": "inbox/messages/switch-on-for-duration",
+                    "htv:methodName": "POST",
+                    "contentType": "application/json",
+                    "additionalResponses": [
+                        {
+                            "success": false,
+                            "schema": "dittoError"
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    "schemaDefinitions": {
+        "dittoError": {
+            "type": "object",
+            "title": "Ditto error.",
+            "description": "Provides additional information about an occurred error and how to resolve it.",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "title": "Error description.",
+                    "description": "Contains further information about the error e.g. a hint what caused the problem and how to solve it."
+                },
+                "status": {
+                    "type": "integer",
+                    "title": "Status code.",
+                    "description": "The status code of the error with HTTP status code semantics (e.g.: 4xx for user errors, 5xx for server errors).",
+                    "minimum": 400,
+                    "maximum": 599
+                },
+                "href": {
+                    "type": "string",
+                    "title": "Error link.",
+                    "description": "A link to further information about the error and how to fix it.",
+                    "format": "uri"
+                },
+                "message": {
+                    "type": "string",
+                    "title": "Error message.",
+                    "description": "The human readable message that explains what went wrong during the execution of a command/message."
+                },
+                "error": {
+                    "type": "string",
+                    "title": "Error code identifier.",
+                    "description": "The error code or identifier that uniquely identifies the error."
+                }
+            },
+            "required": [
+                "status",
+                "error",
+                "message"
+            ]
+        }
+    }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "nodewot-interop",
+  "version": "1.0.0",
+  "description": "An interop demo: **node-wot (the W3C WoT reference implementation) produces a Thing Description, and thingctx consumes it** — driving a live Thing with no node-wot client, no SDK, no MCP server. Just the description.",
+  "main": "producer.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@node-wot/binding-http": "^0.9.2",
+    "@node-wot/core": "^0.9.2"
+  }
+}

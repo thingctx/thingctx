@@ -13,6 +13,9 @@ description = "Non-secret fixtures and public test vectors"
 regexes = [
   '''AKIDEXAMPLE''',
   '''wJalrXUtnFEMI/K7MDENG\+bPxRfiCYEXAMPLEKEY''',
+  # Documented public default dev credential for the Eclipse Ditto sandbox,
+  # used verbatim in the interop demo (not a real secret).
+  '''ditto:ditto''',
 ]
 # Obvious placeholder tokens used in tests and examples.
 stopwords = [
