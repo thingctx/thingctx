@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Guard against committing internal/private strings (project codenames, local
-# machine paths, internal planning docs, ...) into this public repo.
+# Guard against committing disallowed substrings into this public repo.
 #
-# The list of forbidden substrings is intentionally NOT stored in this repo --
-# that would leak the very names we are hiding. It lives in a gitignored file
-# (.security/banned-substrings.txt) or is provided via $THINGCTX_BANNED_FILE.
-# When no list is present this hook is a safe no-op, so contributors without it
-# are unaffected while the maintainer's machine and CI stay protected.
+# The list of disallowed substrings is provided out-of-band and is not stored in
+# this repo. It lives in a gitignored file (.security/banned-substrings.txt) or is
+# provided via $THINGCTX_BANNED_FILE. When no list is present this hook is a safe
+# no-op, so contributors without it are unaffected.
 #
 # Usage:
 #   check_no_internal_leaks.sh [FILE ...]           scan the given files (pre-commit)
