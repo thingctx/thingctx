@@ -13,6 +13,7 @@ from thingctx.auth.providers import (
     BasicAuth,
     DirectCredentialAuth,
     NoSecAuth,
+    OAuth2AuthorizationCodeAuth,
     OAuth2ClientCredentialsAuth,
     OAuth2JwtBearerAuth,
     StaticBearerAuth,
@@ -54,13 +55,15 @@ class AuthRegistry:
         return iter(self._strategies)
 
 
-# Order matters only among providers that match the same scheme: JWT-bearer is
-# tried before client-credentials so a private-key credential routes correctly.
+# Order matters only among providers that match the same scheme: JWT-bearer and
+# authorization-code are tried before client-credentials so a private-key or a
+# user-consent (flow=code) credential routes correctly.
 DEFAULT_AUTH = AuthRegistry(
     [
         DirectCredentialAuth(),  # caller-supplied Credential material wins
         NoSecAuth(),
         OAuth2JwtBearerAuth(),
+        OAuth2AuthorizationCodeAuth(),
         OAuth2ClientCredentialsAuth(),
         StaticBearerAuth(),
         BasicAuth(),

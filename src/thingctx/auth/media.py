@@ -82,12 +82,24 @@ _SENSITIVE_QS = (
     "passphrase",
     "token",
     "access_token",
+    "refresh_token",
+    "id_token",
     "api_key",
     "apikey",
     "key",
     "secret",
+    "client_secret",
     "sig",
     "signature",
+    "auth",
+    "authorization",
+    "code",
+    "session",
+    "sessionid",
+    "jwt",
+    "bearer",
+    "credential",
+    "credentials",
 )
 _QS_RE = re.compile(r"(?i)([?&](?:" + "|".join(_SENSITIVE_QS) + r")=)[^&\s'\"]+")
 # An RTMP ingest stream key is a path segment (``rtmp://host/app/<key>``), not
@@ -158,6 +170,9 @@ def av_auth_options(plan: MediaAuthPlan, url: str) -> tuple[str, dict]:
     if plan.query:
         url = _with_query(url, plan.query)
     if plan.headers:
+        for k, v in plan.headers.items():
+            if any(c in "\r\n" for c in str(k)) or any(c in "\r\n" for c in str(v)):
+                raise ValueError(f"illegal newline in credential header {k!r}")
         opts["headers"] = "".join(f"{k}: {v}\r\n" for k, v in plan.headers.items())
     if plan.tls is not None:
         c = plan.tls
