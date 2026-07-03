@@ -32,6 +32,8 @@ import inspect
 from typing import Any
 
 from thingctx.bindings import (
+    AsyncAction,
+    BulkProperties,
     ContentRouted,
     MediaConsumer,
     MediaPublisher,
@@ -50,6 +52,12 @@ _ASYNC_CAPS = (
     (MediaPublisher, "publish"),
 )
 
+# Capabilities whose methods are all expected to be coroutine functions.
+_MULTI_ASYNC_CAPS = (
+    (BulkProperties, ("read_all", "write_all")),
+    (AsyncAction, ("invoke_async", "query_action", "cancel_action")),
+)
+
 
 def binding_capabilities(binding: Any) -> dict[str, bool]:
     """Report which optional capabilities a binding advertises. Handy for docs
@@ -59,6 +67,8 @@ def binding_capabilities(binding: Any) -> dict[str, bool]:
         "readable": isinstance(binding, Readable),
         "writable": isinstance(binding, Writable),
         "subscribable": isinstance(binding, Subscribable),
+        "bulk_properties": isinstance(binding, BulkProperties),
+        "async_action": isinstance(binding, AsyncAction),
         "media_consumer": isinstance(binding, MediaConsumer),
         "media_publisher": isinstance(binding, MediaPublisher),
     }
@@ -89,6 +99,13 @@ def assert_binding_contract(binding: Any) -> None:
         if isinstance(binding, cap):
             method = getattr(binding, attr)
             assert inspect.iscoroutinefunction(method), f"{attr}() must be async"
+
+    for cap, attrs in _MULTI_ASYNC_CAPS:
+        if isinstance(binding, cap):
+            for attr in attrs:
+                assert inspect.iscoroutinefunction(
+                    getattr(binding, attr)
+                ), f"{attr}() must be async"
 
 
 def assert_media_backend_contract(backend: Any) -> None:
