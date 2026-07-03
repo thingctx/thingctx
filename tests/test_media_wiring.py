@@ -237,3 +237,68 @@ def test_frames_with_url_argument_routes_verbatim_to_backend():
     frames = asyncio.run(run())
     assert len(frames) == 4
     assert seen["url"] == target  # passed through unencoded, end to end
+
+
+def test_call_time_options_reach_backend():
+    seen: dict = {}
+
+    class _RecordingBackend(_FakeBackend):
+        def read(self, url, *, options, stop):
+            seen.update(options)
+            yield from super().read(url, options=options, stop=stop)
+
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:dev:pages",
+        "title": "pages",
+        "actions": {
+            "watch": {
+                "uriVariables": {"url": {"type": "string"}},
+                "forms": [{"href": "{+url}", "x-thingctx-media": {"resolve": "page"}}],
+            }
+        },
+    }
+    client = ThingClient(
+        tds=[td], bindings=[HttpBinding(), MediaBinding(backends=[_RecordingBackend()])]
+    )
+
+    async def run():
+        return [
+            f
+            async for f in await client.frames(
+                "pages.watch",
+                {"url": "https://youtu.be/x", "cookies_from_browser": "safari", "format": "best"},
+                track="video",
+            )
+        ]
+
+    asyncio.run(run())
+    # The non-uriVariable args reached the backend options,
+    assert seen["cookies_from_browser"] == "safari"
+    assert seen["format"] == "best"
+    # the consumed uriVariable did not leak in as an option,
+    assert "url" not in seen
+    # and the explicit track is reserved (an arg cannot override it).
+    assert seen["track"] == "video"
+
+
+def test_call_time_arg_cannot_override_track():
+    seen: dict = {}
+
+    class _RecordingBackend(_FakeBackend):
+        def read(self, url, *, options, stop):
+            seen.update(options)
+            yield from super().read(url, options=options, stop=stop)
+
+    client = ThingClient(
+        tds=[_media_td("https://x/y", {"resolve": "page"})],
+        bindings=[HttpBinding(), MediaBinding(backends=[_RecordingBackend()])],
+    )
+
+    async def run():
+        return [
+            f async for f in await client.frames("cam1.watch", {"track": "audio"}, track="video")
+        ]
+
+    asyncio.run(run())
+    assert seen["track"] == "video"

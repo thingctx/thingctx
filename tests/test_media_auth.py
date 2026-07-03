@@ -281,11 +281,11 @@ def test_extractor_builds_ytdlp_opts_from_plan_and_cookie_hint(monkeypatch):
 
     from thingctx.bindings.builtin.media.backends import ExtractorBackend
 
-    resolved = ExtractorBackend()._resolve(
+    resolved = ExtractorBackend()._extract(
         "https://site/v",
         {"auth": MediaAuthPlan(username="u", password="p"), "cookiefile": "/c.txt"},
     )
-    assert resolved == "https://cdn/resolved.m3u8"
+    assert resolved == [("https://cdn/resolved.m3u8", {})]
     assert captured["opts"]["username"] == "u"
     assert captured["opts"]["password"] == "p"
     assert captured["opts"]["cookiefile"] == "/c.txt"

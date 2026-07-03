@@ -106,6 +106,29 @@ async def test_one_thing_secret_does_not_leak_to_another():
     assert "Authorization" not in hb
 
 
+async def test_ownerless_path_authenticates_as_the_sole_thing():
+    # subscribe() carries no owner id (it has only the event name), so the
+    # binding resolves credentials with owner_id=None. With a single bound
+    # Thing its declared security is unambiguous and must still attach.
+    http = HttpBinding(credentials={"sc": "TKN"})
+    client = ThingClient(tds=[_td("alpha", {"scheme": "bearer"})], bindings=[http])
+    assert client is not None  # binding is now bound to the Thing
+    headers, _params, _signers, _cert = await http._prepare(None)
+    assert headers["Authorization"] == "Bearer TKN"
+
+
+async def test_ownerless_path_stays_unauthed_when_ambiguous():
+    # With more than one Thing bound, an owner-less call cannot pick a Thing,
+    # so it attaches no auth (no silent cross-Thing credential reuse).
+    http = HttpBinding(credentials={"alpha": "AAA", "beta": "BBB"})
+    ThingClient(
+        tds=[_td("alpha", {"scheme": "bearer"}), _td("beta", {"scheme": "bearer"})],
+        bindings=[http],
+    )
+    headers, _params, _signers, _cert = await http._prepare(None)
+    assert "Authorization" not in headers
+
+
 async def test_form_level_security_overrides_thing_security():
     # One Thing, two affordances, two schemes: the Thing defaults to bearer, but
     # the admin form overrides with basic (WoT form-level security). The binding

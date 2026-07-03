@@ -39,6 +39,28 @@ def test_builtin_capability_advertisement():
     assert binding_capabilities(build_builtin("mqtt"))["subscribable"]
     http = binding_capabilities(build_builtin("http"))
     assert http["readable"] and http["writable"] and http["subscribable"]
+    # http is the reference transport: it also drives bulk and the async lifecycle.
+    assert http["bulk_properties"] and http["async_action"]
+    # mqtt and local do not advertise bulk or async; the runtime falls back.
+    assert not binding_capabilities(build_builtin("mqtt"))["bulk_properties"]
+    assert not binding_capabilities(build_builtin("local"))["async_action"]
+
+
+def test_bulk_capability_must_be_async():
+    class SyncBulk:
+        scheme = "x"
+
+        async def invoke(self, action, form, arguments):
+            return None
+
+        def read_all(self, thing, form, names=None):  # not async
+            return {}
+
+        async def write_all(self, thing, form, values):
+            return {}
+
+    with pytest.raises(AssertionError, match="read_all"):
+        assert_binding_contract(SyncBulk())
 
 
 def test_default_registry_is_http_and_local():
@@ -269,6 +291,67 @@ def test_implements_accepts_an_annotated_only_attribute():
             return None
 
     assert Annotated.__thingctx_implements__ == (ProtocolBinding,)
+
+
+# --------------------------------------------------------------------------- #
+# Load-time capability gate (validate="strict")
+# --------------------------------------------------------------------------- #
+
+_GATE_BASE = {
+    "@context": "https://www.w3.org/2022/wot/td/v1.1",
+    "id": "urn:demo:gate",
+    "title": "Gate",
+}
+
+
+def test_strict_refuses_an_unapplied_security_scheme():
+    from thingctx.validate import TDValidationError
+
+    td = {
+        **_GATE_BASE,
+        "securityDefinitions": {"d_sc": {"scheme": "digest", "in": "header", "qop": "auth"}},
+        "security": ["d_sc"],
+        "actions": {"go": {"forms": [{"href": "https://x/go"}]}},
+    }
+    with pytest.raises(TDValidationError, match="digest"):
+        ThingClient(tds=[td], bindings=[build_builtin("http")], validate="strict")
+
+
+def test_strict_refuses_a_transport_with_no_binding():
+    from thingctx.validate import TDValidationError
+
+    td = {
+        **_GATE_BASE,
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "actions": {"go": {"forms": [{"href": "opc.tcp://plc/node"}]}},
+    }
+    with pytest.raises(TDValidationError, match="opc.tcp"):
+        ThingClient(tds=[td], bindings=[build_builtin("local")], validate="strict")
+
+
+def test_strict_refuses_an_undriven_subprotocol():
+    from thingctx.validate import TDValidationError
+
+    td = {
+        **_GATE_BASE,
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "events": {"e": {"forms": [{"href": "https://x/e", "subprotocol": "longpoll"}]}},
+    }
+    with pytest.raises(TDValidationError, match="longpoll"):
+        ThingClient(tds=[td], bindings=[build_builtin("http")], validate="strict")
+
+
+def test_strict_accepts_a_fully_supported_td():
+    td = {
+        **_GATE_BASE,
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "actions": {"go": {"forms": [{"href": "local://go"}]}},
+    }
+    # A supported TD loads under strict without raising.
+    ThingClient(tds=[td], bindings=[build_builtin("local")], validate="strict")
 
 
 def test_implements_works_for_media_backend_and_registry():
