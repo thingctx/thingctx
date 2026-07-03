@@ -94,6 +94,7 @@ from thingctx.contracts import implements
 
 # LLMHost: optional tool-calling loop, in thingctx.contrib.
 from thingctx.contrib.llm import LLMHost
+from thingctx.gateway import GatewayProjection
 
 # Compile a non-WoT description (OpenAPI) into a TD.
 from thingctx.openapi import from_openapi, load_spec
@@ -139,6 +140,7 @@ __all__ = [
     "from_openapi",
     "load_spec",
     "ThingClient",
+    "GatewayProjection",
     "LLMHost",
     "Registry",
     "FileRegistry",
