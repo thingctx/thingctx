@@ -69,7 +69,24 @@ class LLMHost:
 
     @property
     def tool_specs(self) -> list[dict[str, Any]]:
-        return self._client.list_actions()
+        return self._openai_tools()
+
+    def _openai_tools(self) -> list[dict[str, Any]]:
+        """The client's full tool surface in OpenAI function-tool shape: actions
+        plus property get/set, bulk read, and long-running cancel tools."""
+        tools = []
+        for t in self._client.tool_surface():
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t["description"],
+                        "parameters": t["input_schema"],
+                    },
+                }
+            )
+        return tools
 
     async def chat(self, prompt: str) -> str:
         """Run the tool-calling loop for one prompt; return the final text
@@ -159,7 +176,7 @@ class LLMHost:
             messages.append({"role": "system", "content": self._system})
         messages.append({"role": "user", "content": user_content})
 
-        tools = self._client.list_actions()
+        tools = self._openai_tools()
         chat = self._chat_fn or self._litellm_chat
         memo: dict[tuple, str] = {}  # only used when resilient
 
@@ -183,7 +200,7 @@ class LLMHost:
                     result_text = memo[(name, raw_args)]  # cached; don't re-run
                 else:
                     all_repeats = False
-                    result_text = to_text(await self._client.invoke(name, args))
+                    result_text = to_text(await self._client.call_tool(name, args))
                     if self._resilient:
                         memo[(name, raw_args)] = result_text
                 messages.append(

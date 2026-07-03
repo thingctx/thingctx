@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
@@ -46,8 +47,8 @@ class FileRegistry:
                 for f in sorted(os.listdir(s))
                 if f.endswith((".td.json", ".json"))
             ]
-            return [json.loads(open(f).read()) for f in files]
-        return [json.loads(open(s).read())]
+            return [_read_json_file(f) for f in files]
+        return [_read_json_file(s)]
 
 
 class TDDRegistry:
@@ -91,9 +92,53 @@ def from_arg(arg: str) -> Registry:
 
 
 def from_args(args: list[str]) -> Registry:
-    """One registry from many args (mix files, dirs, URLs, TDDs)."""
+    """One registry from many args (mix files, dirs, URLs, TDDs). With no args,
+    an empty registry (yields no TDs) rather than an error."""
     regs = [from_arg(a) for a in args]
+    if not regs:
+        return _Multi([])
     return regs[0] if len(regs) == 1 else _Multi(regs)
+
+
+def default_registry_dir() -> Path:
+    """The per-user default registry directory,
+    ``$XDG_CONFIG_HOME/thingctx/registry`` (``~/.config`` when unset), matching
+    the token store's convention (see thingctx.auth.store)."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return Path(base) / "thingctx" / "registry"
+
+
+def default_sources() -> list[str]:
+    """The sources the default registry resolves, so a caller can drive Things
+    with no explicit source:
+
+    - ``$THINGCTX_REGISTRY`` if set (``os.pathsep``-separated, so several
+      sources can be threaded through cron/CI), else
+    - the default registry directory (its ``*.td.json`` / ``*.json`` files) plus
+      any non-comment lines in its ``sources.txt`` (URLs / ``tdd:`` directories
+      that cannot be stored as files).
+    """
+    env = os.environ.get("THINGCTX_REGISTRY")
+    if env:
+        return [s for s in (p.strip() for p in env.split(os.pathsep)) if s]
+    out: list[str] = []
+    d = default_registry_dir()
+    if d.is_dir():
+        out.append(str(d))
+    sources_file = d / "sources.txt"
+    if sources_file.is_file():
+        for line in sources_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                out.append(line)
+    return out
+
+
+def default_registry() -> Registry:
+    """A registry over the user's default Things (see :func:`default_sources`).
+    Empty when nothing is configured, so a source-less ``thingctx list`` shows
+    nothing and ``thingctx invoke`` reports an unknown action, never a crash."""
+    return from_args(default_sources())
 
 
 def _user_agent() -> str:
@@ -108,9 +153,42 @@ def _user_agent() -> str:
         return "thingctx"
 
 
+# A Thing Description is a small JSON document. Cap what a fetch or a file read
+# will pull into memory so a hostile or misconfigured source cannot return a
+# huge body and exhaust it. Override with THINGCTX_MAX_TD_BYTES (0 disables).
+DEFAULT_MAX_TD_BYTES = 16 * 1024 * 1024
+
+
+def _max_td_bytes() -> int | None:
+    v = os.environ.get("THINGCTX_MAX_TD_BYTES")
+    if v is None:
+        return DEFAULT_MAX_TD_BYTES
+    v = v.strip()
+    if v in ("", "0"):
+        return None
+    return int(v)
+
+
+def _read_json_file(path: str):
+    limit = _max_td_bytes()
+    size = os.path.getsize(path)
+    if limit is not None and size > limit:
+        raise ValueError(f"Thing Description file {path!r} is {size} bytes, over the {limit} limit")
+    with open(path, encoding="utf-8") as fh:
+        return json.loads(fh.read())
+
+
 def _get_json(url: str, timeout: float):
     import urllib.request
 
+    limit = _max_td_bytes()
     req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())
+        if limit is None:
+            return json.loads(r.read().decode())
+        # Read one byte past the cap so an oversized body is detected, not
+        # silently truncated into invalid JSON.
+        raw = r.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError(f"Thing Description at {url!r} exceeds the {limit}-byte limit")
+    return json.loads(raw.decode())

@@ -63,20 +63,26 @@ async def from_url(
     *,
     model: str = "anthropic/claude-sonnet-4-6",
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
+    timeout: float = 10.0,
     **host_kwargs: Any,
 ) -> LLMHost:
     """Fetch a live Thing's TD from ``url`` and return a ready host.
 
     ``url`` points at the Thing Description document (e.g.
     ``http://device.local/.well-known/wot`` or a TD-Directory entry).
-    The device side is WoT's, thingctx just consumes the document.
+    The device side is WoT's, thingctx just consumes the document. The fetch has
+    a ``timeout`` and caps the document size (see ``THINGCTX_MAX_TD_BYTES``) so a
+    slow or oversized response cannot hang or exhaust the client.
     """
     import httpx
 
-    from thingctx.registry import _user_agent
+    from thingctx.registry import _max_td_bytes, _user_agent
 
-    async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}) as http:
+    limit = _max_td_bytes()
+    async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}, timeout=timeout) as http:
         resp = await http.get(url)
         resp.raise_for_status()
+        if limit is not None and len(resp.content) > limit:
+            raise ValueError(f"Thing Description at {url!r} exceeds the {limit}-byte limit")
         td = resp.json()
     return from_td(td, model=model, bindings=bindings, **host_kwargs)
