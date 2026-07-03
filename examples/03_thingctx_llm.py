@@ -4,7 +4,7 @@
 
 02 called the surface by hand (invoke / read_property / subscribe ...).
 03 wires a real LLM to the same TD and lets the model drive it, you
-write no tool-calling. Two ways:
+write no tool-calling. Four ways:
 
   1. a plain instruction -> the model picks the actions, thingctx routes
      each call to the transport its form names.
@@ -12,6 +12,20 @@ write no tool-calling. Two ways:
      seed the conversation; the model then executes them against the
      Thing. This is where prompts shine: a user-picked template becomes
      the agent's opening turn.
+  3. the long-running `calibrate` action -> one blocking tool call that
+     returns the final result; the TD declares queryaction/cancelaction, so
+     the same handle can be polled or cancelled mid-flight (and a
+     `<action>.cancel` tool is on the surface).
+  4. a bulk read -> the model reads every property in one call via the
+     Thing-level readallproperties tool.
+  5. a live event stream (`summarize_telemetry`) -> a pushed subscription
+     seeds an LLM turn directly.
+
+Over the MCP bridge a long-running action is polled server-side to completion
+and gets a cancel tool, but the client never holds the running handle; and an
+event is a subscribable resource the client must re-read (signal, then read,
+over a bounded buffer). Here invoke returns the handle and the event value
+arrives inline and seeds the turn.
 
 Run::  python examples/03_thingctx_llm.py
        (uses local Ollama qwen2.5:7b if present; see pick_llm_model)
@@ -66,8 +80,39 @@ async def main() -> None:
         diagnosis = await host.chat(seed)  # feed it to the LLM
         print(f"  LLM acted on the prompt -> {diagnosis}")
 
-        print("\nNo tool-calling written. The model drove the same TD as 02;")
-        print("the prompt template (from the TD) seeded the diagnosis turn.")
+        # 3) Long-running action, the model calls `calibrate` like any other
+        # tool; the runtime blocks it to completion (synchronous:false, with
+        # queryaction/cancelaction) and hands the final result back, so the
+        # model sees a normal tool return. A `pump.calibrate.cancel` tool is on
+        # the same surface for stopping a run mid-flight.
+        answer = await host.chat("Calibrate the pump to 1200 rpm.")
+        print("\nCHAT   'calibrate to 1200'   [long-running; blocks to completion]")
+        print(f"  -> {answer}")
+        print(f"  (device.target_rpm={pump.target_rpm})")
+
+        # 4) Bulk read, the model reads every property in one call (the
+        # Thing-level readallproperties tool), not property by property.
+        answer = await host.chat("Read all of the pump's properties at once and report them.")
+        print("\nCHAT   'read all properties at once'   [bulk readallproperties tool]")
+        print(f"  -> {answer}")
+
+        # 5) Live event, a pushed subscription seeds an LLM turn. Over MCP this
+        # event is a subscribable resource the client re-reads after a signal;
+        # here summarize_telemetry consumes the stream and the values arrive
+        # inline for the model to reason over.
+        pump.start_telemetry(temps=(70, 85, 99), period=0.2)
+        summary = await host.summarize_telemetry(
+            "pump.overheat",
+            "These are overheat readings (temp vs limit). Is the pump overheating, "
+            "and by how much over the limit at worst?",
+            samples=3,
+        )
+        print("\nMONITOR summarize_telemetry('pump.overheat', samples=3)  [live SSE -> LLM]")
+        print(f"  -> {summary}")
+
+        print("\nNo tool-calling written. The model drove the same TD as 02,")
+        print("including a long-running action, a bulk read, and a live event")
+        print("stream, the WoT surface that is trickier over the MCP bridge.")
     finally:
         stop()
 

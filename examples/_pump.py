@@ -22,10 +22,12 @@ class PumpDevice:
         self.target_rpm = 0
         self.temp = 60
         self.stopped = False
+        self.fault = False  # when set, the status endpoint returns 503
         self.coolant_open = False
         self._sensors = {"temp-1": 72, "vibration": 3}
         self._listeners: list = []  # local bindings subscribed for pushes
         self._sse_queues: list = []  # HTTP/SSE client queues (over the wire)
+        self._jobs: dict = {}  # long-running action jobs, keyed by id
 
     # actions
     def set_speed(self, rpm: int) -> dict:
@@ -46,6 +48,39 @@ class PumpDevice:
     def set_coolant(self, open: bool) -> dict:  # the mqtt action
         self.coolant_open = open
         return {"ok": True, "coolant_open": open}
+
+    def start_calibrate(self, target: int = 0) -> str:
+        """Run calibration as a background job; returns its id. Status and
+        cancellation map to the WoT queryaction / cancelaction ops."""
+        import time
+        import uuid
+
+        job_id = uuid.uuid4().hex[:8]
+        job = {"status": "running", "output": None, "error": None, "cancelled": False}
+        self._jobs[job_id] = job
+
+        def _run():
+            for _ in range(5):
+                if job["cancelled"]:
+                    job["status"] = "cancelled"
+                    return
+                time.sleep(0.1)
+            if not job["cancelled"]:
+                self.target_rpm = target
+                job["status"] = "completed"
+                job["output"] = {"calibrated_to": target}
+
+        threading.Thread(target=_run, daemon=True).start()
+        return job_id
+
+    def calibrate_status(self, job_id: str) -> dict | None:
+        return self._jobs.get(job_id)
+
+    def cancel_calibrate(self, job_id: str) -> dict | None:
+        job = self._jobs.get(job_id)
+        if job is not None:
+            job["cancelled"] = True
+        return job
 
     # camera: render the current state to a PNG, like an on-board camera.
     # The warning light is red when temp is over the limit.
@@ -125,20 +160,33 @@ def start_http_server(device: PumpDevice):
         def log_message(self, *a):  # silence
             pass
 
-        def _send_json(self, obj, code=200):
+        def _send_json(self, obj, code=200, allow_gzip=False):
             payload = json.dumps(obj).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
+            # The status form declares contentCoding=gzip; gzip the body when the
+            # client requests it (Accept-Encoding), so the coding is real, not inert.
+            if allow_gzip and "gzip" in self.headers.get("Accept-Encoding", ""):
+                import gzip
+
+                payload = gzip.compress(payload)
+                self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
 
         def do_GET(self):
+            from urllib.parse import parse_qs, urlsplit
+
+            query = parse_qs(urlsplit(self.path).query)
             path = self.path.split("?")[0]
             if path.endswith("/events/overheat"):
                 if not _authed(self):
                     self._send_json({"error": "unauthorized"}, 401)
                     return
+                # subscribe-time filter (the event's `subscription` schema):
+                # only forward readings at or above the requested threshold.
+                threshold = float(query["threshold"][0]) if "threshold" in query else None
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
@@ -148,6 +196,8 @@ def start_http_server(device: PumpDevice):
                 try:
                     while True:
                         evt = q.get()
+                        if threshold is not None and evt.get("temp", 0) < threshold:
+                            continue
                         self.wfile.write(f"data: {json.dumps(evt)}\n\n".encode())
                         self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
@@ -157,10 +207,60 @@ def start_http_server(device: PumpDevice):
                 self._send_json({"error": "unauthorized"}, 401)
                 return
             if path.endswith("/status"):
-                self._send_json(device.status())
+                if device.fault:
+                    # the status form declares this 503 error response shape
+                    self._send_json({"error": "overloaded"}, 503)
+                    return
+                self._send_json(device.status(), allow_gzip=True)
+            elif path.endswith("/all/properties"):
+                # Thing-level bulk read; an optional ?props=a,b selects a subset
+                # (readmultipleproperties). camera is binary, so it is omitted.
+                values = {"rpm": device.rpm, "target_rpm": device.target_rpm}
+                want = query["props"][0].split(",") if "props" in query else None
+                if want:
+                    values = {k: v for k, v in values.items() if k in want}
+                self._send_json(values)
+            elif "/actions/calibrate/" in path:
+                # query a long-running action's status (the queryaction op)
+                job = device.calibrate_status(path.rsplit("/", 1)[1])
+                if job is None:
+                    self.send_error(404)
+                    return
+                self._send_json(
+                    {"status": job["status"], "output": job["output"], "error": job["error"]}
+                )
             elif "/sensors/" in path:
                 sensor_id = path.rsplit("/sensors/", 1)[1]
                 self._send_json(device.read_sensor(sensor_id))
+            else:
+                self.send_error(404)
+
+        def do_DELETE(self):
+            if not _authed(self):
+                self._send_json({"error": "unauthorized"}, 401)
+                return
+            path = self.path.split("?")[0]
+            if "/actions/calibrate/" in path:
+                # cancel a long-running action (the cancelaction op)
+                device.cancel_calibrate(path.rsplit("/", 1)[1])
+                self._send_json({"status": "cancelled"})
+            else:
+                self.send_error(404)
+
+        def do_PUT(self):
+            if not _authed(self):
+                self._send_json({"error": "unauthorized"}, 401)
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            values = json.loads(self.rfile.read(length) or b"{}") if length else {}
+            path = self.path.split("?")[0]
+            if path.endswith("/all/properties"):
+                # Thing-level bulk write; rpm is read-only and is ignored.
+                written = {}
+                if "target_rpm" in values:
+                    device.set_target_rpm(values["target_rpm"])
+                    written["target_rpm"] = device.target_rpm
+                self._send_json({"ok": True, "written": written})
             else:
                 self.send_error(404)
 
@@ -175,6 +275,12 @@ def start_http_server(device: PumpDevice):
                 self._send_json(device.set_speed(args["rpm"]))
             elif path.endswith("/status"):
                 self._send_json(device.status())
+            elif path.endswith("/actions/calibrate"):
+                # start a long-running action; reply 201 with a status resource
+                # href the client polls (the WoT async-action lifecycle).
+                job_id = device.start_calibrate(args.get("target", 0))
+                href = f"http://{self.headers.get('Host')}/actions/calibrate/{job_id}"
+                self._send_json({"status": "running", "href": href}, 201)
             else:
                 self.send_error(404)
 

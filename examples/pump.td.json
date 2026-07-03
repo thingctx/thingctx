@@ -9,22 +9,60 @@
   ],
   "id": "urn:demo:pump:v1",
   "title": "Pump",
+  "titles": { "en": "Pump", "de": "Pumpe" },
   "@type": ["saref:Actuator", "saref:Sensor"],
-  "description": "A demo pump. In production the device publishes this Thing Description; the demos load it. This TD exercises the FULL WoT TD 1.1 surface: base (relative href resolution), thing-level uriVariables, actions (input + output schema, idempotent, a uriVariable in the form), readable/writable/observable typed properties, a typed event, four transports (local/http/mqtt/sse), and three declared security schemes (bearer active; basic + apikey declared).",
+  "description": "A demo pump, published by the device and loaded by the demos. It is the coverage exemplar, exercising the full WoT TD 1.1 surface across four transports (local/http/mqtt/sse): metadata and i18n, the full form vocabulary, typed properties/actions/events with the async-action and event lifecycle schemas, Thing-level bulk forms, and every security scheme variant.",
+  "support": "mailto:ops@thingctx.dev",
+  "created": "2025-01-01T00:00:00Z",
+  "modified": "2025-03-12T00:00:00Z",
+  "version": { "instance": "1.2.0", "model": "1.0.0" },
   "base": "{BASE_URL}/",
+  "profile": ["https://www.w3.org/TR/wot-profile/"],
+  "schemaDefinitions": {
+    "rpmValue": { "type": "integer", "minimum": 0, "maximum": 6000 },
+    "errorResponse": {
+      "type": "object",
+      "properties": { "error": { "type": "string" } }
+    }
+  },
   "uriVariables": {
     "id": { "type": "string", "description": "A sensor id (Thing-level uriVariable)." }
   },
+  "links": [
+    { "href": "https://thingctx.dev/pump/manual.pdf", "rel": "alternate", "type": "application/pdf" }
+  ],
   "securityDefinitions": {
-    "bearer_sc": { "scheme": "bearer" },
-    "basic_sc": { "scheme": "basic" },
-    "apikey_sc": { "scheme": "apikey", "in": "header", "name": "X-API-Key" }
+    "bearer_sc": { "scheme": "bearer", "in": "header", "alg": "ES256", "format": "jwt" },
+    "basic_sc": { "scheme": "basic", "in": "header" },
+    "digest_sc": { "scheme": "digest", "in": "header", "qop": "auth" },
+    "apikey_sc": { "scheme": "apikey", "in": "header", "name": "X-API-Key" },
+    "oauth2_sc": {
+      "scheme": "oauth2",
+      "flow": "client_credentials",
+      "token": "https://auth.thingctx.dev/token",
+      "scopes": ["read", "write"]
+    },
+    "psk_sc": { "scheme": "psk", "identity": "pump-v1" },
+    "auto_sc": { "scheme": "auto" },
+    "any_sc": { "scheme": "combo", "oneOf": ["bearer_sc", "basic_sc"] },
+    "all_sc": { "scheme": "combo", "allOf": ["basic_sc", "apikey_sc"] }
   },
   "security": ["bearer_sc"],
+  "forms": [
+    { "href": "all/properties", "op": ["readallproperties", "readmultipleproperties"] },
+    { "href": "all/properties", "op": ["writeallproperties", "writemultipleproperties"] },
+    {
+      "href": "all/events",
+      "op": ["subscribeallevents"],
+      "subprotocol": "sse",
+      "security": ["oauth2_sc"],
+      "scopes": ["read"]
+    }
+  ],
   "actions": {
     "diagnose": {
       "@type": "tc:PromptTemplate",
-      "description": "A prompt template to diagnose the pump (the WoT-native equivalent of an MCP prompt, via the tc: extension vocabulary). The template lives in the TD, so it expands client-side , no device call.",
+      "description": "A prompt template to diagnose the pump (the WoT-native equivalent of an MCP prompt, via the tc: extension vocabulary). The template lives in the TD, so it expands client-side; no device call.",
       "input": {
         "type": "object",
         "properties": {
@@ -39,6 +77,7 @@
     "set_speed": {
       "@type": "saref:ActuatingFunction",
       "description": "Set the pump speed (rpm).",
+      "synchronous": true,
       "input": {
         "type": "object",
         "properties": { "rpm": { "type": "integer" } },
@@ -57,6 +96,8 @@
       "description": "Read the pump status.",
       "input": { "type": "object", "properties": {} },
       "idempotent": true,
+      "safe": true,
+      "synchronous": true,
       "output": {
         "type": "object",
         "properties": {
@@ -65,7 +106,22 @@
           "healthy": { "type": "boolean" }
         }
       },
-      "forms": [{ "href": "status" }]
+      "forms": [
+        {
+          "href": "status",
+          "contentType": "application/json",
+          "contentCoding": "gzip",
+          "response": { "contentType": "application/json" },
+          "additionalResponses": [
+            {
+              "success": false,
+              "contentType": "application/json",
+              "schema": "errorResponse",
+              "htv:statusCodeNumber": 503
+            }
+          ]
+        }
+      ]
     },
     "read_sensor": {
       "description": "Read one named sensor by id (id goes in the URL path).",
@@ -74,7 +130,9 @@
         "properties": { "id": { "type": "string" } },
         "required": ["id"]
       },
+      "safe": true,
       "idempotent": true,
+      "uriVariables": { "id": { "type": "string" } },
       "forms": [{ "href": "sensors/{id}" }]
     },
     "estop": {
@@ -84,6 +142,21 @@
         "properties": { "reason": { "type": "string" } }
       },
       "forms": [{ "href": "local://estop" }]
+    },
+    "calibrate": {
+      "description": "Calibrate the pump toward a target rpm (long-running).",
+      "synchronous": false,
+      "input": {
+        "type": "object",
+        "properties": { "target": { "type": "integer" } }
+      },
+      "output": {
+        "type": "object",
+        "properties": { "calibrated_to": { "type": "integer" } }
+      },
+      "forms": [
+        { "href": "actions/calibrate", "op": ["invokeaction", "queryaction", "cancelaction"] }
+      ]
     },
     "set_coolant": {
       "description": "Open or close the coolant valve (over the plant MQTT bus).",
@@ -99,11 +172,14 @@
     "rpm": {
       "@type": "saref:Measurement",
       "type": "integer",
+      "title": "RPM",
+      "titles": { "en": "RPM", "de": "Drehzahl" },
       "description": "Current rpm (read-only gauge).",
       "readOnly": true,
       "observable": true,
+      "unit": "om:revolutionPerMinute",
       "forms": [
-        { "href": "local://rpm", "op": ["readproperty", "observeproperty"] }
+        { "href": "local://rpm", "op": ["readproperty", "observeproperty", "unobserveproperty"] }
       ]
     },
     "target_rpm": {
@@ -126,6 +202,10 @@
   "events": {
     "overheat": {
       "description": "Temperature exceeded the limit.",
+      "subscription": {
+        "type": "object",
+        "properties": { "threshold": { "type": "number" } }
+      },
       "data": {
         "type": "object",
         "properties": {
@@ -133,10 +213,18 @@
           "limit": { "type": "number" }
         }
       },
+      "dataResponse": {
+        "type": "object",
+        "properties": { "ack": { "type": "boolean" } }
+      },
+      "cancellation": {
+        "type": "object",
+        "properties": { "reason": { "type": "string" } }
+      },
       "forms": [
         {
           "href": "events/overheat",
-          "op": "subscribeevent",
+          "op": ["subscribeevent", "unsubscribeevent"],
           "subprotocol": "sse"
         }
       ]
