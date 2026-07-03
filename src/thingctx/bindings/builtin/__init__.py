@@ -12,9 +12,10 @@ runtime noticing.
 
 from __future__ import annotations
 
+from thingctx.bindings.builtin.exec import ExecBinding
 from thingctx.bindings.builtin.http import HttpBinding
 from thingctx.bindings.builtin.local import LocalBinding
 from thingctx.bindings.builtin.media import MediaBinding
 from thingctx.bindings.builtin.mqtt import MqttBinding
 
-__all__ = ["HttpBinding", "LocalBinding", "MqttBinding", "MediaBinding"]
+__all__ = ["HttpBinding", "LocalBinding", "MqttBinding", "MediaBinding", "ExecBinding"]

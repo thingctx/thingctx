@@ -57,11 +57,18 @@ class TransportError(Exception):
         detail: str = "",
         cause: BaseException | None = None,
     ) -> None:
+        # A URL can carry credentials (presigned query signatures, userinfo) and
+        # a response snippet can echo them, so redact both before they land in an
+        # exception message, ``as_dict()``, logs, or an LLM tool result.
+        from thingctx.auth.media import redact_url
+
         self.method = method
-        self.url = url
+        self.url = redact_url(url)
         self.status = status
         self.attempts = attempts
-        self.detail = detail
+        self.detail = redact_url(detail)
+        url = self.url
+        detail = self.detail
         where = str(status) if status is not None else (type(cause).__name__ if cause else "error")
         msg = f"{method} {url} failed after {attempts} attempt(s): {where}"
         if detail:

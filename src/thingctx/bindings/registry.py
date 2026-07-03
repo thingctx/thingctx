@@ -25,7 +25,7 @@ CONTRACT_VERSION = "1"
 
 # Names of the bindings thingctx ships. Each is just an implementation of the
 # contract, privileged only by being bundled.
-BUILTIN_BINDINGS: tuple[str, ...] = ("http", "local", "mqtt", "media")
+BUILTIN_BINDINGS: tuple[str, ...] = ("http", "local", "mqtt", "media", "exec")
 
 
 def build_builtin(name: str, **kwargs: Any) -> ProtocolBinding:
@@ -47,6 +47,10 @@ def build_builtin(name: str, **kwargs: Any) -> ProtocolBinding:
         from thingctx.bindings.builtin.media import MediaBinding
 
         return MediaBinding(**kwargs)
+    if name == "exec":
+        from thingctx.bindings.builtin.exec import ExecBinding
+
+        return ExecBinding(**kwargs)
     raise KeyError(f"unknown built-in binding: {name!r}")
 
 
@@ -151,3 +155,30 @@ def discover_bindings(*, group: str = "thingctx.bindings") -> list[ProtocolBindi
     except TypeError:  # older selection API
         eps = entry_points().get(group, [])  # type: ignore[attr-defined]
     return [ep.load()() for ep in eps]
+
+
+def discover_local_handlers(
+    slugs: set[str] | None = None, *, group: str = "thingctx.local_handlers"
+) -> dict[str, Any]:
+    """Load in-process handlers advertised by installed packages, keyed by
+    Thing slug (the entry point name). Each entry point names a zero-argument
+    callable returning the handler for that Thing: an object whose methods are
+    its actions, or a mapping of action name to callable.
+
+    Opt in, and bounded: only entry points whose name is in ``slugs`` are
+    imported (so importing third-party code is limited to the Things actually
+    present), and nothing runs unless a caller invokes this. ``slugs=None``
+    loads every advertised handler.
+    """
+    from importlib.metadata import entry_points
+
+    try:
+        eps = entry_points(group=group)
+    except TypeError:  # older selection API
+        eps = entry_points().get(group, [])  # type: ignore[attr-defined]
+    out: dict[str, Any] = {}
+    for ep in eps:
+        if slugs is not None and ep.name not in slugs:
+            continue
+        out[ep.name] = ep.load()()
+    return out
