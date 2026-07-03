@@ -24,14 +24,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import threading
+import time
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_media, redact_url
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.bindings.builtin.media.frame import Frame, MediaBackend
 from thingctx.contracts import implements
+from thingctx.reliability import RetryPolicy, TransportError
 from thingctx.thing import WoTAction, WoTForm
 
 
@@ -41,10 +45,90 @@ class MediaError(Exception):
     errors never leak secrets into logs or tracebacks."""
 
 
+# PyAV maps an HTTP status onto a named error; these are the ones worth a retry
+# on a long media read. A page-resolved CDN URL throttling to 403 mid-stream is
+# the common one: the URL is dead but a fresh resolve works. 401/404/400 are
+# fatal (auth or missing), so they are not retried.
+_TRANSIENT_HTTP = {
+    "HTTPForbiddenError": 403,
+    "HTTPInternalServerError": 500,
+    "HTTPBadGatewayError": 502,
+    "HTTPServiceUnavailableError": 503,
+    "HTTPGatewayTimeoutError": 504,
+}
+_FATAL_HTTP = {
+    "HTTPUnauthorizedError": 401,
+    "HTTPBadRequestError": 400,
+    "HTTPNotFoundError": 404,
+}
+
+
+def _media_status(exc: BaseException) -> int | None:
+    """The HTTP status PyAV attached to a media error, if any."""
+    name = type(exc).__name__
+    return _TRANSIENT_HTTP.get(name) or _FATAL_HTTP.get(name)
+
+
+def _is_transient_media(exc: BaseException) -> bool:
+    """Whether a media read error is worth re-opening (re-resolve + resume).
+    Covers a throttled/expired CDN URL (403), the retryable 5xx family, and
+    network blips (timeout, connection reset); decode and auth errors are not."""
+    name = type(exc).__name__
+    if name in _TRANSIENT_HTTP:
+        return True
+    if name in _FATAL_HTTP:
+        return False
+    if isinstance(exc, TimeoutError | ConnectionError | BrokenPipeError):
+        return True
+    msg = str(exc).lower()
+    return "timed out" in msg or "connection reset" in msg or "403 forbidden" in msg
+
+
 # Schemes whose hrefs route here directly. Sources whose href is an http(s) page
 # are routed by the media hint instead (see ``handles``).
 MEDIA_SCHEMES = ("rtsp", "rtsps", "srt", "rtmp", "rtmps", "webrtc")
 _MEDIA_HINT = "x-thingctx-media"
+# Sources that produce in real time, named by the media hint rather than the URL
+# scheme (their href is often an http(s) page or a device handle).
+_LIVE_SOURCES = ("webrtc", "genicam")
+
+
+def _is_live_source(url: str, options: dict) -> bool:
+    """Whether the source produces in real time. A live transport cannot be
+    paced (if the reader falls behind it must shed to stay current), so the
+    ``latest`` policy drops frames there. A finite or seekable source (a file, or
+    VOD over http(s)) can always be paced, so it is read losslessly even under
+    ``latest`` -- dropping a finite source's frames is pure loss (it decimates an
+    ingest's fps) with no real-time benefit. An explicit ``live`` hint forces the
+    live treatment for the rare live-over-http(s) case (HLS/DASH live)."""
+    if options.get("live"):
+        return True
+    if urlparse(url).scheme in MEDIA_SCHEMES:
+        return True
+    return options.get("source") in _LIVE_SOURCES
+
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+# Schemes whose URL is meaningless without a host, so an empty netloc is a clear
+# sign of a malformed source (e.g. a bare ``https://``).
+_HOSTED_SCHEMES = ("http", "https", "rtsp", "rtsps", "rtmp", "rtmps", "srt")
+
+
+def _clean_source(url: str) -> str:
+    """Strip and validate a media source, raising a clear :class:`MediaError`
+    before it reaches yt-dlp or av. Accepts any scheme'd URL or a local path
+    (spaces allowed); rejects an empty value, an embedded control character (a
+    multi-line paste), or a hosted-scheme URL with no host. This is the media
+    plane's own up-front hygiene, so a caller passes a raw URL straight through."""
+    if not isinstance(url, str) or not url.strip():
+        raise MediaError("media source is empty; expected a URL or a file path")
+    cleaned = url.strip()
+    if _CONTROL_CHARS.search(cleaned):
+        raise MediaError(f"malformed media source: {url!r}")
+    parsed = urlparse(cleaned)
+    if parsed.scheme in _HOSTED_SCHEMES and not parsed.netloc:
+        raise MediaError(f"malformed media source (no host): {url!r}")
+    return cleaned
 
 
 def _media_hint(form: WoTForm) -> dict:
@@ -76,7 +160,15 @@ class MediaBinding(AuthMixin):
     resolves each owner's schemes into neutral credential material (see
     :class:`AuthMixin`) and maps it onto the source with ``apply_media``;
     URL userinfo, request headers, query tokens, or TLS. No auth logic lives in
-    this transport."""
+    this transport.
+
+    Capability coverage: a media-plane binding, not a control-plane one. It
+    implements ``handles`` (claims media schemes and media-hinted forms),
+    ``frames`` (consume a video/audio stream), and ``publish`` (produce one),
+    with the shared auth layer for the stream endpoint. It deliberately does not
+    implement the control-plane methods (``read`` / ``write`` / ``subscribe`` /
+    bulk / async lifecycle); a continuous stream has no request/response surface,
+    so ``invoke`` raises and directs callers to ``frames()`` / ``publish()``."""
 
     scheme = "rtsp"
     schemes = MEDIA_SCHEMES
@@ -92,7 +184,24 @@ class MediaBinding(AuthMixin):
         allow_insecure_oauth: bool = False,
         auth: AuthRegistry | None = None,
         extra_auth: list[AuthStrategy] | None = None,
+        retry: RetryPolicy | None = None,
+        resume: str = "gap",
+        allow_file: bool = True,
+        block_private: bool = False,
+        allow_backend_options: bool = True,
     ) -> None:
+        # Source/target policy for hosts that process semi-trusted TDs:
+        #  allow_file          - permit file:// and bare local paths as a source
+        #                        (a local-ingest feature; turn off to forbid
+        #                        reading arbitrary local files),
+        #  block_private       - refuse http(s) sources on private/loopback hosts
+        #                        (off by default: a WoT camera is often on a LAN),
+        #  allow_backend_options - let call-time args set backend options such as
+        #                        cookiefile / cookies_from_browser / av_options
+        #                        (turn off so only the TD hint can).
+        self._allow_file = allow_file
+        self._block_private = block_private
+        self._allow_backend_options = allow_backend_options
         # Lazy default backends so importing this module never requires the
         # optional media dependencies.
         if backends is None:
@@ -101,12 +210,22 @@ class MediaBinding(AuthMixin):
             backends = [ExtractorBackend(), PyAVBackend()]
         if backpressure not in ("latest", "all"):
             raise ValueError("backpressure must be 'latest' or 'all'")
+        if resume not in ("gap", "seek"):
+            raise ValueError("resume must be 'gap' or 'seek'")
         self._backends = list(backends)
         self._max_queue = max(1, max_queue)
         # "latest": shed all but the newest frame when the consumer falls behind
         # (live media keeps latency low). "all": pace the source to the consumer
         # so no frame is lost (finite or lossless sources).
         self._backpressure = backpressure
+        # Reliability for a long read: on a transient error re-open the source
+        # (page sources re-resolve, since the old CDN URL is dead) and resume.
+        # "gap" continues from the fresh position (the only option for a live
+        # source, which cannot seek its edge); "seek" asks a seekable source to
+        # continue near the last pts. Pass ``RetryPolicy(retries=0)`` to disable
+        # re-opening (a transient error then surfaces immediately).
+        self._retry = RetryPolicy() if retry is None else retry
+        self._resume = resume
         self._init_auth(
             credentials=credentials,
             auth=auth,
@@ -120,6 +239,50 @@ class MediaBinding(AuthMixin):
         media hint on an otherwise http(s) form (e.g. a page resolved by an
         extractor)."""
         return form.scheme in self.schemes or bool(_media_hint(form))
+
+    # Sensitive backend options a call-time argument may not set unless the
+    # binding is configured to allow it (only the TD hint may otherwise).
+    _GUARDED_OPTIONS = ("cookiefile", "cookies_from_browser", "av_options")
+
+    def _guard_source(self, url: str) -> None:
+        """Apply the source policy: optionally forbid local files, optionally
+        refuse private/loopback network hosts. Both are off by default because a
+        WoT source is often a local file or a LAN device."""
+        scheme = urlparse(url).scheme
+        if not self._allow_file and scheme in ("", "file"):
+            raise MediaError(f"local-file media source is not allowed by policy: {url!r}")
+        if self._block_private and scheme in _HOSTED_SCHEMES:
+            from thingctx.netpolicy import is_private_host
+
+            host = urlparse(url).hostname or ""
+            if is_private_host(host):
+                raise MediaError(
+                    f"media source host {host!r} is a private or loopback address "
+                    "(blocked by policy)"
+                )
+
+    def _guarded_rest(self, rest: dict) -> dict:
+        """Drop call-time backend options the binding does not allow (only the
+        TD hint may set them then)."""
+        if self._allow_backend_options:
+            return rest
+        return {k: v for k, v in rest.items() if k not in self._GUARDED_OPTIONS}
+
+    def _confine_target(self, target: str) -> str:
+        """Confine a local output target (a bare path or ``file://``): refuse a
+        symlink, and keep it inside ``THINGCTX_DOWNLOAD_DIR`` when set. A network
+        ingest target (rtmp/http/...) passes through unchanged."""
+        import os
+        from urllib.parse import urlparse as _up
+
+        scheme = _up(str(target)).scheme
+        if scheme not in ("", "file"):
+            return target
+        from thingctx.netpolicy import confine_path
+
+        path = target[len("file://") :] if str(target).startswith("file://") else target
+        base = os.environ.get("THINGCTX_DOWNLOAD_DIR") or None
+        return str(confine_path(path, base=base))
 
     async def invoke(self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]) -> Any:
         raise TypeError(
@@ -147,10 +310,17 @@ class MediaBinding(AuthMixin):
         policy."""
         if track not in ("video", "audio"):
             raise ValueError("track must be 'video' or 'audio'")
-        url, _ = form.fill(arguments or {})
+        url, rest = form.fill(arguments or {})
+        url = _clean_source(url)
         hint = _media_hint(form)
+        self._guard_source(url)
         backend = self._pick(url, hint)
-        options = {**hint, "track": track}
+        # Call-time arguments not consumed by the href template flow to the
+        # backend (e.g. cookies_from_browser, cookiefile, format), so a static
+        # TD can take per-call options without being mutated. The explicit
+        # ``track`` and the resolved ``auth`` are reserved: they are set last so
+        # an argument cannot override them.
+        options = {**hint, **self._guarded_rest(rest), "track": track}
         # Resolve the owning Thing's declared security and hand the backend a
         # neutral auth plan; the backend maps it to its engine (URL userinfo for
         # a decoder, account login for the extractor). Absent declared security,
@@ -171,23 +341,112 @@ class MediaBinding(AuthMixin):
         arguments: dict[str, Any] | None = None,
         *,
         track: str = "video",
+        audio: AsyncIterator[Frame] | None = None,
     ) -> None:
-        """Push an async iterator of frames to the form's ingest target (a URL
-        or a file). The mirror of ``frames()``. The consumer produces frames on
-        the event loop; a worker thread encodes and muxes them off it; the two
-        are paced through a bounded queue."""
+        """Push frames to the form's ingest target (a URL or a file), the mirror
+        of ``frames()``. The consumer produces frames on the event loop; a worker
+        thread encodes and muxes them off it; the two are paced through a bounded
+        queue.
+
+        With ``audio`` supplied, ``frames`` is the video track and ``audio`` is
+        muxed alongside it into one A/V output (passthrough the source's audio,
+        or a dubbed track); the streams are synced by pts at the writer. A single
+        track publishes on its own with ``track`` (``video`` or ``audio``)."""
         if track not in ("video", "audio"):
             raise ValueError("track must be 'video' or 'audio'")
-        url, _ = form.fill(arguments or {})
+        url, rest = form.fill(arguments or {})
+        url = _clean_source(url)
+        url = self._confine_target(url)
         hint = _media_hint(form)
         backend = self._pick(url, hint)
-        options = {**hint, "track": track}
+        # Call-time arguments (minus consumed uriVariables) reach the encode
+        # backend the same way they do for frames(): a static TD can take a
+        # per-call format/codec/etc without mutation. ``track`` and ``auth`` are
+        # reserved and set last.
+        options = {**hint, **self._guarded_rest(rest), "track": track}
         creds = await self._resolve_credentials(getattr(action, "thing_id", None), form)
         if creds:
             plan = apply_media(creds)
             if plan.has_credentials:
                 options["auth"] = plan
-        await self._drain(backend.write, url, options, frames)
+        if audio is None and track == "video":
+            await self._drain(backend.write, url, options, frames)
+            return
+        # The muxed (or audio-only) path needs a backend that owns both streams
+        # in one container; it cannot be composed from two single-track writes.
+        if not hasattr(backend, "write_av"):
+            raise TypeError(f"{type(backend).__name__} has no write_av; cannot mux audio")
+        video_src = None if (track == "audio" and audio is None) else frames
+        audio_src = frames if (track == "audio" and audio is None) else audio
+        await self._drain_av(backend.write_av, url, options, video_src, audio_src)
+
+    async def save(
+        self,
+        action: WoTAction,
+        form: WoTForm,
+        target: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        track: str | None = None,
+    ) -> None:
+        """Remux the form's media source to ``target`` (a file) by stream copy:
+        the source's compressed packets are written through unchanged, so the
+        file is bit exact (same codecs, frame rate, A/V sync) with no re-encode.
+        This is the clean "save the source to a local file"; ``publish`` is the
+        re-encode path for a transform. ``track`` (``video``/``audio``) limits
+        the copy to one stream; by default every media stream is copied.
+
+        The target container must accept the source codecs (keep ``.webm`` for
+        vp9/opus, ``.mp4`` for h264/aac); an incompatible target raises."""
+        if track not in (None, "video", "audio"):
+            raise ValueError("track must be 'video', 'audio', or None")
+        url, _ = form.fill(arguments or {})
+        url = _clean_source(url)
+        self._guard_source(url)
+        target = self._confine_target(target)
+        hint = _media_hint(form)
+        backend = self._pick(url, hint)
+        if not hasattr(backend, "copy"):
+            raise TypeError(f"{type(backend).__name__} has no copy; cannot remux")
+        options = {**hint}
+        if track is not None:
+            options["track"] = track
+        creds = await self._resolve_credentials(getattr(action, "thing_id", None), form)
+        if creds:
+            plan = apply_media(creds)
+            if plan.has_credentials:
+                options["auth"] = plan
+        await self._run_copy(backend.copy, url, target, options)
+
+    async def _run_copy(self, copy, url: str, target: str, options: dict) -> None:  # noqa: ANN001
+        """Run a blocking stream-copy in a worker thread. No frame queue bridge
+        is needed (the copy is a single blocking call, not a per-frame handoff);
+        a worker error is re-raised on the event loop with credentials scrubbed,
+        and a cancellation asks the copy to stop."""
+        loop = asyncio.get_running_loop()
+        stop = threading.Event()
+        error: list[BaseException] = []
+
+        def _worker() -> None:
+            try:
+                copy(url, target, options=options, stop=stop)
+            except MediaError as exc:  # already a clear, scrubbed media error
+                error.append(exc)
+            except BaseException as exc:  # surface remux/connect errors to the caller
+                error.append(MediaError(f"{type(exc).__name__}: {redact_url(str(exc))}"))
+            finally:
+                stop.set()
+
+        thread = threading.Thread(target=_worker, name="thingctx-media-copy", daemon=True)
+        thread.start()
+        try:
+            await loop.run_in_executor(None, thread.join)
+        except BaseException:
+            stop.set()  # cancellation: ask the copy to wind down, then reap
+            await loop.run_in_executor(None, thread.join)
+            raise
+        if error:
+            raise error[0]
 
     async def _drain(self, write, target: str, options: dict, source: AsyncIterator[Frame]) -> None:
         """Bridge an async frame source to a blocking writer thread.
@@ -258,6 +517,84 @@ class MediaBinding(AuthMixin):
             if error:
                 raise error[0]
 
+    async def _drain_av(self, write_av, target: str, options: dict, video, audio) -> None:
+        """Bridge two async frame sources (video, audio; either may be None) to a
+        single blocking ``write_av`` that muxes both into one container. Each
+        track crosses on its own bounded queue; the worker pulls from both and
+        interleaves by pts. A worker error is re-raised on the event loop with
+        credentials scrubbed."""
+        import queue as _queue
+
+        loop = asyncio.get_running_loop()
+        stop = threading.Event()
+        done = object()
+        error: list[BaseException] = []
+        depth = self._max_queue
+        qv: _queue.Queue | None = _queue.Queue(maxsize=depth) if video is not None else None
+        qa: _queue.Queue | None = _queue.Queue(maxsize=depth) if audio is not None else None
+
+        def _blocking(q: _queue.Queue | None):
+            if q is None:
+                return None
+
+            def _gen() -> Any:
+                while True:
+                    item = q.get()
+                    if item is done:
+                        return
+                    yield item
+
+            return _gen()
+
+        def _worker() -> None:
+            try:
+                write_av(_blocking(qv), _blocking(qa), target, options=options, stop=stop)
+            except BaseException as exc:  # surface encode/connect errors to the caller
+                error.append(MediaError(f"{type(exc).__name__}: {redact_url(str(exc))}"))
+            finally:
+                stop.set()
+
+        def _put(q: _queue.Queue, item: Any) -> None:
+            while not stop.is_set():
+                try:
+                    q.put(item, timeout=0.1)
+                    return
+                except _queue.Full:
+                    continue
+
+        thread = threading.Thread(target=_worker, name="thingctx-media-av", daemon=True)
+        thread.start()
+
+        async def _feed(source: AsyncIterator[Frame], q: _queue.Queue) -> None:
+            sent_done = False
+            try:
+                async for frame in source:
+                    if stop.is_set():
+                        break
+                    await loop.run_in_executor(None, _put, q, frame)
+                if not stop.is_set():
+                    await loop.run_in_executor(None, q.put, done)
+                    sent_done = True
+            finally:
+                if not sent_done:
+                    with contextlib.suppress(Exception):
+                        q.put_nowait(done)
+
+        feeds = []
+        if video is not None:
+            feeds.append(_feed(video, qv))
+        if audio is not None:
+            feeds.append(_feed(audio, qa))
+        try:
+            await asyncio.gather(*feeds)
+        except BaseException:
+            stop.set()
+            raise
+        finally:
+            await loop.run_in_executor(None, thread.join)
+            if error:
+                raise error[0]
+
     async def _pump(self, read, url: str, options: dict) -> AsyncIterator[Frame]:
         """Run a blocking frame generator in a thread and yield its frames on
         the event loop.
@@ -268,7 +605,10 @@ class MediaBinding(AuthMixin):
         end-of-stream are control items that always reach the consumer.
         """
         loop = asyncio.get_running_loop()
-        drop = self._backpressure == "latest"
+        # Shed only for a live source that cannot be paced; a finite/seekable
+        # source is always read losslessly so an ingest keeps every frame (and
+        # thus the source frame rate), regardless of the policy.
+        drop = self._backpressure == "latest" and _is_live_source(url, options)
         # One slot of headroom (beyond the frame budget) reserved for a control
         # item, so end of stream or error never has to evict a pending frame, in
         # either mode.
@@ -299,20 +639,55 @@ class MediaBinding(AuthMixin):
             # The reserved slot guarantees this lands without evicting a frame.
             loop.call_soon_threadsafe(queue.put_nowait, item)
 
+        policy = self._retry
+        resume = self._resume
+
         def _worker() -> None:
-            try:
-                for frame in read(url, options=options, stop=stop):
+            attempt = 0
+            last_pts: float | None = None
+            while not stop.is_set():
+                progressed = False
+                opts = options
+                if attempt and resume == "seek" and last_pts is not None:
+                    opts = {**options, "_resume_pts": last_pts}
+                try:
+                    for frame in read(url, options=opts, stop=stop):
+                        if stop.is_set():
+                            break
+                        progressed = True
+                        if frame.pts is not None:
+                            last_pts = frame.pts
+                        _emit_frame(frame)
+                    break  # clean end of stream
+                except BaseException as exc:  # decode/connect error on the read
                     if stop.is_set():
                         break
-                    _emit_frame(frame)
-            except BaseException as exc:  # surface decode and connect errors to the consumer
-                # Re-raise as a MediaError with credentials scrubbed from the
-                # message (the engine may echo the source URL, which can carry
-                # userinfo or a token). Don't chain the original; its message
-                # and attributes can hold the unredacted URL.
-                _emit_control(MediaError(f"{type(exc).__name__}: {redact_url(str(exc))}"))
-            finally:
-                _emit_control(done)
+                    # A read that produced frames before failing earned a fresh
+                    # retry budget, so a minutes-long stream is not capped by a
+                    # hiccup early on.
+                    if progressed:
+                        attempt = 0
+                    if _is_transient_media(exc) and attempt < policy.retries:
+                        time.sleep(policy.delay(attempt))
+                        attempt += 1
+                        continue  # re-open: page sources re-resolve a fresh URL
+                    if _is_transient_media(exc):  # retries spent: normalized error
+                        _emit_control(
+                            TransportError(
+                                "STREAM",
+                                redact_url(url),
+                                status=_media_status(exc),
+                                attempts=attempt + 1,
+                                detail=redact_url(str(exc)),
+                            )
+                        )
+                        break
+                    # Fatal: surface a MediaError with credentials scrubbed from
+                    # the message (the engine may echo the source URL). Don't
+                    # chain the original; its message can hold the unredacted URL.
+                    _emit_control(MediaError(f"{type(exc).__name__}: {redact_url(str(exc))}"))
+                    break
+            _emit_control(done)
 
         thread = threading.Thread(target=_worker, name="thingctx-media", daemon=True)
         thread.start()
