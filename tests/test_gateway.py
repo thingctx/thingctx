@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """The gateway projection: a constant six-verb surface over any fleet size.
 
 The guarantees under test:

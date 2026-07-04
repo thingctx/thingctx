@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Gateway projection: a constant tool surface over any number of Things.
 
 The flat projection (:func:`thingctx.thing.actions_to_tools`) gives a model one
