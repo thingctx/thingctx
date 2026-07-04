@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Parser coverage for the W3C WoT Thing Description 1.1 information model.
 
 A single maximal Thing Description exercises every modeled construct, and is

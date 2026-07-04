@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """ExecBinding: drive a local subprocess as a transport.
 
 An ``exec://`` form runs a program and returns its exit code and captured

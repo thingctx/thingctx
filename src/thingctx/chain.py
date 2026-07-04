@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Response chaining: drive a follow-up call from an action's response.
 
 A common shape across REST APIs is handle-then-act: one call returns the address

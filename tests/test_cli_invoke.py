@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """The shell half of the bridge: ``thingctx list`` / ``thingctx invoke``.
 
 These cover the CLI's own logic , argv parsing, body assembly, the trust

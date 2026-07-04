@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Full functional TD 1.1 coverage: the runtime drives gzip content-coding,
 bulk property ops, the async action lifecycle, filtered subscriptions, the
 declared error response, and semantic validation, end to end against the

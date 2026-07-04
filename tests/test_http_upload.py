@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """HTTP binding request bodies (binary/form/multipart).
 
 Three layers:

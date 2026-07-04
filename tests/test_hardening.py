@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Abuse-case coverage for the safety guardrails: URL/scheme policy, download
 and Thing-Description size caps, path confinement, OAuth transport security,
 token-store symlink handling, and credential redaction in transport errors."""

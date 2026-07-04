@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Stream-copy (remux) ingest: ``save`` writes the source's compressed packets
 to a file without decoding, so the output is bit exact (same codecs, exact frame
 rate and frame count, A/V in sync) with no re-encode.

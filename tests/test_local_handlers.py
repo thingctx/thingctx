@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """In-process handlers for the binary: a local:// Thing becomes callable when
 its handler is advertised through the thingctx.local_handlers entry point group,
 and several in-process Things keep distinct handlers despite colliding names."""

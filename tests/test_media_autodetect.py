@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Auto-detection (direct stream vs page) and source validation in the media
 plane, so a caller needs one "save this URL" affordance and no routing or URL
 hygiene of its own. All offline: routing and validation are pure decisions, no

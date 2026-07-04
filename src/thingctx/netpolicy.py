@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Shared URL and filesystem guardrails for third-party input.
 
 A Thing Description is third-party input: its form hrefs, and the arguments an

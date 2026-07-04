@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Abuse-case coverage for OAuth transport security, token-store symlink
 handling, and Thing-Description size caps on the file registry."""
 

@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Async action lifecycle: a small handle for a long-running invocation.
 
 WoT TD 1.1 models a long-running action with ``synchronous: false`` and the

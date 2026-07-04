@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Response chaining engine.
 
 Offline, via httpx MockTransport mounted on the binding's pooled client. Covers

@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """The HTTP binding must preserve a query string declared in a form href.
 
 httpx drops a URL's existing query as soon as ``params=`` is passed, and the

@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """The default registry (source-free CLI) and the shipped driver skill.
 
 Covers source resolution in thingctx.registry plus the `thingctx registry` and

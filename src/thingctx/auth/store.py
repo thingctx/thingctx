@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Durable storage for long-lived OAuth refresh tokens.
 
 A refresh token outlives the process, so the in-memory access-token cache

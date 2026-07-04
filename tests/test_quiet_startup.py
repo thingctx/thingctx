@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Quiet-by-default startup: client_from_registry only logs bound local handlers
 when asked, so a piped `thingctx list`/`invoke` is clean. Plus the driver skill's
 legibility guidance ships."""

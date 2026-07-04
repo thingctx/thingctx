@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """The exec binding: an exec:// form runs a local program as an argv list (no
 shell), filling {var} tokens from the action arguments and reporting exit code
 and output."""

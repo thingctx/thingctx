@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Media reliability: transient classification, retry/resume on read, the
 normalized TransportError, and muxed A/V publish."""
 

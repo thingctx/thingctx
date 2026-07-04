@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Property-style round-trip matrix for the media plane: generate synthetic
 clips with ffmpeg across the axes that break re-encoders (frame rate, VFR, audio
 rate, single-track), run a ``frames() -> publish()`` round trip, and assert the

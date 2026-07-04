@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """User-consent OAuth: authorization-code provider, token store, PKCE consent."""
 
 from __future__ import annotations

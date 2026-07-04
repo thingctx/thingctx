@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """One-time, interactive OAuth2 authorization-code consent (RFC 6749 + PKCE).
 
 This is the out-of-band half of user-authorized OAuth: a human grants access in

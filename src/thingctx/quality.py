@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Output quality: a reserved slot for a capability's verdict on its own output.
 
 An action can return a 2xx with schema-valid output that the *capability* knows
