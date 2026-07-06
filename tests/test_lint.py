@@ -68,6 +68,44 @@ def test_invalid_tool_name_is_an_error():
     assert any(f.rule == "invalid_tool_name" and f.severity == "error" for f in findings)
 
 
+def test_thin_namespace_notice_for_opaque_thing_id():
+    for thing_id in ("urn:demo:x", "urn:demo:t1"):
+        td = {
+            "@context": "https://www.w3.org/2022/wot/td/v1.1",
+            "@type": "saref:Device",
+            "id": thing_id,
+            "title": "Opaque device",
+            "actions": {
+                "set_speed": {
+                    "@type": "saref:SetLevelCommand",
+                    "description": "Set the target rotational speed.",
+                    "safe": True,
+                    "forms": [{"href": "https://d/set"}],
+                }
+            },
+        }
+        findings = lint_td(td)
+        assert any(f.rule == "thin_namespace" and f.severity == "notice" for f in findings)
+
+
+def test_thin_namespace_does_not_flag_meaningful_short_names():
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "@type": "saref:Pump",
+        "id": "urn:demo:db:v1",
+        "title": "Pump",
+        "actions": {
+            "set_speed": {
+                "@type": "saref:SetLevelCommand",
+                "description": "Set the target rotational speed.",
+                "safe": True,
+                "forms": [{"href": "https://d/set"}],
+            }
+        },
+    }
+    assert "thin_namespace" not in _rules(td)
+
+
 def test_empty_parameters_flagged():
     td = {
         "id": "urn:demo:x",

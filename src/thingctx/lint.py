@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from thingctx.thing import _tool_name
+
 # The tool-name charset the OpenAI/Anthropic function-calling APIs accept.
 # ``_tool_name`` in thing.py keeps ``. _ -`` in the slug; a name outside this
 # set is silently rejected by a provider at call time, so flag it here.
@@ -40,6 +42,7 @@ _SINGLE_TOKEN = re.compile(r"^\S+$")
 # a credential in ``htv:headers`` is the one thing the security posture forbids.
 _CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
 _CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.I)
+_THIN_NAMESPACE = re.compile(r"^(?:[a-z]\d?|[tx]\d+)$", re.I)
 
 _MIN_DESCRIPTION = 8  # a description under this many characters carries no meaning
 
@@ -71,6 +74,7 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
 
     _lint_id(td, out)
     _lint_thing_type(td, out)
+    _lint_tool_namespace(td, out)
 
     for kind in ("actions", "properties", "events"):
         for name, aff in (td.get(kind) or {}).items():
@@ -121,6 +125,25 @@ def _lint_thing_type(td: dict[str, Any], out: list[LintFinding]) -> None:
                 "Thing has no @type; W3C WoT Discovery typed search cannot find it.",
             )
         )
+
+
+def _lint_tool_namespace(td: dict[str, Any], out: list[LintFinding]) -> None:
+    tid = td.get("id") or td.get("@id") or td.get("title", "thing")
+    for kind in ("actions", "properties", "events"):
+        for name, aff in (td.get(kind) or {}).items():
+            if not isinstance(aff, dict):
+                continue
+            namespace = _tool_name(tid, name).split(".", 1)[0]
+            if len(namespace) == 1 or _THIN_NAMESPACE.match(namespace):
+                out.append(
+                    LintFinding(
+                        "notice",
+                        f"{kind}/{name}",
+                        "thin_namespace",
+                        f"projected tool namespace {namespace!r} is too thin to help a model "
+                        "group this Thing's tools. Prefer a meaningful device or service id.",
+                    )
+                )
 
 
 def _lint_affordance_name(kind: str, name: str, base: str, out: list[LintFinding]) -> None:
