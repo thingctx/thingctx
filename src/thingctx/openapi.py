@@ -24,7 +24,29 @@ from typing import Any
 TD_CONTEXT = "https://www.w3.org/2022/wot/td/v1.1"
 HTV = "http://www.w3.org/2011/http#"
 _HTTP_METHODS = ("get", "put", "post", "delete", "patch")
-_KEEP_KEYS = ("type", "description", "enum", "format", "default")
+# Kept from a vendor schema: the descriptive keys plus the constraint keys that
+# are argument correctness (a model that respects minimum/maximum/pattern forms
+# a valid call), not decoration.
+_KEEP_KEYS = (
+    "type",
+    "description",
+    "enum",
+    "format",
+    "default",
+    "minimum",
+    "maximum",
+    "pattern",
+)
+
+# A header carrying a secret must never be written into a TD (a TD is meant to
+# be committed and shared; the invoker holds secrets at call time).
+_CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
+_CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.I)
+
+
+def _is_credential_header(field_name: str) -> bool:
+    low = field_name.lower()
+    return low in _CREDENTIAL_HEADERS or bool(_CREDENTIAL_HINT.search(low))
 
 
 def _resolve_ref(spec: dict, ref: str) -> dict:
@@ -74,10 +96,29 @@ def _slim(spec: dict, schema: Any, depth: int = 0) -> dict:
     return out
 
 
-def _input_schema(spec: dict, op: dict) -> dict | None:
+def _required_headers(spec: dict, op: dict) -> list[str]:
+    """Names of the operation's required ``in: header`` parameters, excluding
+    credential-shaped ones (a secret never enters a TD). These become declared
+    ``htv:headers`` on the form; the value is supplied at call time."""
+    out: list[str] = []
+    for p in op.get("parameters", []):
+        p = _deref(spec, p)
+        if p.get("in") != "header" or not p.get("required"):
+            continue
+        field = p.get("name", "")
+        if field and not _is_credential_header(field):
+            out.append(field)
+    return out
+
+
+def _input_schema(
+    spec: dict, op: dict, body_fields: list[str] | None = None
+) -> tuple[dict | None, str | None]:
     """Build the action input JSON Schema from an operation's path/query
     parameters and (if present) its JSON or form-encoded request body. Returns
-    None when the operation takes no input."""
+    ``(schema, content_type)``: schema is None when the operation takes no
+    input; content_type is the request body's media type (or None when there
+    is no body). ``body_fields`` limits the body properties kept (an override)."""
     props: dict[str, Any] = {}
     required: list[str] = []
 
@@ -93,25 +134,53 @@ def _input_schema(spec: dict, op: dict) -> dict | None:
         if p.get("required") or p.get("in") == "path":
             required.append(p["name"])
 
+    content_type: str | None = None
     body = _deref(spec, op.get("requestBody")) if op.get("requestBody") else None
     if body:
         content = body.get("content", {})
-        media = (
-            content.get("application/json")
-            or content.get("application/x-www-form-urlencoded")
-            or {}
-        )
+        # Derive the form contentType from the request body media key rather
+        # than assuming JSON: a form-encoded API needs the right content type or
+        # the request is malformed.
+        if "application/json" in content:
+            content_type, media = "application/json", content["application/json"]
+        elif "application/x-www-form-urlencoded" in content:
+            content_type, media = (
+                "application/x-www-form-urlencoded",
+                content["application/x-www-form-urlencoded"],
+            )
+        else:
+            content_type, media = (next(iter(content), None), next(iter(content.values()), {}))
         bschema = _deref(spec, media.get("schema", {}))
         for name, sub in (bschema.get("properties") or {}).items():
+            if body_fields is not None and name not in body_fields:
+                continue
             props[name] = _slim(spec, sub)
-        required += [r for r in bschema.get("required", []) if r not in required]
+        required += [
+            r
+            for r in bschema.get("required", [])
+            if r not in required and (body_fields is None or r in body_fields)
+        ]
 
     if not props:
-        return None
+        return None, content_type
     out: dict[str, Any] = {"type": "object", "properties": props}
     if required:
         out["required"] = required
-    return out
+    return out, content_type
+
+
+def _output_schema(spec: dict, op: dict) -> dict | None:
+    """The slimmed schema of the operation's success (2xx) JSON response, or
+    None when it declares no JSON response body."""
+    responses = op.get("responses") or {}
+    for code in list(responses):
+        if not (code == "default" or str(code).startswith("2")):
+            continue
+        resp = _deref(spec, responses[code])
+        media = (resp.get("content") or {}).get("application/json")
+        if media and media.get("schema"):
+            return _slim(spec, media["schema"])
+    return None
 
 
 def _safe(method: str) -> bool:
@@ -189,6 +258,9 @@ def from_openapi(
     title: str | None = None,
     security: dict | None = None,
     include: Callable[[str, str, str], bool] | list[str] | None = None,
+    overrides: dict[str, dict] | None = None,
+    headers: dict[str, str] | None = None,
+    outputs: bool = False,
 ) -> dict:
     """Compile an OpenAPI 3.x ``spec`` (a dict) into a WoT TD 1.1 dict.
 
@@ -200,7 +272,20 @@ def from_openapi(
     include    keep an operation if the predicate ``(name, method, path)`` is
                true, or if its operationId/name is in the given list. Default:
                keep every operation.
+    overrides  per-operation curation, keyed by ``"METHOD /path"`` (e.g.
+               ``"POST /charges"``). Each value may set ``name``, ``description``,
+               and ``body_fields`` (the request-body properties to keep). Keying
+               by operation, not by generated tool name, so the caller need not
+               reproduce the naming rules.
+    headers    fixed header values applied to every operation's form as declared
+               ``htv:headers``. A credential-shaped header name is refused, since
+               a secret must not enter a TD.
+    outputs    when True, emit an ``output`` schema from each operation's success
+               response. Experimental: it changes what a model sees per call, so
+               it is off by default until measured.
     """
+    overrides = overrides or {}
+    fixed_headers = {k: v for k, v in (headers or {}).items() if not _is_credential_header(k)}
     info = spec.get("info") or {}
     title = title or info.get("title") or "OpenAPI Thing"
     base = (base_url or _server_url(spec)).rstrip("/")
@@ -231,11 +316,25 @@ def from_openapi(
             name = _action_name(op, method, path)
             if not keep(name, method, path):
                 continue
+            ov = overrides.get(f"{method.upper()} {path}", {})
+            if ov.get("name"):
+                name = ov["name"]
+            inp, body_ct = _input_schema(spec, op, body_fields=ov.get("body_fields"))
             form: dict[str, Any] = {
                 "href": base + path,
                 "htv:methodName": method.upper(),
-                "contentType": "application/json",
+                # Content type follows the request body's media key; default to
+                # JSON only when the operation declares no body.
+                "contentType": body_ct or "application/json",
             }
+            hdrs = _required_headers(spec, op)
+            declared = {h: None for h in hdrs}
+            declared.update(fixed_headers)
+            if declared:
+                form["htv:headers"] = [
+                    {"htv:fieldName": fn, **({"htv:fieldValue": fv} if fv is not None else {})}
+                    for fn, fv in declared.items()
+                ]
             # An operation may override the Thing-level security; carry that
             # onto the form so the generated TD authenticates per-operation.
             op_sec = _op_security(op, defs)
@@ -247,14 +346,20 @@ def from_openapi(
                     needs_nosec = True
             action: dict[str, Any] = {
                 "title": name,
-                "description": op.get("summary") or op.get("description") or name,
+                "description": ov.get("description")
+                or op.get("summary")
+                or op.get("description")
+                or name,
                 "safe": _safe(method),
                 "idempotent": _safe(method) or method in ("put", "delete"),
                 "forms": [form],
             }
-            inp = _input_schema(spec, op)
             if inp:
                 action["input"] = inp
+            if outputs:
+                out_schema = _output_schema(spec, op)
+                if out_schema:
+                    action["output"] = out_schema
             # De-dup operationId collisions across paths.
             key = name if name not in actions else f"{method}_{name}"
             actions[key] = action
