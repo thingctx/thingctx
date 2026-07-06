@@ -1,0 +1,4 @@
+# Every change requires review from the maintainer.
+# CODEOWNERS is the review-authority gate: with require_code_owner_review
+# on, only an approval from an owner listed here satisfies the rule.
+*       @zasherif
