@@ -45,8 +45,8 @@ def test_a_clean_td_produces_no_findings():
 
 def test_thin_description_and_generated_name():
     td = {
-        "id": "urn:demo:x",
-        "title": "X",
+        "id": "urn:demo:myapp",
+        "title": "MyApp",
         "actions": {
             # no description, no title -> thin; name looks importer-generated
             "get_users_id": {"forms": [{"href": "https://d/u"}]},
@@ -59,8 +59,8 @@ def test_thin_description_and_generated_name():
 
 def test_invalid_tool_name_is_an_error():
     td = {
-        "id": "urn:demo:x",
-        "title": "X",
+        "id": "urn:demo:myapp",
+        "title": "MyApp",
         # a slash-shaped name (GitHub-style) is outside the accepted charset
         "actions": {"repos/get": {"description": "Get a repo.", "forms": [{"href": "https://d"}]}},
     }
@@ -70,8 +70,8 @@ def test_invalid_tool_name_is_an_error():
 
 def test_empty_parameters_flagged():
     td = {
-        "id": "urn:demo:x",
-        "title": "X",
+        "id": "urn:demo:myapp",
+        "title": "MyApp",
         "actions": {
             "do_it": {
                 "description": "Do the thing now.",
@@ -86,8 +86,8 @@ def test_empty_parameters_flagged():
 
 def test_credential_shaped_header_is_an_error():
     td = {
-        "id": "urn:demo:x",
-        "title": "X",
+        "id": "urn:demo:myapp",
+        "title": "MyApp",
         "actions": {
             "call": {
                 "description": "Call the endpoint.",
@@ -128,8 +128,8 @@ def test_url_shaped_id_and_missing_types():
 
 def test_unmarked_risk_notice():
     td = {
-        "id": "urn:demo:x",
-        "title": "X",
+        "id": "urn:demo:myapp",
+        "title": "MyApp",
         "actions": {
             # no safe, no idempotent, no tc: marking
             "reboot": {"description": "Reboot the device.", "forms": [{"href": "https://d"}]}
@@ -138,6 +138,52 @@ def test_unmarked_risk_notice():
     assert "unmarked_risk" in _rules(td)
 
 
+def test_thin_namespace_flagged_for_short_id():
+    td = {
+        "id": "x",
+        "title": "X",
+        "actions": {
+            "do_it": {
+                "description": "Do the thing.",
+                "safe": True,
+                "forms": [{"href": "https://d"}],
+            }
+        },
+    }
+    rules = _rules(td)
+    assert "thin_namespace" in rules
+
+
+def test_thin_namespace_clean_for_normal_id():
+    td = {
+        "id": "urn:demo:pump:v1",
+        "title": "Pump",
+        "actions": {
+            "set_speed": {
+                "description": "Set the speed.",
+                "safe": True,
+                "forms": [{"href": "https://d"}],
+            }
+        },
+    }
+    assert "thin_namespace" not in _rules(td)
+
+
+def test_thin_namespace_flagged_for_two_char_id():
+    td = {
+        "id": "urn:t1",
+        "title": "T1",
+        "actions": {
+            "read": {
+                "description": "Read value.",
+                "safe": True,
+                "forms": [{"href": "https://d"}],
+            }
+        },
+    }
+    assert "thin_namespace" in _rules(td)
+
+
 def test_findings_are_advice_never_an_exception():
     # a sparse but well-formed dict lints without raising
-    assert isinstance(lint_td({"id": "urn:x", "title": "X"}), list)
+    assert isinstance(lint_td({"id": "urn:myapp", "title": "MyApp"}), list)

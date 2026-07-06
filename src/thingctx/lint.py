@@ -70,6 +70,7 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
     out: list[LintFinding] = []
 
     _lint_id(td, out)
+    _lint_thin_namespace(td, out)
     _lint_thing_type(td, out)
 
     for kind in ("actions", "properties", "events"):
@@ -95,6 +96,16 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
     return out
 
 
+def _slug_from_id(thing_id: str) -> str:
+    """Extract the namespace slug from a Thing id (same logic as
+    ``_tool_name`` in thing.py)."""
+    parts = [p for p in str(thing_id).split(":") if p]
+    if len(parts) >= 2 and parts[-1].lower().lstrip("v").isdigit():
+        parts = parts[:-1]
+    slug = parts[-1] if parts else str(thing_id)
+    return "".join(c if (c.isalnum() or c in "._-") else "-" for c in slug)
+
+
 def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
     tid = td.get("id") or td.get("@id")
     if isinstance(tid, str) and tid.startswith(("http://", "https://")):
@@ -107,6 +118,23 @@ def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
                 "url_shaped_id",
                 "id is a URL; the tool-name prefix is derived from its last path "
                 "segment and may collide. Prefer a urn: id.",
+            )
+        )
+
+
+def _lint_thin_namespace(td: dict[str, Any], out: list[LintFinding]) -> None:
+    tid = td.get("id") or td.get("@id")
+    if not isinstance(tid, str):
+        return
+    slug = _slug_from_id(tid)
+    if len(slug) <= 2:
+        out.append(
+            LintFinding(
+                "notice",
+                "id",
+                "thin_namespace",
+                f"Thing id {tid!r} projects to a {len(slug)}-character namespace "
+                f"({slug!r}); a model cannot group tools by a namespace this short.",
             )
         )
 
