@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from thingctx.thing import _tool_name
+
 # The tool-name charset the OpenAI/Anthropic function-calling APIs accept.
 # ``_tool_name`` in thing.py keeps ``. _ -`` in the slug; a name outside this
 # set is silently rejected by a provider at call time, so flag it here.
@@ -40,6 +42,12 @@ _SINGLE_TOKEN = re.compile(r"^\S+$")
 # a credential in ``htv:headers`` is the one thing the security posture forbids.
 _CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
 _CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.I)
+
+# Namespace slugs that are too thin to help a model group tools.
+# Single-letter slugs are always unusable. ``t1``, ``x999``, ``a1`` are
+# clearly placeholder- or example-shaped. Deliberately conservative:
+# a short but meaningful abbreviation like ``db`` is not flagged.
+_THIN_NAMESPACE = re.compile(r"^(?:[a-z]\d?|[tx]\d+)$", re.I)
 
 _MIN_DESCRIPTION = 8  # a description under this many characters carries no meaning
 
@@ -97,13 +105,9 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
 
 
 def _slug_from_id(thing_id: str) -> str:
-    """Extract the namespace slug from a Thing id (same logic as
-    ``_tool_name`` in thing.py)."""
-    parts = [p for p in str(thing_id).split(":") if p]
-    if len(parts) >= 2 and parts[-1].lower().lstrip("v").isdigit():
-        parts = parts[:-1]
-    slug = parts[-1] if parts else str(thing_id)
-    return "".join(c if (c.isalnum() or c in "._-") else "-" for c in slug)
+    """Extract the namespace slug from a Thing id (delegates to
+    ``_tool_name`` in thing.py for the canonical slug logic)."""
+    return _tool_name(thing_id, "_").rsplit(".", 1)[0]
 
 
 def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
@@ -127,14 +131,15 @@ def _lint_thin_namespace(td: dict[str, Any], out: list[LintFinding]) -> None:
     if not isinstance(tid, str):
         return
     slug = _slug_from_id(tid)
-    if len(slug) <= 2:
+    if len(slug) == 1 or _THIN_NAMESPACE.match(slug):
         out.append(
             LintFinding(
                 "notice",
                 "id",
                 "thin_namespace",
-                f"Thing id {tid!r} projects to a {len(slug)}-character namespace "
-                f"({slug!r}); a model cannot group tools by a namespace this short.",
+                f"Thing id {tid!r} projects to a thin namespace {slug!r}; a model "
+                "cannot group tools by a namespace this short. Prefer a meaningful "
+                "device or service id.",
             )
         )
 

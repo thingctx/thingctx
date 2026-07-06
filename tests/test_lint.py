@@ -184,6 +184,23 @@ def test_thin_namespace_flagged_for_two_char_id():
     assert "thin_namespace" in _rules(td)
 
 
+def test_thin_namespace_does_not_flag_meaningful_short_name():
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "@type": "saref:Pump",
+        "id": "urn:demo:db:v1",
+        "title": "Database",
+        "actions": {
+            "query": {
+                "description": "Run a query.",
+                "safe": True,
+                "forms": [{"href": "https://d/query"}],
+            }
+        },
+    }
+    assert "thin_namespace" not in _rules(td)
+
+
 def test_findings_are_advice_never_an_exception():
     # a sparse but well-formed dict lints without raising
     assert isinstance(lint_td({"id": "urn:myapp", "title": "MyApp"}), list)
