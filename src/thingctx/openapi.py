@@ -87,6 +87,14 @@ def _input_schema(spec: dict, op: dict) -> dict | None:
             continue
         schema = _deref(spec, p.get("schema", {"type": "string"}))
         entry = {k: schema[k] for k in ("type", "enum", "format") if k in schema}
+        # An array parameter carries its allowed values in items (e.g. an enum
+        # of legal names). Dropping items leaves the model guessing at valid
+        # entries, so keep the slimmed item schema.
+        if schema.get("type") == "array" and isinstance(schema.get("items"), dict):
+            item = _deref(spec, schema["items"])
+            entry["items"] = {k: item[k] for k in ("type", "enum", "format") if k in item} or {
+                "type": "string"
+            }
         if p.get("description"):
             entry["description"] = p["description"]
         props[p["name"]] = entry or {"type": "string"}

@@ -184,3 +184,37 @@ def test_generated_apikey_td_is_w3c_valid():
         "paths": {"/ping": {"get": {"operationId": "ping"}}},
     }
     assert validate_td(from_openapi(spec)) == []
+
+
+def test_array_parameter_keeps_its_items_enum():
+    # An array query param carries legal values in items.enum; the importer
+    # must keep them or the model guesses invalid entries.
+    spec = {
+        "openapi": "3.0.0",
+        "info": {"title": "Weather"},
+        "servers": [{"url": "https://api.w.test"}],
+        "paths": {
+            "/forecast": {
+                "get": {
+                    "operationId": "forecast",
+                    "parameters": [
+                        {
+                            "name": "daily",
+                            "in": "query",
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["temperature_2m_max", "precipitation_sum"],
+                                },
+                            },
+                        }
+                    ],
+                }
+            }
+        },
+    }
+    td = from_openapi(spec)
+    daily = td["actions"]["forecast"]["input"]["properties"]["daily"]
+    assert daily["type"] == "array"
+    assert daily["items"]["enum"] == ["temperature_2m_max", "precipitation_sum"]
