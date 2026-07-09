@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""Live test harness: drive a fleet through MqttGateway on Azure Event Grid's
-MQTT broker.
+"""Live test harness: drive a fleet through the Gateway engine on Azure Event
+Grid's MQTT broker.
 
 This is a RUNNABLE SCRIPT, not a pytest. It stands up an in-process demo Thing (a
 pump with a read+write property and an action) behind a LocalBinding, puts it on
-the Event Grid MQTT broker with an ``MqttGateway``, then acts as a plain consumer
-with a stock ``MqttBinding`` pointed at the SAME broker and drives the Thing over
-the bus, asserting the round-trip.
+the Event Grid MQTT broker with a ``Gateway`` over an ``MqttGatewayBinding``, then
+acts as a plain consumer with a stock ``MqttBinding`` pointed at the SAME broker
+and drives the Thing over the bus, asserting the round-trip.
 
 It configures the two hard parts of an Event Grid connection for you:
 
@@ -51,9 +51,10 @@ _SRC = Path(__file__).resolve().parents[2] / "src"
 if _SRC.is_dir():
     sys.path.insert(0, str(_SRC))
 
-from thingctx import LocalBinding, ThingClient, parse_thing  # noqa: E402
+from thingctx import LocalBinding, ThingClient  # noqa: E402
 from thingctx.bindings import MqttBinding  # noqa: E402
-from thingctx.integrations.mqtt_gateway import MqttGateway  # noqa: E402
+from thingctx.gateways import Gateway  # noqa: E402
+from thingctx.gateways.builtin.mqtt import MqttGatewayBinding  # noqa: E402
 
 EVENT_GRID_PORT = 8883  # Event Grid MQTT is TLS-only on 8883; there is no 1883.
 THING_ID = "urn:demo:pump:v1"
@@ -107,11 +108,11 @@ class Pump:
         return {"ok": True, "target_rpm": self._target_rpm}
 
 
-class EventGridGateway(MqttGateway):
-    """MqttGateway that configures its paho client for Event Grid: a client_id
-    equal to the registered auth name, TLS with system roots, and an X.509 client
-    certificate. The base class calls this hook after building the paho client and
-    before ``connect``, which is exactly where these must be set."""
+class EventGridGatewayBinding(MqttGatewayBinding):
+    """MqttGatewayBinding that configures its paho client for Event Grid: a
+    client_id equal to the registered auth name, TLS with system roots, and an
+    X.509 client certificate. The base driver calls this hook after building the
+    paho client and before ``connect``, which is exactly where these must be set."""
 
     def __init__(self, *args, client_id: str, certfile: str, keyfile: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -119,12 +120,12 @@ class EventGridGateway(MqttGateway):
         self._eg_certfile = certfile
         self._eg_keyfile = keyfile
 
-    def _configure_hook(self, paho) -> None:  # noqa: ANN001
+    def configure(self, paho) -> None:  # noqa: ANN001
         # Event Grid requires the MQTT client_id to equal the registered client
         # authentication name. paho fixes client_id at construction; reinitialise
         # rewrites it on the existing MQTTv5 client without a clean_session arg.
         paho.reinitialise(client_id=self._eg_client_id)
-        # reinitialise resets the callbacks the base class already wired; restore
+        # reinitialise resets the callbacks the base driver already wired; restore
         # the on_message handler so inbound bus messages still reach the gateway.
         paho.on_message = self._on_message
         # TLS to the broker (system CA roots) + mutual TLS with the client cert.
@@ -152,7 +153,7 @@ def _tls_client_factory(client_id: str, certfile: str, keyfile: str):
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="run_eventgrid.py",
-        description="Live-test MqttGateway against Azure Event Grid's MQTT broker.",
+        description="Live-test the Gateway engine against Azure Event Grid's MQTT broker.",
     )
     # Every real value is a flag with an env-var fallback; none has a default that
     # could silently point at a real endpoint. Fail-closed is enforced below.
@@ -224,22 +225,23 @@ def _require(args: argparse.Namespace) -> list[str]:
     return missing
 
 
-def _build_gateway(args: argparse.Namespace, *, live: bool) -> EventGridGateway:
-    """Construct the fleet's native ThingClient and the Event Grid gateway over
-    it. Identical for dry-run and live; only ``start`` differs."""
+def _build_gateway(args: argparse.Namespace, *, live: bool) -> Gateway:
+    """Construct the fleet's native ThingClient and the Gateway (over an Event
+    Grid north binding) that re-serves it. Identical for dry-run and live; only
+    ``start`` differs."""
     broker = f"{args.host or 'DRY-RUN-NO-HOST'}:{args.port}"
     native = ThingClient(tds=[DEMO_TD], bindings=[LocalBinding(Pump())])
     # For dry-run, cert/key may be absent; pass through whatever we have so the
     # object builds. start() is never called on the dry-run path, so no file is
     # ever opened.
-    return EventGridGateway(
-        native,
-        broker=broker,
+    north = EventGridGatewayBinding(
+        broker,
         prefix=args.prefix,
         client_id=args.gateway_client_id or "DRY-RUN-GATEWAY",
         certfile=args.cert or "",
         keyfile=args.key or "",
     )
+    return Gateway(native, north)
 
 
 def _build_consumer(args: argparse.Namespace, projected_td: dict) -> ThingClient:
@@ -262,11 +264,18 @@ def _build_consumer(args: argparse.Namespace, projected_td: dict) -> ThingClient
 def _dry_projected(args: argparse.Namespace) -> dict:
     """Project the mqtt-faced TD offline, exactly as the gateway's start() would,
     so both the plan print and the dry-run consumer use the real projected shape
-    without any network."""
-    from thingctx.integrations.mqtt_gateway import project_mqtt_td
+    without any network.
 
-    broker = f"{args.host or '<host>'}:{args.port}"
-    return project_mqtt_td(parse_thing(DEMO_TD), broker=broker, prefix=args.prefix)
+    start() populates ``projected_tds`` as part of connecting; to get the same
+    shape without a broker, build the Gateway and run only its per-Thing
+    projection (no serve, no socket), then read the single slug's TD."""
+    from thingctx.gateways.north import _slug
+
+    gw = _build_gateway(args, live=False)
+    for thing in gw.client.things:
+        gw._projected[_slug(thing)] = gw._project(thing)
+    slug = next(iter(gw.projected_tds))
+    return gw.projected_tds[slug]
 
 
 def _print_plan(args: argparse.Namespace) -> None:
@@ -311,7 +320,9 @@ async def _run_live(args: argparse.Namespace) -> int:
             f"Connecting gateway (client_id={args.gateway_client_id}) to "
             f"{args.host}:{args.port} over TLS ..."
         )
-        await gateway.start(host=args.host, port=args.port)
+        # The broker string (host:port) was passed to the north binding; start()
+        # projects the fleet and serves it. No host/port args here.
+        await gateway.start()
         # The projected TD the gateway now serves; the consumer drives THIS.
         slug = next(iter(gateway.projected_tds))
         projected_td = gateway.projected_tds[slug]

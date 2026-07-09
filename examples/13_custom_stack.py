@@ -11,11 +11,13 @@ you learn for one applies to the rest. For each:
     * a conformance kit checks the runtime behaviour a type checker cannot.
 
     Part        Contract              Optional base   Conformance kit
-    transport   ProtocolBinding       AuthMixin (*)   assert_binding_contract
+    transport   ProtocolBinding          AuthMixin (*)   assert_binding_contract
     auth        CredentialProvider    BaseAuth        assert_provider_contract
     discovery   Registry              -               assert_registry_contract
     media       MediaBackend          -               assert_media_backend_contract
     (*) only when the transport authenticates.
+
+``ProtocolBinding`` names the device-facing side of a transport.
 
 The built-in http / mqtt / media / local bindings implement these same contracts;
 an out-of-tree package uses these exact APIs plus the entry-point discovery shown

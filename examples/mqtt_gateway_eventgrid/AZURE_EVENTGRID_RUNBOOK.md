@@ -1,9 +1,9 @@
-# Live test: MqttGateway against Azure Event Grid's MQTT broker
+# Live test: the Gateway engine against Azure Event Grid's MQTT broker
 
 This runbook takes you from an empty Azure subscription to a green run of
 `run_eventgrid.py`. The script puts an in-process demo Thing on the Event Grid
-MQTT broker with `MqttGateway`, then drives it back over the bus as a plain
-consumer and asserts a write / read / invoke round-trip.
+MQTT broker with a `Gateway` over an `MqttGatewayBinding`, then drives it back over
+the bus as a plain consumer and asserts a write / read / invoke round-trip.
 
 ## Read this first (safety)
 

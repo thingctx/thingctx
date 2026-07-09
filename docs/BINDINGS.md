@@ -14,10 +14,12 @@ run time, keep your package private if you wish, and never fork.
 
 | Part            | Contract                          | Optional base | Register with                   | Discover         | Conformance |
 | --------------- | --------------------------------- | ------------- | ------------------------------- | ---------------- | ----------- |
-| Transport       | `ProtocolBinding`                 | `AuthMixin` (if it authenticates) | `BindingRegistry` / `bindings=` | `discover_bindings()` | `assert_binding_contract` |
+| Transport       | `ProtocolBinding`                    | `AuthMixin` (if it authenticates) | `BindingRegistry` / `bindings=` | `discover_bindings()` | `assert_binding_contract` |
 | Authentication  | `CredentialProvider`              | `BaseAuth`    | `register_auth` / `extra_auth=` | `discover_auth()` | `assert_provider_contract` |
 | Discovery       | `Registry` (`fetch`)              | none          | `ThingClient.from_registry`     | n/a (constructed)  | `assert_registry_contract` |
 | Media engine    | `MediaBackend`                    | none          | `MediaBinding(backends=[...])`  | n/a (via binding)  | `assert_media_backend_contract` |
+
+`ProtocolBinding` names the device-facing side of a transport.
 
 Every part is the same pattern: a `typing.Protocol` is the contract, `@implements`
 checks it at import, an optional base saves boilerplate, and a conformance kit
