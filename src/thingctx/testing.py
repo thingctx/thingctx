@@ -171,3 +171,72 @@ def assert_registry_contract(registry: Any, *, call: bool = True) -> None:
         assert isinstance(tds, list) and all(
             isinstance(td, dict) for td in tds
         ), "fetch() must return a list of Thing Description dicts"
+
+
+def gateway_binding_capabilities(binding: Any) -> dict[str, bool]:
+    """Report which optional capabilities a NORTH binding (middleware driver)
+    advertises. A driver opts into a capability by implementing its protocol, so
+    the engine calls only what a driver declares (the anti-lowest-common-
+    denominator rule)."""
+    from thingctx.gateways import (
+        Announces,
+        EventMirroring,
+        PubSubOnly,
+        QoSAware,
+        RequestReply,
+    )
+
+    return {
+        "request_reply": isinstance(binding, RequestReply),
+        "event_mirroring": isinstance(binding, EventMirroring),
+        "pubsub_only": isinstance(binding, PubSubOnly),
+        "announces": isinstance(binding, Announces),
+        "qos_aware": isinstance(binding, QoSAware),
+    }
+
+
+def assert_gateway_binding_contract(binding: Any) -> None:
+    """Assert ``binding`` satisfies the :class:`~thingctx.gateways.GatewayBinding`
+    contract (serve a fleet over a middleware) and that every capability it
+    advertises has the right shape. Tests the CONTRACT, not a driver's own form
+    vocabulary. Raises ``AssertionError`` on a breach.
+
+    The core contract: a non-empty ``scheme``; a synchronous ``project_forms``
+    returning a list of form dicts; async ``serve`` and ``aclose``. Optional
+    capabilities (request/reply, event mirroring, QoS, announce) are checked for
+    shape only when present, so a driver is never forced to support an operation
+    its transport cannot carry."""
+    from thingctx.gateways import (
+        Announces,
+        EventMirroring,
+        GatewayBinding,
+        QoSAware,
+        RequestReply,
+    )
+
+    assert isinstance(
+        binding, GatewayBinding
+    ), "a north binding must expose scheme, project_forms, serve, aclose"
+    assert (
+        isinstance(getattr(binding, "scheme", None), str) and binding.scheme
+    ), "a north binding must name a non-empty scheme"
+    assert callable(binding.project_forms), "project_forms must be callable"
+    assert not inspect.iscoroutinefunction(
+        binding.project_forms
+    ), "project_forms must be synchronous (it builds forms, it does not do I/O)"
+    assert inspect.iscoroutinefunction(binding.serve), "serve() must be async"
+    assert inspect.iscoroutinefunction(binding.aclose), "aclose() must be async"
+
+    # Optional capabilities: shape-checked only when advertised.
+    if isinstance(binding, RequestReply):
+        assert inspect.iscoroutinefunction(binding.reply), "reply() must be async"
+    if isinstance(binding, EventMirroring):
+        assert inspect.iscoroutinefunction(binding.mirror_event), "mirror_event() must be async"
+    if isinstance(binding, Announces):
+        assert inspect.iscoroutinefunction(binding.announce), "announce() must be async"
+        assert inspect.iscoroutinefunction(binding.reap), "reap() must be async"
+    if isinstance(binding, QoSAware):
+        assert callable(binding.quality_terms), "quality_terms must be callable"
+        assert not inspect.iscoroutinefunction(
+            binding.quality_terms
+        ), "quality_terms must be synchronous"

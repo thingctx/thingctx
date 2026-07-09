@@ -14,6 +14,21 @@ Run from the repo root with `PYTHONPATH=src`.
 
 01/02 need no model. The pump device is [_pump.py](_pump.py) (HTTP + SSE + MQTT).
 
+## Authorization (authn vs authz)
+
+Two seams, kept apart on purpose. Authorization (decide what a caller may do)
+lives in `thingctx.authz` and runs on the dependency-free core. Authentication
+(prove who the caller is) lives in `thingctx.identity` behind the `authz` extra
+because it needs crypto. See [docs/AUTHZ.md](../docs/AUTHZ.md).
+
+| | |
+|--|--|
+| [14_authz.py](14_authz.py) | **Authorization on core, no extra.** A `pdp` and an `identity` passed to `ThingClient`; the same caller may READ a property and is DENIED the WRITE, decided against the TD-derived vocabulary before the device is touched. The identity is a claims dict written inline (what a guard's `validate()` returns). Offline. |
+| [15_authn_to_authz.py](15_authn_to_authz.py) | **The full chain: real token to enforcement.** A self-signed issuer mints a real RS256 token; `JwtGatewayGuard` validates its signature against the JWKS (and rejects a forged one); the validated claims become the `identity` that core authz enforces. Needs the `authz` extra (`pip install 'thingctx[authz]'`). Offline. |
+
+14 is the authz seam alone; 15 adds the authn guard in front of it so you see
+where the identity actually comes from.
+
 ## Media (audio/video)
 
 The continuous-binary plane: consume frames from a source, or publish them to a

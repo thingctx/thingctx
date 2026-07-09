@@ -11,7 +11,7 @@ subscribe to events. No LLM.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from thingctx.bindings import BindingRegistry, ProtocolBinding, default_bindings
 from thingctx.bindings.builtin.media import is_media_form
@@ -33,6 +33,9 @@ from thingctx.trust import (
     verify_thing,
 )
 
+if TYPE_CHECKING:
+    from thingctx.authz.pdp import AccessRequest, PolicyDecisionPoint
+
 
 class ThingClient:
     """List + invoke the actions of one or more WoT Things. Transport-
@@ -53,6 +56,9 @@ class ThingClient:
         validate: bool | str = False,
         approve: Approver | None = None,
         approve_when: ApprovePolicy = "declared",
+        pdp: PolicyDecisionPoint | None = None,
+        identity: Any = None,
+        authz_raise: bool = True,
     ) -> None:
         # validate=True checks each TD against the W3C TD 1.1 schema and
         # raises TDValidationError on nonconformance (needs [validate]).
@@ -65,6 +71,20 @@ class ThingClient:
         # denied (a safe default). approve_when="never" disables the gate.
         self._approve = approve
         self._approve_when: ApprovePolicy = approve_when
+        # pdp / identity move authorization INTO the client. When pdp is None,
+        # authorization is off and nothing below runs (backward compatible: a
+        # caller that never sets a pdp is unaffected). When a pdp is set, every
+        # device-reaching dispatch method authorizes the resolved (thing_id,
+        # affordance, op) against it BEFORE the approve gate and BEFORE any
+        # binding is selected, so a denial can never reach a transport. There is
+        # no wrapper to bypass: self.invoke IS the authorized path, and
+        # as_tools() hands out that same method. authz_raise picks the denial
+        # shape: raise AuthorizationDenied (default, so a denial is never
+        # mistaken for a device response) or return a thingctx-style error
+        # envelope (matching the approve gate's blocked return).
+        self._pdp = pdp
+        self._identity = identity
+        self._authz_raise = authz_raise
         if validate == "strict":
             from thingctx.validate import assert_semantics
 
@@ -97,9 +117,27 @@ class ThingClient:
         else:
             self._registry = BindingRegistry(default_bindings())
         self._bindings = self._registry.bindings
+        self._only_idempotent = only_idempotent
+        # Preferred transport order = the order bindings were given.
+        self._prefer = tuple(
+            s for inv in self._bindings for s in (getattr(inv, "schemes", None) or (inv.scheme,))
+        )
+        self._reindex()
+        # Strict validation also gates support: refuse a TD that needs a scheme,
+        # subprotocol, or transport this client cannot drive, so a gap surfaces
+        # at load rather than as a silent partial result at call time. Runs after
+        # the reindex so every affordance's routability can be checked.
+        if validate == "strict":
+            self._assert_supported(tds)
+
+    def _reindex(self) -> None:
+        """Recompute every derived map from ``self._things``: the tool specs,
+        the invoke route, the property/event maps, the media split, and the
+        per-binding security binding. Run at construction and again whenever the
+        thing set changes (see :meth:`add_things`)."""
         self._tool_specs, self._route = actions_to_tools(
             self._things,
-            only_idempotent=only_idempotent,
+            only_idempotent=self._only_idempotent,
         )
         # Telemetry name to (Thing, Property/Event) maps, keyed by the
         # same short ``<slug>.<name>`` scheme as actions.
@@ -122,11 +160,6 @@ class ThingClient:
             elif hasattr(inv, "with_security") and self._things:
                 inv.with_security(self._things[0])
 
-        # Preferred transport order = the order bindings were given.
-        self._prefer = tuple(
-            s for inv in self._bindings for s in (getattr(inv, "schemes", None) or (inv.scheme,))
-        )
-
         # Media affordances are continuous streams, not request/response: they
         # are consumed via frames(), never invoke(). Split them out of the
         # invoke route and the LLM tool specs so a tool-calling loop never tries
@@ -143,12 +176,6 @@ class ThingClient:
             self._tool_specs = [
                 s for s in self._tool_specs if s.get("function", {}).get("name") not in self._media
             ]
-
-        # Strict validation also gates support: refuse a TD that needs a scheme,
-        # subprotocol, or transport this client cannot drive, so a gap surfaces
-        # at load rather than as a silent partial result at call time.
-        if validate == "strict":
-            self._assert_supported(tds)
 
     def _assert_supported(self, tds: list[dict[str, Any]]) -> None:
         from thingctx.validate import TDValidationError, validate_support
@@ -171,6 +198,51 @@ class ThingClient:
                     problems.append(f"{aff.name!r}: no bound binding for transport(s) {schemes}")
         if problems:
             raise TDValidationError(problems)
+
+    def add_things(self, tds: list[dict[str, Any]], *, validate: bool = False) -> list[str]:
+        """Register TDs into a live client and return the added Thing ids.
+
+        The runtime counterpart of the constructor's ``tds=`` for Things that
+        appear after construction: a self-describing binding (see
+        docs/DISCOVERY.md), a directory push. Each TD is parsed, appended, and
+        the client is fully reindexed (tool specs, route, property/event maps,
+        media split, and the declared-security binding on every binding).
+
+        Collision policy, so a re-describe is idempotent and safe:
+        - Thing id: a new TD whose id already exists REPLACES the prior Thing
+          (a device re-describing itself supersedes its old shape). The old
+          Thing's tools disappear from the route; the new Thing's take their
+          place. Order is preserved for ids that do not collide.
+        - Tool name: names are ``<slug>.<action>``; because a colliding id
+          replaces rather than stacks, two live Things never share a tool name
+          unless their ids slugify the same. If they do, the later-added Thing
+          wins the name (last write), matching the id-replace rule.
+        """
+        added = [parse_thing(td, validate=validate) for td in tds]
+        by_id = {t.id: t for t in self._things}
+        for t in added:
+            by_id[t.id] = t  # replace on id collision; append otherwise
+        # Preserve first-seen order: existing ids keep their slot, new ids append.
+        seen: set[str] = set()
+        merged: list[WoTThing] = []
+        for t in [*self._things, *added]:
+            if t.id not in seen:
+                seen.add(t.id)
+                merged.append(by_id[t.id])
+        self._things = merged
+        self._reindex()
+        # Keep authorization in lockstep with the fleet. The PDP holds a CLOSED
+        # vocabulary (the grantable (thing, affordance, op) tuples) built from the
+        # thing set. Without this refresh, a runtime-added device's ops are
+        # ungrantable (silently denied even with a correct grant) and a replaced
+        # device's old ops linger as a stale over-grant. Refresh only on this
+        # runtime-mutation path, not in _reindex, so a caller's construction-time
+        # PDP vocabulary stays authoritative.
+        if self._pdp is not None and hasattr(self._pdp, "vocabulary"):
+            from thingctx.authz.vocabulary import build_vocabulary
+
+            self._pdp.vocabulary = build_vocabulary(self._things)
+        return [t.id for t in added]
 
     async def aclose(self) -> None:
         """Release any pooled transport resources (e.g. an binding's reused
@@ -335,6 +407,71 @@ class ThingClient:
         probe = WoTForm(href="https://thingctx.invalid/")
         return self._registry.resolve(probe)
 
+    def guarded(
+        self,
+        pdp: PolicyDecisionPoint,
+        *,
+        identity: Any = None,
+        authz_raise: bool = True,
+    ) -> ThingClient:
+        """Return a client that authorizes every device-reaching call against
+        ``pdp`` for ``identity``. Sugar over the ``pdp=`` constructor param.
+
+        This is NOT a proxy. It returns a ThingClient that shares this client's
+        internal state (the same parsed Things, binding registry, route,
+        property/event/media maps, approve gate) with only the authorization
+        settings set. So there is no second dispatch surface to drift from and
+        nothing to bypass: the returned client's own dispatch methods enforce
+        the check, exactly as if you had passed ``pdp=`` at construction.
+        """
+        clone = object.__new__(type(self))
+        clone.__dict__ = dict(self.__dict__)
+        clone._pdp = pdp
+        clone._identity = identity
+        clone._authz_raise = authz_raise
+        return clone
+
+    async def _authorize(self, affordance: Any, op: str) -> Any:
+        """Authorize ``op`` on a resolved affordance object. Returns None to
+        proceed; raises :class:`AuthorizationDenied` (or, when
+        ``authz_raise`` is False, returns an error envelope) on deny.
+
+        Callers pass the SAME affordance object the method is about to dispatch
+        (from ``_route`` / ``_props`` / ``_events`` / ``_media``), so the tuple
+        authorized is exactly the tuple that would run. The decision does not
+        read the form scheme, so a multi-transport affordance hits one check
+        whichever transport it would route to; ``form_scheme`` is carried for
+        audit only. Runs before any binding is selected: a denied call never
+        reaches a transport.
+        """
+        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied
+
+        form = affordance.primary_form(prefer=self._prefer)
+        request = AccessRequest(
+            thing_id=affordance.thing_id,
+            affordance=affordance.name,
+            op=op,
+            form_scheme=(form.scheme if form is not None else None),
+        )
+        decision = await self._pdp.decide(self._identity, request)
+        if decision.permit:
+            return None
+        if self._authz_raise:
+            raise AuthorizationDenied(request, decision.reason)
+        return {
+            "error": "authorization denied",
+            "thing": request.thing_id,
+            "affordance": request.affordance,
+            "op": request.op,
+            "reason": decision.reason,
+        }
+
+    def _authz_request(self, affordance: Any, op: str) -> AccessRequest:
+        """Build the AccessRequest for a stream re-check (subscribe/media)."""
+        from thingctx.authz.pdp import AccessRequest
+
+        return AccessRequest(thing_id=affordance.thing_id, affordance=affordance.name, op=op)
+
     async def invoke(
         self,
         tool_name: str,
@@ -360,6 +497,13 @@ class ThingClient:
         action = self._route.get(tool_name)
         if action is None:
             return {"error": f"unknown action: {tool_name}"}
+        # Authorize first, approve second: authorization is the access boundary
+        # (may I touch this at all?), the approve gate is a trust prompt on top
+        # of an allowed call. A denied call must not prompt for approval.
+        if self._pdp is not None:
+            denied = await self._authorize(action, "invokeaction")
+            if denied is not None:
+                return denied
         blocked = await gate_action(
             action, tool_name, arguments, approve=self._approve, policy=self._approve_when
         )
@@ -517,6 +661,10 @@ class ThingClient:
         prop = self._props.get(name)
         if prop is None:
             return {"error": f"unknown property: {name}"}
+        if self._pdp is not None:
+            denied = await self._authorize(prop, "readproperty")
+            if denied is not None:
+                return denied
         form = prop.primary_form(prefer=self._prefer)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "read"):
@@ -528,6 +676,14 @@ class ThingClient:
         prop = self._props.get(name)
         if prop is None:
             return {"error": f"unknown property: {name}"}
+        # Authorize before the read-only check: a read-only property has no
+        # writeproperty tuple in the TD-derived vocabulary, so a write to it is
+        # an authorization denial (not in vocabulary), and must surface as one
+        # rather than as a capability envelope.
+        if self._pdp is not None:
+            denied = await self._authorize(prop, "writeproperty")
+            if denied is not None:
+                return denied
         if not prop.writable:
             return {"error": f"property {name} is read-only"}
         blocked = await gate_write(
@@ -615,14 +771,40 @@ class ThingClient:
             async for reading in await client.subscribe("pump.telemetry"):
                 ...
         """
-        target = self._events.get(name) or self._props.get(name)
-        if target is None:
-            return _empty_aiter(f"unknown event/property: {name}")
+        # WoT subscribe covers two ops: an event is subscribeevent, an
+        # observable property is observeproperty. Resolve which from where the
+        # name lives (events first, matching the original lookup order) so the
+        # right op is authorized.
+        event = self._events.get(name)
+        if event is not None:
+            target, op = event, "subscribeevent"
+        else:
+            prop = self._props.get(name)
+            if prop is None:
+                return _empty_aiter(f"unknown event/property: {name}")
+            target, op = prop, "observeproperty"
+        # Two enforcement points for a stream, because it is not request/reply:
+        # 1. gate at establish time (an ungranted caller never subscribes).
+        if self._pdp is not None:
+            denied = await self._authorize(target, op)
+            if denied is not None:
+                # Yield a single denial envelope as a stream so `async for`
+                # sees it (raise path already raised inside _authorize).
+                return _single_denial_aiter(denied)
         form = target.primary_form(prefer=self._prefer)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "subscribe"):
             return _empty_aiter(f"no subscribable transport for {name}")
-        return await binding.subscribe(target, form, args or {})
+        stream = await binding.subscribe(target, form, args or {})
+        # 2. per-delivery filter: the token can expire while the stream lives,
+        # so re-authorize before each value and stop the stream on lapse.
+        if self._pdp is not None:
+            from thingctx.authz.pdp import _authorized_stream
+
+            return _authorized_stream(
+                stream, self._pdp, self._identity, self._authz_request(target, op)
+            )
+        return stream
 
     async def frames(
         self,
@@ -640,6 +822,13 @@ class ThingClient:
         action = self._media.get(name)
         if action is None:
             return _empty_aiter(f"unknown media affordance: {name}")
+        # A media affordance is a WoT action, so it is authorized as
+        # invokeaction (the op its form declares), gated before the device
+        # stream opens and re-checked per frame.
+        if self._pdp is not None:
+            denied = await self._authorize(action, "invokeaction")
+            if denied is not None:
+                return _single_denial_aiter(denied)
         form = next((f for f in action.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "frames"):
@@ -648,7 +837,14 @@ class ThingClient:
 
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
-        return binding.frames(action, filled, rest, track=track)
+        stream = binding.frames(action, filled, rest, track=track)
+        if self._pdp is not None:
+            from thingctx.authz.pdp import _authorized_stream
+
+            return _authorized_stream(
+                stream, self._pdp, self._identity, self._authz_request(action, "invokeaction")
+            )
+        return stream
 
     async def publish(
         self,
@@ -672,6 +868,12 @@ class ThingClient:
         action = self._media.get(name)
         if action is None:
             raise KeyError(f"unknown media affordance: {name}")
+        # Publish reaches the device (a write of a live signal). Media is a WoT
+        # action, so authorize invokeaction before selecting a transport.
+        if self._pdp is not None:
+            denied = await self._authorize(action, "invokeaction")
+            if denied is not None:
+                return denied
         form = next((f for f in action.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "publish"):
@@ -730,6 +932,13 @@ async def _empty_aiter(err: str):
     import warnings
 
     warnings.warn(err, stacklevel=2)
+
+
+async def _single_denial_aiter(envelope: Any):
+    """Yield one authorization-denial envelope as a stream, so a stream-shaped
+    denial (subscribe/frames with authz_raise=False) is visible to `async for`
+    rather than silently empty."""
+    yield envelope
 
 
 def to_text(value: Any) -> str:

@@ -10,13 +10,19 @@ import asyncio
 import threading
 from collections.abc import Iterator
 
-import numpy as np
+import pytest
 
-from thingctx.bindings import HttpBinding, select_binding
-from thingctx.bindings.builtin.media import Frame, MediaBinding, is_media_form
-from thingctx.contrib.llm import LLMHost
-from thingctx.runtime import ThingClient
-from thingctx.thing import WoTForm
+# The media plane is an optional extra; skip the whole module when its deps
+# (numpy, and the media backend stack) are not installed. The thingctx imports
+# below follow the skip on purpose (E402), so collection never touches media
+# code when the deps are absent.
+np = pytest.importorskip("numpy")
+
+from thingctx.bindings import HttpBinding, select_binding  # noqa: E402
+from thingctx.bindings.builtin.media import Frame, MediaBinding, is_media_form  # noqa: E402
+from thingctx.contrib.llm import LLMHost  # noqa: E402
+from thingctx.runtime import ThingClient  # noqa: E402
+from thingctx.thing import WoTForm  # noqa: E402
 
 
 class _FakeBackend:

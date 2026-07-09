@@ -33,6 +33,10 @@ llm = ["litellm>=1.0"]
 # Transports.
 http = ["httpx>=0.25"]
 mqtt = ["paho-mqtt>=2.0"]
+# CoAP north binding (request/reply over UDP, Observe for events). aiocoap is
+# confined to this extra; the driver module imports it lazily so the base install
+# and the module import stay dependency-free.
+coap = ["aiocoap>=0.4"]
 # Validate TDs against the official W3C WoT TD 1.1 schema.
 validate = ["jsonschema>=4.0"]
 # Expose a Thing (or a whole fleet of TDs) to any MCP client.
@@ -43,20 +47,45 @@ openapi = ["httpx>=0.25", "pyyaml>=6"]
 # signature-based schemes are stdlib-only.
 cloud = ["httpx>=0.25", "pyjwt[crypto]>=2.8"]
 # The media plane (continuous audio/video). PyAV carries FFmpeg; numpy is the
-# frame buffer; pillow encodes stills. The PyPI av wheel bundles FFmpeg, but
-# its libavfilter may omit filters such as drawtext (see docs/BINDINGS.md):
-# in-pipeline filtering needs av built from source against an FFmpeg that has
-# them.
+# frame buffer; pillow encodes stills. See docs/BINDINGS.md for the filter caveat.
 media = ["av>=11", "numpy>=1.23", "pillow>=10"]
+# Authorization guard (pyjwt + httpx): validate a caller's bearer JWT to claims,
+# and the external-PDP (AuthZEN) path. Cloudflare needs only these; Entra adds
+# azure-identity via the entra extra.
+authz = ["pyjwt[crypto]>=2.8", "httpx>=0.27"]
+# Entra identity: outbound provider + Entra gateway guard. azure-identity confined
+# here, never in base or another extra.
+entra = ["azure-identity>=1.20", "pyjwt[crypto]>=2.8", "httpx>=0.27"]
 # Everything.
-all = ["litellm>=1.0", "httpx>=0.25", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0", "pyyaml>=6", "pyjwt[crypto]>=2.8", "av>=11", "numpy>=1.23", "pillow>=10"]
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.25", "pyyaml>=6", "pyjwt[crypto]>=2.8", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff>=0.6"]
+all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "av>=11", "numpy>=1.23", "pillow>=10"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff>=0.6"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
 thingctx-mcp = "thingctx.integrations.mcp:main"
 # Thing Description tooling (import openapi, ...).
 thingctx = "thingctx.cli:main"
+
+# Outbound credential providers, discovered by discover_auth on install. The
+# Entra provider needs the ``entra`` extra; the entry point resolves lazily, so
+# advertising it here costs nothing until a consumer actually authenticates.
+[project.entry-points."thingctx.auth"]
+entra = "thingctx.identity:make_provider"
+
+# Inbound gateway guards, discovered by discover_guards the same opt-in way. Each
+# factory returns a guard CLASS the gateway constructs with its config. A
+# third-party thingctx-<idp> package advertises its own guard under this group.
+[project.entry-points."thingctx.guards"]
+entra = "thingctx.identity.providers.entra:make_entra_guard"
+cloudflare = "thingctx.identity.providers.cloudflare:make_cloudflare_guard"
+
+# North bindings (middleware drivers): serve a fleet over a bus. A third-party
+# thingctx-<middleware>-gateway advertises its driver here and discover_north_bindings
+# picks it up on install, exactly as south bindings register under thingctx.bindings.
+[project.entry-points."thingctx.gateways"]
+mqtt = "thingctx.gateways.builtin.mqtt:MqttNorthBinding"
+mcp = "thingctx.gateways.builtin.mcp:McpNorthBinding"
+coap = "thingctx.gateways.builtin.coap:CoapNorthBinding"
 
 [tool.setuptools.packages.find]
 where = ["src"]
