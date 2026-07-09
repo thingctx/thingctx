@@ -49,9 +49,16 @@ class ServeRequest:
     driver builds these from its wire and the engine resolves them against the
     native fleet. ``correlation`` is the engine's neutral request id; a driver
     maps it to its own reply mechanism (MQTT v5 correlation-data, a reply topic,
-    DDS-RPC)."""
+    DDS-RPC).
 
-    __slots__ = ("thing_slug", "affordance", "op", "payload", "correlation")
+    ``identity`` is the validated claims of the CALLER who sent this request, when
+    the driver could authenticate it (the :class:`Authenticates` capability). It
+    is ``None`` when the transport carries no per-caller identity, and the engine
+    then authorizes with its server-level default. This is the same claims shape
+    ``thingctx.identity`` produces and ``thingctx.authz`` consumes, so a request
+    authenticated on the bus is authorized exactly like one over HTTP."""
+
+    __slots__ = ("thing_slug", "affordance", "op", "payload", "correlation", "identity")
 
     def __init__(
         self,
@@ -60,12 +67,14 @@ class ServeRequest:
         op: str,
         payload: Any = None,
         correlation: Any = None,
+        identity: Any = None,
     ) -> None:
         self.thing_slug = thing_slug
         self.affordance = affordance
         self.op = op
         self.payload = payload
         self.correlation = correlation
+        self.identity = identity
 
 
 # --------------------------------------------------------------------------- #
@@ -155,6 +164,31 @@ class QoSAware(Protocol):
     def quality_terms(self) -> tuple[str, ...]: ...
 
 
+@runtime_checkable
+class Authenticates(Protocol):
+    """A driver whose transport can carry a PER-CALLER identity, so the gateway
+    authorizes each inbound request as the caller who sent it, not as one
+    server-level identity.
+
+    This is the north-side mirror of the south-side ``AuthMixin`` (which
+    authenticates thingctx OUTBOUND to a device). ``authenticate`` turns a
+    driver's raw inbound context into a claims dict the authz seam consumes, by
+    whatever mechanism the transport carries it: a bearer token in an MQTT v5
+    user-property or an MCP session (validate it with the same
+    ``thingctx.identity`` guard the HTTP gateway uses), or a transport-level
+    credential (a TLS/DTLS client certificate) mapped to claims.
+
+    A driver whose wire CANNOT carry a caller identity simply does not implement
+    this; the gateway then authorizes with its default (server-level) identity,
+    exactly as before. So per-caller identity is used precisely where the
+    transport can carry it, and never faked where it cannot.
+
+    Return ``None`` to fall back to the server-level identity for this request
+    (e.g. an anonymous message on a bus that usually carries identity)."""
+
+    async def authenticate(self, inbound: Any) -> Any | None: ...
+
+
 # --------------------------------------------------------------------------- #
 # The engine.
 # --------------------------------------------------------------------------- #
@@ -186,6 +220,10 @@ class Gateway:
         self._client = client
         self._north = north
         self._projected: dict[str, dict] = {}
+        # The PDP the native client enforces with, if any. Held so a per-caller
+        # request can be re-guarded (client.guarded(pdp, identity=caller)) to
+        # authorize as the authenticated caller rather than the server identity.
+        self._client_pdp = getattr(client, "_pdp", None)
 
     @property
     def client(self) -> ThingClient:
@@ -238,18 +276,27 @@ class Gateway:
         gateway's serve loop for everyone else."""
         from thingctx.authz import AuthorizationDenied
 
+        # Authorize as the CALLER, not as the gateway, when the driver
+        # authenticated one. guarded() returns a client that shares all state but
+        # decides against the caller's claims for this request. If there is no
+        # caller identity (the transport carried none), fall through to the
+        # gateway's own client and its server-level identity.
+        client = self._client
+        if request.identity is not None and self._client_pdp is not None:
+            client = self._client.guarded(self._client_pdp, identity=request.identity)
+
         tool = f"{request.thing_slug}.{request.affordance}"
         op = request.op
         try:
             if op == INVOKE:
-                result = await self._client.invoke(tool, request.payload or {})
+                result = await client.invoke(tool, request.payload or {})
             elif op in (READ, OBSERVE):
-                result = await self._client.read_property(tool)
+                result = await client.read_property(tool)
             elif op == WRITE:
                 value = request.payload
                 if isinstance(value, dict) and "value" in value:
                     value = value["value"]
-                result = await self._client.write_property(tool, value)
+                result = await client.write_property(tool, value)
             else:
                 result = {"error": f"engine cannot dispatch op {op!r}"}
         except AuthorizationDenied as denied:
@@ -264,6 +311,35 @@ class Gateway:
                 "result": result,
             }
         return result
+
+    async def authorize(self, request: ServeRequest) -> dict:
+        """Authorize a request WITHOUT invoking (for a subscribe/observe grant
+        check before opening a stream). Returns ``{"permit": bool, "reason": ...}``,
+        decided against the caller's identity when the request carries one, else the
+        server identity. When no PDP is configured, permits (authz is off)."""
+        if self._client_pdp is None:
+            return {"permit": True}
+        identity = (
+            request.identity
+            if request.identity is not None
+            else getattr(self._client, "_identity", None)
+        )
+        from thingctx.authz.pdp import AccessRequest
+
+        access = AccessRequest(
+            thing_id=self._thing_id_for(request.thing_slug),
+            affordance=request.affordance,
+            op=request.op,
+        )
+        decision = await self._client_pdp.decide(identity, access)
+        return {"permit": bool(decision.permit), "reason": getattr(decision, "reason", None)}
+
+    def _thing_id_for(self, slug: str) -> str:
+        """Map a fleet slug back to its Thing id for an AccessRequest."""
+        for thing in self._client.things:
+            if _slug(thing) == slug:
+                return thing.id
+        return slug
 
     async def mirror(self, thing_slug: str, event: str, payload: Any) -> None:
         """Push a native event onto the driver's wire, if it mirrors events."""

@@ -5,8 +5,23 @@
 from __future__ import annotations
 
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_http
-from thingctx.bindings.base import AuthMixin, ProtocolBinding, _decode
+from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
+
+
+def _decode(resp, empty=None):
+    """Decode an HTTP response by its content type: JSON to a value, text to a
+    str, anything else (e.g. an image) to raw bytes. An empty body returns
+    ``empty``. HTTP-specific (reads content-type/status/content); it lives here,
+    not in the transport-neutral binding base."""
+    ctype = resp.headers.get("content-type", "").split(";")[0].strip()
+    if ctype == "application/json" or ctype.endswith("+json"):
+        return resp.json()
+    if not resp.content:
+        return empty
+    if ctype.startswith("text/") or ctype == "":
+        return resp.text
+    return resp.content
 
 
 @implements(ProtocolBinding)

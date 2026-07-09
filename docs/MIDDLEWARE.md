@@ -131,7 +131,38 @@ Because the engine dispatches every inbound request through the native
 `ThingClient`, a client built with the authorization seam (`pdp`/`identity`)
 enforces before the device is touched, for the bus too. An ungranted operation
 becomes an error reply on the wire, never a silent bypass and never a crash of the
-serve loop. See [AUTHZ.md](AUTHZ.md).
+serve loop. See [AUTHZ.md](AUTHZ.md) and [IDENTITY.md](IDENTITY.md).
+
+Two rules a guarded gateway follows so the bus edges are not holes:
+
+- Events are NOT auto-mirrored to an open topic when a guard is set. A consumer
+  must REQUEST a subscription on an authenticated topic; the gateway checks the
+  `subscribeevent` grant for that caller and mirrors only to that caller's own
+  stream. Without this, a gated event stream would leak to any subscriber.
+- A per-caller guard is refused unless the broker binds connection identity (mTLS
+  or per-client ACLs), attested with `broker_binds_identity=True`. A message-level
+  token is not bound to the connection, so on an open broker a replayed token would
+  be a confused deputy; the config-time gate makes that a control, not a caveat.
+
+## Set-oriented sources: map them to events, not actions
+
+A binding over a set-oriented or continuous source (a SQL database, a time-series
+store, a sensor stream) fits the seam, but mind the impedance. A WoT property is
+single-valued and an action is one request with one reply. So:
+
+- A query that returns ONE value maps cleanly to a property `read` or an
+  `invokeaction` with a single-object reply.
+- A query that returns MANY rows does NOT fit `invokeaction` over a gateway: the
+  whole result set becomes one reply frame on the bus (no streaming, no paging, no
+  backpressure).
+- The right home for a growing or unbounded result is an EVENT or observable
+  property on the `Subscribable`/`EventMirroring` path, so rows flow as a stream
+  the consumer pulls. Model a set-shaped affordance as `subscribeevent` (or
+  `observeproperty`), not `invokeaction`.
+
+The gateway does not hide this: a driver advertising `RequestReply` honestly
+delivers one reply. Expose a set-oriented source through the event channel so the
+gateway streams it, rather than collapsing a result set into a single reply.
 
 ## Reference drivers
 

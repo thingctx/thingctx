@@ -93,9 +93,21 @@ class ThingClient:
         else:
             self._registry = BindingRegistry(default_bindings())
         self._bindings = self._registry.bindings
+        self._only_idempotent = only_idempotent
+        # Preferred transport order = the order bindings were given.
+        self._prefer = tuple(
+            s for inv in self._bindings for s in (getattr(inv, "schemes", None) or (inv.scheme,))
+        )
+        self._reindex()
+
+    def _reindex(self) -> None:
+        """Recompute every derived map from ``self._things``: the tool specs,
+        the invoke route, the property/event maps, the media split, and the
+        per-binding security binding. Run at construction and again whenever the
+        thing set changes (see :meth:`add_things`)."""
         self._tool_specs, self._route = actions_to_tools(
             self._things,
-            only_idempotent=only_idempotent,
+            only_idempotent=self._only_idempotent,
         )
         # Telemetry name to (Thing, Property/Event) maps, keyed by the
         # same short ``<slug>.<name>`` scheme as actions.
@@ -118,11 +130,6 @@ class ThingClient:
             elif hasattr(inv, "with_security") and self._things:
                 inv.with_security(self._things[0])
 
-        # Preferred transport order = the order bindings were given.
-        self._prefer = tuple(
-            s for inv in self._bindings for s in (getattr(inv, "schemes", None) or (inv.scheme,))
-        )
-
         # Media affordances are continuous streams, not request/response: they
         # are consumed via frames(), never invoke(). Split them out of the
         # invoke route and the LLM tool specs so a tool-calling loop never tries
@@ -136,6 +143,51 @@ class ThingClient:
             self._tool_specs = [
                 s for s in self._tool_specs if s.get("function", {}).get("name") not in self._media
             ]
+
+    def add_things(self, tds: list[dict[str, Any]], *, validate: bool = False) -> list[str]:
+        """Register TDs into a live client and return the added Thing ids.
+
+        The runtime counterpart of the constructor's ``tds=`` for Things that
+        appear after construction: a self-describing binding (see
+        docs/DISCOVERY.md), a directory push. Each TD is parsed, appended, and
+        the client is fully reindexed (tool specs, route, property/event maps,
+        media split, and the declared-security binding on every binding).
+
+        Collision policy, so a re-describe is idempotent and safe:
+        - Thing id: a new TD whose id already exists REPLACES the prior Thing
+          (a device re-describing itself supersedes its old shape). The old
+          Thing's tools disappear from the route; the new Thing's take their
+          place. Order is preserved for ids that do not collide.
+        - Tool name: names are ``<slug>.<action>``; because a colliding id
+          replaces rather than stacks, two live Things never share a tool name
+          unless their ids slugify the same. If they do, the later-added Thing
+          wins the name (last write), matching the id-replace rule.
+        """
+        added = [parse_thing(td, validate=validate) for td in tds]
+        by_id = {t.id: t for t in self._things}
+        for t in added:
+            by_id[t.id] = t  # replace on id collision; append otherwise
+        # Preserve first-seen order: existing ids keep their slot, new ids append.
+        seen: set[str] = set()
+        merged: list[WoTThing] = []
+        for t in [*self._things, *added]:
+            if t.id not in seen:
+                seen.add(t.id)
+                merged.append(by_id[t.id])
+        self._things = merged
+        self._reindex()
+        # Keep authorization in lockstep with the fleet. The PDP holds a CLOSED
+        # vocabulary (the grantable (thing, affordance, op) tuples) built from the
+        # thing set. Without this refresh, a runtime-added device's ops are
+        # ungrantable (silently denied even with a correct grant) and a replaced
+        # device's old ops linger as a stale over-grant. Refresh only on this
+        # runtime-mutation path, not in _reindex, so a caller's construction-time
+        # PDP vocabulary stays authoritative.
+        if self._pdp is not None and hasattr(self._pdp, "vocabulary"):
+            from thingctx.authz.vocabulary import build_vocabulary
+
+            self._pdp.vocabulary = build_vocabulary(self._things)
+        return [t.id for t in added]
 
     async def aclose(self) -> None:
         """Release any pooled transport resources (e.g. an binding's reused
