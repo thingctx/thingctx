@@ -42,22 +42,39 @@ openapi = ["httpx>=0.25", "pyyaml>=6"]
 # Cloud auth: OAuth2 JWT-bearer assertions need RS256 JWT signing (pyjwt);
 # signature-based schemes are stdlib-only.
 cloud = ["httpx>=0.25", "pyjwt[crypto]>=2.8"]
-# Authorization: the seam itself is stdlib-only (local decisions run on core).
-# This extra adds what a usable setup needs: a token guard to validate the
-# inbound bearer into a claims dict (pyjwt), and the external-PDP path (httpx)
-# so the decision can be delegated to an AuthZEN-conformant service. The full
-# IdP providers (Entra, Cloudflare) live in the separate thingctx-identity
-# package, installed alongside this one.
-identity = ["pyjwt[crypto]>=2.8", "httpx>=0.27"]
+# Authorization guard: the seam itself (thingctx.authz) is stdlib-only and ships
+# in the base install. This extra adds what an inbound setup needs: a token guard
+# to validate the caller's bearer JWT into a claims dict (pyjwt), and the
+# external-PDP path (httpx) so a decision can be delegated to an AuthZEN service.
+# The Cloudflare Access guard needs only these; the Entra guard adds azure-identity
+# (the ``entra`` extra below).
+authz = ["pyjwt[crypto]>=2.8", "httpx>=0.27"]
+# Entra identity: the outbound credential provider and the Entra gateway guard.
+# azure-identity is heavy and Azure-specific; it is confined to this extra and is
+# never a dependency of the base install or any other extra.
+entra = ["azure-identity>=1.20", "pyjwt[crypto]>=2.8", "httpx>=0.27"]
 # Everything.
-all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0", "pyyaml>=6", "pyjwt[crypto]>=2.8"]
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "paho-mqtt>=2.0", "ruff>=0.6"]
+all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "ruff>=0.6"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
 thingctx-mcp = "thingctx.integrations.mcp:main"
 # Thing Description tooling (import openapi, ...).
 thingctx = "thingctx.cli:main"
+
+# Outbound credential providers, discovered by discover_auth on install. The
+# Entra provider needs the ``entra`` extra; the entry point resolves lazily, so
+# advertising it here costs nothing until a consumer actually authenticates.
+[project.entry-points."thingctx.auth"]
+entra = "thingctx.identity:make_provider"
+
+# Inbound gateway guards, discovered by discover_guards the same opt-in way. Each
+# factory returns a guard CLASS the gateway constructs with its config. A
+# third-party thingctx-<idp> package advertises its own guard under this group.
+[project.entry-points."thingctx.guards"]
+entra = "thingctx.identity.providers.entra:make_entra_guard"
+cloudflare = "thingctx.identity.providers.cloudflare:make_cloudflare_guard"
 
 [tool.setuptools.packages.find]
 where = ["src"]

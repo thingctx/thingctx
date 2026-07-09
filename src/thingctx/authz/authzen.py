@@ -98,7 +98,7 @@ def from_authzen_response(payload: Any, request: AccessRequest) -> Decision:
     return Decision(
         permit=False,
         reason=reason
-        or f"AuthZEN PDP denied {request.op} on " f"{request.thing_id}/{request.affordance}",
+        or f"AuthZEN PDP denied {request.op} on {request.thing_id}/{request.affordance}",
     )
 
 

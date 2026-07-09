@@ -57,9 +57,14 @@ The model picks the actions; thingctx routes each to its transport.
 ## Install
 
 ```bash
-pip install thingctx[all]      # litellm + httpx + paho-mqtt + jsonschema + mcp
-# or pick extras: thingctx[llm] [http] [mqtt] [validate] [mcp]
+pip install thingctx[all]      # litellm + httpx + paho-mqtt + jsonschema + mcp + azure-identity
+# or pick extras: thingctx[llm] [http] [mqtt] [validate] [mcp] [authz] [entra]
 ```
+
+The base install is dependency-free, including the authorization seam
+(`thingctx.authz`). The `authz` extra adds the token guard (pyjwt + httpx); the
+`entra` extra adds the Entra provider (azure-identity). Nothing heavy ever lands
+in the base install.
 
 ## Drive it directly
 
@@ -117,6 +122,58 @@ the LLM host, or an MCP client (Claude/Copilot CLI; see
 
 Runnable: [`examples/04_trust.py`](examples/04_trust.py). Full model:
 [`docs/TRUST.md`](docs/TRUST.md).
+
+## Authorization: who may do what
+
+Approval asks a human. Authorization decides from policy, per caller, per
+operation, before the device is touched. thingctx separates two things that are
+usually blurred together:
+
+- **Authentication (authn)** proves *who* the caller is. It validates a bearer
+  token into a claims dict. It needs crypto, so it lives in `thingctx.identity`
+  behind the `authz` extra (or an upstream gateway does it for you).
+- **Authorization (authz)** decides *what* that caller may do. It runs on the
+  dependency-free core (`thingctx.authz`): no crypto, no network. It takes an
+  already-validated identity and answers permit or deny for each
+  `(thing, affordance, operation)`.
+
+That split is why the core stays dependency-free while still enforcing: it never
+validates a token, it consumes an identity someone already validated.
+
+Authorization is native to `ThingClient`. Pass a `pdp` and an `identity`, and
+every device-reaching call authorizes before it selects a transport:
+
+```python
+from thingctx import LocalBinding, ThingClient
+from thingctx.authz import LocalPolicyGrantSource, PolicyDecisionPoint, build_vocabulary
+
+vocab = build_vocabulary(ThingClient(tds=[td], bindings=[...]).things)
+# the operator role may READ the setpoint, not WRITE it
+grants = LocalPolicyGrantSource({"operator": {(thing_id, "target_rpm", "readproperty")}})
+pdp = PolicyDecisionPoint(vocabulary=vocab, grant_source=grants)
+
+client = ThingClient(tds=[td], bindings=[...], pdp=pdp, identity=claims)
+await client.read_property("pump.target_rpm")    # ALLOWED
+await client.write_property("pump.target_rpm", 3000)  # AuthorizationDenied, device untouched
+```
+
+The decision is TD-closed: a grant is honored only if the TD's forms actually
+declare that operation, so a wildcard grant can never permit an operation no form
+exposes, and a read-only property can never be written. The check is at the
+dispatch layer, below the transport, so a multi-transport Thing cannot be reached
+around it, and streams (observe, event, media) are authorized at subscribe time
+*and* per delivery, so a stream stops the moment the token expires.
+
+The PDP is pluggable. The lean local one ships by default; the same seam speaks
+the OpenID [AuthZEN](https://openid.net/specs/authorization-api-1_0.html) 1.0
+wire format, so you can point at your own OPA, Cedar, or enterprise PDP without
+changing thingctx.
+
+Runnable: [`examples/14_authz.py`](examples/14_authz.py) (authz on core alone)
+and [`examples/15_authn_to_authz.py`](examples/15_authn_to_authz.py) (a real
+token validated by the guard, then enforced). Full model:
+[`docs/AUTHZ.md`](docs/AUTHZ.md). Why an agent tool model cannot express this:
+[`docs/AUTHZ_VS_MCP.md`](docs/AUTHZ_VS_MCP.md).
 
 ## Reach a closed agent: the MCP bridge
 
