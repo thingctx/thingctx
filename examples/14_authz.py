@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 
 from thingctx import LocalBinding, ThingClient
-from thingctx.identity import (
+from thingctx.authz import (
     AuthorizationDenied,
     LocalPolicyGrantSource,
     PolicyDecisionPoint,

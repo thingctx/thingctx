@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from thingctx.identity.vocabulary import GrantTuple
+from thingctx.authz.vocabulary import GrantTuple
 
 # A grant is a set of (thing, affordance, op) tuples, where affordance and op may
 # be the "*" wildcard; the PDP expands wildcards against the vocabulary.

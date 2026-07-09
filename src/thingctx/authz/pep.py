@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from thingctx import ThingClient
-from thingctx.identity.pdp import AccessRequest, PolicyDecisionPoint
+from thingctx.authz.pdp import AccessRequest, PolicyDecisionPoint
 
 
 class AuthorizationDenied(Exception):

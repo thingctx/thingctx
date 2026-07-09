@@ -7,20 +7,20 @@ of the installed thingctx with no extra runtime dependency.
 
 Three roles, one module each:
 
-* :mod:`~thingctx.identity.vocabulary` builds the TD-derived grant vocabulary:
+* :mod:`~thingctx.authz.vocabulary` builds the TD-derived grant vocabulary:
   the closed set of ``(thing_id, affordance, op)`` tuples a Thing actually
   declares, applying the WoT default-op rule. A grant is valid only if it is in
   this set.
-* :mod:`~thingctx.identity.pdp` is the Policy Decision Point: a pluggable
+* :mod:`~thingctx.authz.pdp` is the Policy Decision Point: a pluggable
   :class:`GrantSource` maps a validated claim to the grants an identity holds,
   and the PDP decides ``permit`` / ``deny`` for a requested tuple against the
   vocabulary.
-* :mod:`~thingctx.identity.pep` is the Policy Enforcement Point: a proxy around
+* :mod:`~thingctx.authz.pep` is the Policy Enforcement Point: a proxy around
   :class:`thingctx.ThingClient` that intercepts ``invoke`` / ``read_property`` /
   ``write_property`` and calls the PDP BEFORE the real client touches any
   binding, so every transport of a multi-transport Thing hits one check.
 
-:mod:`~thingctx.identity.authzen` maps the same decision boundary to the
+:mod:`~thingctx.authz.authzen` maps the same decision boundary to the
 OpenID AuthZEN standard, so the PDP can be an external conformant service. Its
 HTTP dependency is imported lazily, so importing this package stays dep-free.
 
@@ -32,13 +32,13 @@ dict composes with the PEP by passing that dict as the identity.
 
 from __future__ import annotations
 
-from thingctx.identity.authzen import (
+from thingctx.authz.authzen import (
     AUTHZEN_EVALUATION_PATH,
     AuthZenPDP,
     from_authzen_response,
     to_authzen_request,
 )
-from thingctx.identity.pdp import (
+from thingctx.authz.pdp import (
     AccessRequest,
     Decision,
     GrantSet,
@@ -46,12 +46,12 @@ from thingctx.identity.pdp import (
     LocalPolicyGrantSource,
     PolicyDecisionPoint,
 )
-from thingctx.identity.pep import (
+from thingctx.authz.pep import (
     AuthorizationDenied,
     AuthorizedClient,
     guard_client,
 )
-from thingctx.identity.vocabulary import (
+from thingctx.authz.vocabulary import (
     DEFAULT_ACTION_OPS,
     DEFAULT_EVENT_OPS,
     DEFAULT_PROPERTY_OPS,

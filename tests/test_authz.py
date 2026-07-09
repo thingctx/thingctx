@@ -1,6 +1,6 @@
 """Security-property regression tests for the WoT-derived authorization seam.
 
-These lock the enforcement guarantees of :mod:`thingctx.identity` against a REAL
+These lock the enforcement guarantees of :mod:`thingctx.authz` against a REAL
 :class:`thingctx.ThingClient` (with recording stub bindings, so no network) and
 on the CORE install only: no token guard, no external PDP, no extra dependency.
 The identity handed to the PEP is a plain claims dict, exactly what a token
@@ -33,7 +33,7 @@ import time
 import pytest
 
 from thingctx import ThingClient
-from thingctx.identity import (
+from thingctx.authz import (
     AccessRequest,
     AuthorizationDenied,
     LocalPolicyGrantSource,
@@ -43,7 +43,7 @@ from thingctx.identity import (
     guard_client,
     to_authzen_request,
 )
-from thingctx.identity.pep import _authorized_stream, _token_expired
+from thingctx.authz.pep import _authorized_stream, _token_expired
 from thingctx.thing import parse_thing
 
 try:  # ProtocolBinding is the public stub base; import defensively for the name.

@@ -1,7 +1,7 @@
 """AuthZEN interop: speak the OpenID Authorization API 1.0 Final shape.
 
 thingctx ships a lean, zero-dependency local PDP as its default (see
-:class:`~thingctx.identity.pdp.PolicyDecisionPoint`). This module makes
+:class:`~thingctx.authz.pdp.PolicyDecisionPoint`). This module makes
 the same decision boundary speak the AuthZEN standard, so an adopter can point
 thingctx at ANY AuthZEN-conformant Policy Decision Point, their OPA, a Cedar
 service, an enterprise PDP, without changing thingctx. The standard is the buy;
@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from thingctx.identity.pdp import AccessRequest, Decision
+from thingctx.authz.pdp import AccessRequest, Decision
 
 # The standard endpoint path (a base URL + this path). A deployment may override.
 AUTHZEN_EVALUATION_PATH = "/access/v1/evaluation"
