@@ -24,7 +24,17 @@ from thingctx.thing import WoTAction, WoTForm
 # NOTE: this module holds the transport-NEUTRAL binding contract only. Response
 # decoding is transport-specific and lives with each binding (HTTP's content-type
 # decoder is in builtin/http.py). Do not add a shared decoder here; a binding
-# returns its own native result shape.
+# returns its own native result shape. The HTTP decoder is re-exported lazily
+# below (import-on-access, no module-level cycle) so callers reaching it through
+# the binding layer resolve one implementation.
+
+
+def __getattr__(name: str) -> Any:
+    if name == "_decode":
+        from thingctx.bindings.builtin.http import _decode
+
+        return _decode
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @runtime_checkable

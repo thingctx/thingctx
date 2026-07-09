@@ -551,8 +551,8 @@ class _StreamingBinding(ProtocolBinding):
         self._fired.append((self.scheme, "invoke", action.name))
         return {"ok": True, "via": self.scheme}
 
-    async def subscribe(self, name, form):
-        self._fired.append((self.scheme, "subscribe", name))
+    async def subscribe(self, target, form, args=None):
+        self._fired.append((self.scheme, "subscribe", getattr(target, "name", target)))
 
         async def _gen():
             yield {"reading": 1}
