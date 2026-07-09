@@ -16,11 +16,13 @@ from typing import TYPE_CHECKING, Any
 from thingctx.bindings import BindingRegistry, ProtocolBinding, default_bindings
 from thingctx.bindings.builtin.media import is_media_form
 from thingctx.thing import (
+    SCALAR_INPUT_KEY,
     WoTAction,
     WoTEvent,
     WoTProperty,
     WoTThing,
     actions_to_tools,
+    is_wrapped_input,
     parse_thing,
     thing_slug,
 )
@@ -530,13 +532,22 @@ class ThingClient:
             from thingctx.chain import run_chain
 
             return await run_chain(self, action, form, arguments)
+        # A scalar or array action input is projected to the model wrapped
+        # under a single key (thing._project_input); unwrap it here so the
+        # transport receives the bare value the TD declared, not the envelope.
+        if is_wrapped_input(action.input_schema) and isinstance(arguments, dict):
+            arguments = arguments.get(SCALAR_INPUT_KEY)
         # Resolve uriVariables: {id} fills from args and leaves the body.
         import dataclasses
 
-        href, rest = form.fill(arguments or {})
-        filled = dataclasses.replace(form, href=href) if href != form.href else form
         from thingctx.reliability import TransportError
 
+        if isinstance(arguments, dict):
+            href, rest = form.fill(arguments)
+            filled = dataclasses.replace(form, href=href) if href != form.href else form
+        else:
+            # An unwrapped scalar/array body has no uriVariables to fill.
+            filled, rest = form, arguments
         try:
             return await binding.invoke(action, filled, rest)
         except TransportError as exc:

@@ -563,6 +563,35 @@ def _value_schema(pdef: dict[str, Any]) -> dict[str, Any]:
     return schema or {"type": "string"}
 
 
+# WoT allows an action ``input`` to be any JSON Schema, including a scalar
+# (``{"type": "number"}``). The OpenAI function-calling format requires the
+# tool ``parameters`` to be an object schema, so a scalar input projects to a
+# tool the provider cannot call. Wrap a non-object input under this single key
+# for the model; the runtime unwraps it back to the bare value before invoke.
+SCALAR_INPUT_KEY = "value"
+
+
+def _project_input(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """The OpenAI-format ``parameters`` for an action's input schema. An object
+    schema passes through; a scalar or array schema is wrapped under
+    ``SCALAR_INPUT_KEY`` so the tool is callable."""
+    schema = input_schema or {"type": "object"}
+    if schema.get("type") == "object" or "properties" in schema:
+        return schema
+    return {
+        "type": "object",
+        "properties": {SCALAR_INPUT_KEY: schema},
+        "required": [SCALAR_INPUT_KEY],
+    }
+
+
+def is_wrapped_input(input_schema: dict[str, Any]) -> bool:
+    """True when :func:`_project_input` wrapped this schema, so the runtime
+    must unwrap the model's ``{"value": x}`` back to ``x`` before invoke."""
+    schema = input_schema or {"type": "object"}
+    return not (schema.get("type") == "object" or "properties" in schema)
+
+
 def thing_slug(thing_id: str) -> str:
     """Short slug for a Thing id: urn:demo:pump:v1 -> pump. A trailing
     version segment (v1, 2, ...) is dropped; the last remaining segment is
@@ -609,7 +638,7 @@ def actions_to_tools(
                     "function": {
                         "name": name,
                         "description": desc,
-                        "parameters": action.input_schema or {"type": "object"},
+                        "parameters": _project_input(action.input_schema),
                     },
                 }
             )
