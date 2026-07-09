@@ -389,6 +389,34 @@ class ThingClient:
     def things(self) -> list[WoTThing]:
         return self._things
 
+    def gateway(self):
+        """A constant six-verb projection over this client, for fleets too large
+        for a flat one-tool-per-action surface. See :mod:`thingctx.gateway`."""
+        from thingctx.gateway import GatewayProjection
+
+        return GatewayProjection(self)
+
+    def projection(self, mode: str = "auto", *, flat_max: int = 24):
+        """Pick the projection the model should see by fleet size.
+
+        - ``"flat"``: today's one tool per action (best for a short list).
+        - ``"gateway"``: the six generic verbs (constant at any fleet size).
+        - ``"auto"`` (default): flat while the flat surface stays at or under
+          ``flat_max`` tools, gateway once it would exceed it.
+
+        Returns an object exposing ``tool_specs`` and an async ``call_tool``;
+        both modes share that shape, so a caller swaps modes without other
+        changes. Only one mode is ever active; a duplicated surface hurts
+        selection more than either mode alone.
+        """
+        if mode == "flat":
+            return _FlatProjection(self)
+        if mode == "gateway":
+            return self.gateway()
+        if mode == "auto":
+            return _FlatProjection(self) if len(self._tool_specs) <= flat_max else self.gateway()
+        raise ValueError(f"unknown projection mode {mode!r} (flat|gateway|auto)")
+
     def set_approval(
         self, approve: Approver | None, *, approve_when: ApprovePolicy | None = None
     ) -> None:
@@ -960,3 +988,19 @@ def to_text(value: Any) -> str:
         return json.dumps(value, default=str)
     except TypeError:
         return str(value)
+
+
+class _FlatProjection:
+    """The flat surface (one tool per action) behind the same
+    ``tool_specs`` / ``call_tool`` shape the gateway offers, so
+    :meth:`ThingClient.projection` returns one interface for either mode."""
+
+    def __init__(self, client: ThingClient) -> None:
+        self._client = client
+
+    @property
+    def tool_specs(self) -> list[dict[str, Any]]:
+        return self._client.tool_specs
+
+    async def call_tool(self, name: str, args: dict[str, Any] | None = None) -> Any:
+        return await self._client.call_tool(name, args)
