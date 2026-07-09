@@ -15,10 +15,14 @@ Three roles, one module each:
   :class:`GrantSource` maps a validated claim to the grants an identity holds,
   and the PDP decides ``permit`` / ``deny`` for a requested tuple against the
   vocabulary.
-* :mod:`~thingctx.authz.pep` is the Policy Enforcement Point: a proxy around
-  :class:`thingctx.ThingClient` that intercepts ``invoke`` / ``read_property`` /
-  ``write_property`` and calls the PDP BEFORE the real client touches any
-  binding, so every transport of a multi-transport Thing hits one check.
+* The Policy Enforcement Point is now :class:`thingctx.ThingClient` itself: each
+  device-reaching dispatch method (``invoke`` / ``read_property`` /
+  ``write_property`` / ``subscribe`` / ``frames`` / ``publish``) authorizes the
+  resolved ``(thing_id, affordance, op)`` against the PDP BEFORE it selects a
+  binding, so every transport of a multi-transport Thing hits one check and
+  there is no wrapper to bypass. :mod:`~thingctx.authz.pep` keeps the
+  :func:`guard_client` factory (which builds that native guarded client) and
+  re-exports :class:`AuthorizationDenied`.
 
 :mod:`~thingctx.authz.authzen` maps the same decision boundary to the
 OpenID AuthZEN standard, so the PDP can be an external conformant service. Its
@@ -27,7 +31,7 @@ HTTP dependency is imported lazily, so importing this package stays dep-free.
 The :class:`GrantSource` / :class:`PolicyDecisionPoint` protocols and the
 :class:`AccessRequest` / :class:`Decision` values are the contract a separate
 provider package implements and consumes; a token guard that yields a claims
-dict composes with the PEP by passing that dict as the identity.
+dict composes with enforcement by passing that dict as the identity.
 """
 
 from __future__ import annotations
@@ -48,7 +52,6 @@ from thingctx.authz.pdp import (
 )
 from thingctx.authz.pep import (
     AuthorizationDenied,
-    AuthorizedClient,
     guard_client,
 )
 from thingctx.authz.vocabulary import (
@@ -74,7 +77,6 @@ __all__ = [
     "LocalPolicyGrantSource",
     "PolicyDecisionPoint",
     # pep
-    "AuthorizedClient",
     "guard_client",
     "AuthorizationDenied",
     # authzen

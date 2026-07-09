@@ -52,11 +52,80 @@ class AccessRequest:
 
 @dataclass(frozen=True)
 class Decision:
-    """A PDP decision. A value, not an exception, so the PEP owns the failure
-    shape (it raises or returns an envelope as it sees fit)."""
+    """A PDP decision. A value, not an exception, so the enforcement point owns
+    the failure shape (it raises or returns an envelope as it sees fit)."""
 
     permit: bool
     reason: str = ""
+
+
+class AuthorizationDenied(Exception):
+    """Raised when the PDP denies a call, before any device touch.
+
+    Deliberately distinct from thingctx's own error ENVELOPES (dict returns like
+    ``{"error": ...}``) and from an authentication error (a failure to validate
+    the inbound token before its claims ever reach enforcement). This one means:
+    the identity was authenticated, but is not authorized for this
+    ``(thing, affordance, op)``.
+
+    Lives here (next to the PDP) so :class:`thingctx.ThingClient` can enforce
+    authorization inline without importing the enforcement module, which would be
+    a cycle. The PEP re-exports it for backward compatibility.
+    """
+
+    def __init__(self, request: AccessRequest, reason: str) -> None:
+        self.request = request
+        self.reason = reason
+        super().__init__(
+            f"authorization denied: {request.op} on "
+            f"{request.thing_id}/{request.affordance} ({reason})"
+        )
+
+
+def _token_expired(identity: Any, *, now: float | None = None) -> bool:
+    """True if the identity's token has expired.
+
+    The identity is the validated claims dict the guard returned; a JWT carries
+    ``exp`` (seconds since the epoch). This is what makes the per-delivery filter
+    REAL, not a re-run of a pure function: a claims dict does not expire on its
+    own, but its ``exp`` claim is a wall-clock deadline we compare against now.
+    A missing ``exp`` is treated as expired (fail-closed): the guard requires exp
+    on inbound tokens, so its absence here means an untrusted identity."""
+    import time as _time
+
+    if not isinstance(identity, dict):
+        return True  # no claims -> cannot prove validity -> treat as expired
+    exp = identity.get("exp")
+    if not isinstance(exp, int | float):
+        return True
+    return (now if now is not None else _time.time()) >= float(exp)
+
+
+async def _authorized_stream(stream, pdp, identity, request, *, revocation_check=None):
+    """Wrap a device stream so each delivered value is re-authorized, and STOP the
+    stream the moment authorization lapses.
+
+    Two lapse conditions, both real:
+    1. TOKEN EXPIRY: the identity's ``exp`` deadline passes while the stream lives.
+       Checked against the wall clock on each delivery, so a stream cannot outlive
+       the token that authorized it. THIS is the staleness window, and it is
+       closed by reading exp, not by re-running the PDP.
+    2. REVOCATION: an optional ``revocation_check(identity, request) -> bool`` that
+       returns True to revoke (a role pulled, a policy change). The default
+       re-asks the PDP, which catches a policy/grant change; combined with the exp
+       check it catches both a lapsed token and a lapsed grant.
+
+    On lapse we cut the stream FORWARD (stop yielding); we do not claw back values
+    already delivered, the correct semantics for a live-feed revocation."""
+    async for value in stream:
+        if _token_expired(identity):
+            return  # token expired: stop the stream
+        decision = await pdp.decide(identity, request)
+        if not decision.permit:
+            return  # grant/policy lapsed: stop the stream
+        if revocation_check is not None and await revocation_check(identity, request):
+            return
+        yield value
 
 
 @runtime_checkable

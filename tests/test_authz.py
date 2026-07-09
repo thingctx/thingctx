@@ -490,7 +490,7 @@ async def test_media_enforced_as_invokeaction():
     assert media_name is not None, "media affordance must register"
     ac = guard_client(client, pdp_deny, identity={"roles": ["r"], "exp": time.time() + 3600})
     with pytest.raises(AuthorizationDenied):
-        async for _ in ac.frames(media_name):
+        async for _ in await ac.frames(media_name):
             pass
     await client.aclose()
 
@@ -501,7 +501,7 @@ async def test_media_enforced_as_invokeaction():
     media2 = next(iter(getattr(client2, "_media", {})), None)
     assert media2 is not None
     ac2 = guard_client(client2, pdp_ok, identity={"roles": ["r"], "exp": time.time() + 3600})
-    got = [fr async for fr in ac2.frames(media2)]
+    got = [fr async for fr in await ac2.frames(media2)]
     assert got == [{"frame": 0}, {"frame": 1}], f"granted media must stream all frames, got {got}"
     await client2.aclose()
 
@@ -524,3 +524,195 @@ def test_authzen_mapping_and_fail_closed():
     assert from_authzen_response({"decision": False}, req).permit is False
     assert from_authzen_response({}, req).permit is False  # missing -> deny (fail closed)
     assert from_authzen_response("garbage", req).permit is False  # non-object -> deny
+
+
+# --------------------------------------------------------------------------- #
+# native enforcement: the pdp= constructor IS the guarded path (no wrapper)
+# --------------------------------------------------------------------------- #
+
+
+class _StreamingBinding(ProtocolBinding):
+    """A recording stub that also opens streams (subscribe) and records the open,
+    so a stream test can assert the device stream was never established on deny."""
+
+    def __init__(self, scheme: str, fired: list) -> None:
+        self.scheme = scheme
+        self._fired = fired
+
+    async def read(self, prop, form):
+        self._fired.append((self.scheme, "read", prop.name))
+        return {"value": 42, "via": self.scheme}
+
+    async def write(self, prop, form, value):
+        self._fired.append((self.scheme, "write", prop.name, value))
+        return {"ok": True, "via": self.scheme}
+
+    async def invoke(self, action, form, arguments):
+        self._fired.append((self.scheme, "invoke", action.name))
+        return {"ok": True, "via": self.scheme}
+
+    async def subscribe(self, name, form):
+        self._fired.append((self.scheme, "subscribe", name))
+
+        async def _gen():
+            yield {"reading": 1}
+
+        return _gen()
+
+
+def _obs_pump_td() -> dict:
+    """A pump whose setpoint is observable over mqtt (so subscribe has an
+    observeproperty path) plus an event and an action, all over one recorded
+    transport."""
+    return {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": PUMP_ID,
+        "title": "Pump",
+        "securityDefinitions": {"n": {"scheme": "nosec"}},
+        "security": ["n"],
+        "properties": {
+            "setpoint": {
+                "type": "number",
+                "observable": True,
+                "forms": [
+                    {
+                        "href": "mqtt://bus/pump/setpoint",
+                        "op": ["readproperty", "writeproperty", "observeproperty"],
+                    }
+                ],
+            },
+        },
+        "actions": {"reboot": {"forms": [{"href": "mqtt://bus/pump/reboot"}]}},
+        "events": {
+            "alarm": {"forms": [{"href": "mqtt://bus/pump/alarm", "op": ["subscribeevent"]}]}
+        },
+    }
+
+
+async def _drain(res):
+    """Consume a subscribe/frames result (an awaitable that returns an async
+    iterator) and return the yielded values as a list."""
+    it = await res if hasattr(res, "__await__") else res
+    return [v async for v in it]
+
+
+def _native_deny_all(td: dict, fired: list):
+    """A ThingClient built via the native ``pdp=`` constructor with a real
+    deny-all PDP (a role holding no grants). No guard_client, no wrapper."""
+    vocab = build_vocabulary(parse_thing(td))
+    pdp = PolicyDecisionPoint(vocab, LocalPolicyGrantSource({"nobody": set()}))
+    client = ThingClient(
+        tds=[td],
+        bindings=[_StreamingBinding("mqtt", fired)],
+        pdp=pdp,
+        identity={"roles": ["nobody"], "exp": time.time() + 3600},
+    )
+    return client
+
+
+async def test_native_constructor_blocks_every_method_before_device():
+    """The primary entry point: ``ThingClient(pdp=, identity=)``. A deny-all PDP
+    blocks invoke / read_property / write_property / subscribe(event) /
+    subscribe(observe) before any transport, with the device never touched."""
+    td = _obs_pump_td()
+    fired: list = []
+    client = _native_deny_all(td, fired)
+
+    with pytest.raises(AuthorizationDenied):
+        await client.invoke("pump.reboot", {})
+    assert fired == []
+
+    with pytest.raises(AuthorizationDenied):
+        await client.read_property("pump.setpoint")
+    assert fired == []
+
+    with pytest.raises(AuthorizationDenied):
+        await client.write_property("pump.setpoint", 9)
+    assert fired == []
+
+    with pytest.raises(AuthorizationDenied):
+        await _drain(client.subscribe("pump.alarm"))  # subscribeevent
+    assert fired == []
+
+    with pytest.raises(AuthorizationDenied):
+        await _drain(client.subscribe("pump.setpoint"))  # observeproperty
+    assert fired == []
+
+    await client.aclose()
+
+
+async def test_native_constructor_as_tools_invoke_is_authorized():
+    """``as_tools()`` on a natively-constructed guarded client hands back the
+    authorized invoke, so an agent loop / MCP bridge cannot bypass the check."""
+    td = _obs_pump_td()
+    fired: list = []
+    client = _native_deny_all(td, fired)
+    _specs, invoke = client.as_tools()
+    with pytest.raises(AuthorizationDenied):
+        await invoke("pump.reboot", {})
+    assert fired == []
+    await client.aclose()
+
+
+async def test_guarded_is_native_client_sharing_state():
+    """``guarded()`` returns a real ThingClient (not a proxy) that shares the
+    original's internal maps by reference, so there is no second dispatch surface
+    to drift."""
+    td = _obs_pump_td()
+    fired: list = []
+    plain = ThingClient(tds=[td], bindings=[_StreamingBinding("mqtt", fired)])
+    vocab = build_vocabulary(parse_thing(td))
+    pdp = PolicyDecisionPoint(vocab, LocalPolicyGrantSource({"nobody": set()}))
+    g = plain.guarded(pdp, identity={"roles": ["nobody"]})
+    assert type(g) is ThingClient
+    assert g._things is plain._things
+    assert g._route is plain._route
+    assert g._registry is plain._registry
+    # the clone enforces; the original does not
+    assert g._pdp is pdp and plain._pdp is None
+    _specs, invoke = g.as_tools()
+    with pytest.raises(AuthorizationDenied):
+        await invoke("pump.reboot", {})
+    assert fired == []
+    await plain.aclose()
+
+
+async def test_no_pdp_is_backward_compatible():
+    """No PDP at all (``pdp=None``, the default): every method works and nothing
+    raises AuthorizationDenied. Proves the non-authz path is unchanged."""
+    td = _obs_pump_td()
+    fired: list = []
+    client = ThingClient(tds=[td], bindings=[_StreamingBinding("mqtt", fired)])
+    assert client._pdp is None
+    assert (await client.invoke("pump.reboot", {}))["ok"] is True
+    assert (await client.read_property("pump.setpoint"))["value"] == 42
+    assert (await client.write_property("pump.setpoint", 3))["ok"] is True
+    assert (await _drain(client.subscribe("pump.setpoint"))) == [{"reading": 1}]
+    assert (await _drain(client.subscribe("pump.alarm"))) == [{"reading": 1}]
+    _specs, invoke = client.as_tools()
+    assert (await invoke("pump.reboot", {}))["ok"] is True
+    await client.aclose()
+
+
+async def test_envelope_mode_stream_denials_surface_and_touch_nothing():
+    """With ``authz_raise=False`` a denied stream yields exactly one denial
+    envelope (not a silent empty stream) and never opens the device stream."""
+    td = _obs_pump_td()
+    fired: list = []
+    vocab = build_vocabulary(parse_thing(td))
+    pdp = PolicyDecisionPoint(vocab, LocalPolicyGrantSource({"nobody": set()}))
+    client = ThingClient(
+        tds=[td],
+        bindings=[_StreamingBinding("mqtt", fired)],
+        pdp=pdp,
+        identity={"roles": ["nobody"], "exp": time.time() + 3600},
+        authz_raise=False,
+    )
+    ob = await _drain(client.subscribe("pump.setpoint"))
+    ev = await _drain(client.subscribe("pump.alarm"))
+    for vals, op in ((ob, "observeproperty"), (ev, "subscribeevent")):
+        assert len(vals) == 1
+        assert vals[0]["error"] == "authorization denied"
+        assert vals[0]["op"] == op
+    assert fired == []  # device stream never opened
+    await client.aclose()
