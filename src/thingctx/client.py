@@ -80,9 +80,16 @@ async def from_url(
 
     limit = _max_td_bytes()
     async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}, timeout=timeout) as http:
-        resp = await http.get(url)
-        resp.raise_for_status()
-        if limit is not None and len(resp.content) > limit:
-            raise ValueError(f"Thing Description at {url!r} exceeds the {limit}-byte limit")
-        td = resp.json()
+        # Stream and enforce the cap while reading, so an oversized document is
+        # cut off mid-download rather than fully buffered before the check.
+        async with http.stream("GET", url) as resp:
+            resp.raise_for_status()
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in resp.aiter_bytes():
+                total += len(chunk)
+                if limit is not None and total > limit:
+                    raise ValueError(f"Thing Description at {url!r} exceeds the {limit}-byte limit")
+                chunks.append(chunk)
+        td = json.loads(b"".join(chunks))
     return from_td(td, model=model, bindings=bindings, **host_kwargs)
