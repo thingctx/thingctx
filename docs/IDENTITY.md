@@ -108,5 +108,5 @@ travel up (no attestation). Each concern has one home.
 
 - The guard (authn): [AUTH.md](AUTH.md), `thingctx.identity`.
 - The decision (authz): [AUTHZ.md](AUTHZ.md), `thingctx.authz`. Every claim there is
-  backed by a test; see [CLAIMS.md](CLAIMS.md).
+  backed by a test (`tests/test_authz_*.py`).
 - Serving a fleet over a bus: [MIDDLEWARE.md](MIDDLEWARE.md).

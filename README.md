@@ -172,8 +172,7 @@ changing thingctx.
 Runnable: [`examples/14_authz.py`](examples/14_authz.py) (authz on core alone)
 and [`examples/15_authn_to_authz.py`](examples/15_authn_to_authz.py) (a real
 token validated by the guard, then enforced). Full model:
-[`docs/AUTHZ.md`](docs/AUTHZ.md). Why an agent tool model cannot express this:
-[`docs/AUTHZ_VS_MCP.md`](docs/AUTHZ_VS_MCP.md).
+[`docs/AUTHZ.md`](docs/AUTHZ.md).
 
 ## Reach a closed agent: the MCP bridge
 

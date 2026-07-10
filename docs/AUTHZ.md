@@ -2,8 +2,7 @@
 
 This document is the model for authorization in thingctx: what it decides, where
 the check sits, and why the core stays dependency-free while still enforcing. For
-authentication (validating a caller's token) see [AUTH.md](AUTH.md). For why an
-opaque tool model cannot express this, see [AUTHZ_VS_MCP.md](AUTHZ_VS_MCP.md).
+authentication (validating a caller's token) see [AUTH.md](AUTH.md).
 
 ## Two seams: identity and authorization
 
@@ -103,11 +102,14 @@ The device is driven with its OWN credential (from the TD's security scheme); th
 caller's token never becomes the device's credential. Runnable end to end:
 [`examples/15_authn_to_authz.py`](../examples/15_authn_to_authz.py).
 
-## Coverage and threats
+## Coverage and trust boundary
 
-Every WoT operation is enforced across every transport; see
-[COVERAGE.md](COVERAGE.md) for the affordance x operation matrix and
-[THREAT_MODEL.md](THREAT_MODEL.md) for the threats each control answers.
+Every WoT affordance and operation (`readproperty`, `writeproperty`,
+`observeproperty`, `invokeaction`, `subscribeevent`) is enforced, across every
+transport, and every authorization claim here is backed by a test (see
+`tests/test_authz_*.py`). The caller side is untrusted: a request carries a token
+the guard validates to claims, and the decision runs against those claims before
+any binding is selected, so a denial never reaches a transport.
 
 ## What is out of scope
 
