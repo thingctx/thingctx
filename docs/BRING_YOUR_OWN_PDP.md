@@ -1,9 +1,10 @@
 # Bring your own Policy Decision Point
 
-thingctx-identity ships a lean, zero-dependency local PDP as the default. If your
-organization already runs an authorization engine, keep it as the source of truth:
-thingctx is the Policy Enforcement Point, and it calls YOUR PDP over the AuthZEN
-1.0 standard. No thingctx change, no second policy engine to trust.
+thingctx ships a lean, zero-dependency local PDP (`thingctx.authz`) as the
+default. If your organization already runs an authorization engine, keep it as
+the source of truth: thingctx is the Policy Enforcement Point, and it calls YOUR
+PDP over the AuthZEN 1.0 standard. No thingctx change, no second policy engine to
+trust.
 
 ## The seam
 
@@ -39,14 +40,6 @@ Run a Cedar service behind an AuthZEN endpoint (or use a Cedar-backed AuthZEN
 gateway). The mapping is the same: action.name is the op, resource.id is
 `<thing>/<affordance>`, subject carries the claims. The same `AuthZenPDP` wiring
 applies.
-
-## Or embed Cedar (opt-in, no server)
-
-If you want an embedded engine with no network hop, a `CedarGrantSource` can be
-provided as an optional extra (`thingctx-identity[cedar]`, using cedarpy) that
-implements the `GrantSource` protocol. This keeps the default install lean (no
-Rust extension) while letting adopters who want a named embedded engine opt in.
-It is a separate opt-in, never the default.
 
 ## The rule for every PDP
 
