@@ -24,7 +24,7 @@ from thingctx.runtime import ThingClient
 def from_td(
     td: dict[str, Any] | list[dict[str, Any]],
     *,
-    model: str = "anthropic/claude-sonnet-4-6",
+    model: str | None = None,
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
     validate: bool = False,
     approve: Any = None,
@@ -49,7 +49,7 @@ def from_td(
 def from_file(
     path: str | Path,
     *,
-    model: str = "anthropic/claude-sonnet-4-6",
+    model: str | None = None,
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
     **host_kwargs: Any,
 ) -> LLMHost:
@@ -61,7 +61,7 @@ def from_file(
 async def from_url(
     url: str,
     *,
-    model: str = "anthropic/claude-sonnet-4-6",
+    model: str | None = None,
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
     timeout: float = 10.0,
     **host_kwargs: Any,

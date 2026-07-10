@@ -4,17 +4,26 @@
 lazily here only, so the pure ThingClient has no LLM dependency.
 
     client = ThingClient(tds=[td], bindings=[HttpBinding()])
-    host = LLMHost(client, model="anthropic/claude-sonnet-4-6")
+    host = LLMHost(client, model="openai/gpt-4o-mini")
     print(await host.chat("read temp-1 and report it"))
 """
 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from thingctx.runtime import ThingClient, to_text
+
+
+def default_model() -> str:
+    """The model the convenience helpers use when the caller names none. Reads
+    ``THINGCTX_MODEL`` so a deployment picks its own provider and version without
+    a code change; the fallback is a small, widely available tool-calling model.
+    A litellm-style ``provider/model`` string."""
+    return os.environ.get("THINGCTX_MODEL", "openai/gpt-4o-mini")
 
 
 def _summary_from_memo(memo: dict) -> str:
@@ -48,14 +57,14 @@ class LLMHost:
         self,
         client: ThingClient,
         *,
-        model: str = "anthropic/claude-sonnet-4-6",
+        model: str | None = None,
         system: str | None = None,
         max_rounds: int = 8,
         chat_fn: ChatFn | None = None,
         resilient: bool = False,
     ) -> None:
         self._client = client
-        self._model = model
+        self._model = model or default_model()
         self._system = system
         self._max_rounds = max_rounds
         self._chat_fn = chat_fn
