@@ -83,9 +83,9 @@ cloudflare = "thingctx.identity.providers.cloudflare:make_cloudflare_guard"
 # thingctx-<middleware>-gateway advertises its driver here and discover_north_bindings
 # picks it up on install, exactly as south bindings register under thingctx.bindings.
 [project.entry-points."thingctx.gateways"]
-mqtt = "thingctx.gateways.builtin.mqtt:MqttNorthBinding"
-mcp = "thingctx.gateways.builtin.mcp:McpNorthBinding"
-coap = "thingctx.gateways.builtin.coap:CoapNorthBinding"
+mqtt = "thingctx.gateways.builtin.mqtt:MqttGatewayBinding"
+mcp = "thingctx.gateways.builtin.mcp:McpGatewayBinding"
+coap = "thingctx.gateways.builtin.coap:CoapGatewayBinding"
 
 [tool.setuptools.packages.find]
 where = ["src"]

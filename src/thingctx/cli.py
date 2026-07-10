@@ -44,7 +44,8 @@ from typing import Any
 def _load_td(source: str) -> dict:
     """Read one TD from a file path or an http(s) URL."""
     if source.startswith(("http://", "https://")):
-        with urllib.request.urlopen(source) as resp:  # noqa: S310 (scheme checked above)
+        # A fixed timeout so a stalled server cannot hang the command indefinitely.
+        with urllib.request.urlopen(source, timeout=30) as resp:  # noqa: S310 (scheme checked above)
             return json.loads(resp.read().decode("utf-8"))
     with open(source, encoding="utf-8") as fh:
         return json.loads(fh.read())
