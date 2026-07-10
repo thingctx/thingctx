@@ -121,7 +121,7 @@ the LLM host, or an MCP client (Claude/Copilot CLI; see
 [Reach a closed agent](#reach-a-closed-agent-the-mcp-bridge) below).
 
 Runnable: [`examples/04_trust.py`](examples/04_trust.py). Full model:
-[`docs/TRUST.md`](docs/TRUST.md).
+[`docs/USAGE.md`](docs/USAGE.md).
 
 ## Authorization: who may do what
 
@@ -172,7 +172,7 @@ changing thingctx.
 Runnable: [`examples/14_authz.py`](examples/14_authz.py) (authz on core alone)
 and [`examples/15_authn_to_authz.py`](examples/15_authn_to_authz.py) (a real
 token validated by the guard, then enforced). Full model:
-[`docs/AUTHZ.md`](docs/AUTHZ.md).
+[`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Reach a closed agent: the MCP bridge
 
@@ -229,7 +229,7 @@ the driver owns the wire. If the client carries the authorization seam
 (`pdp`/`identity`), the same per-operation check runs for a bus request, so the
 gateway is not a bypass. MQTT and MCP ship as drivers; a new middleware is one
 `GatewayBinding` class and the engine never changes. See
-[`docs/MIDDLEWARE.md`](docs/MIDDLEWARE.md).
+[`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Why not MCP
 

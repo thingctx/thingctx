@@ -7,9 +7,9 @@ Run from the repo root with `PYTHONPATH=src`.
 | [01_mcp_baseline.py](01_mcp_baseline.py) | The MCP model: author + run a server. |
 | [02_thingctx_baseline.py](02_thingctx_baseline.py) | Same pump, no server. Read 01/02 back to back; drives bulk property read/write, a filtered subscription, and the async calibrate lifecycle (handle/poll/cancel). |
 | [03_thingctx_llm.py](03_thingctx_llm.py) | Add an LLM (local Ollama or an API key). Drives a blocking long-running action, a bulk read, and a live event stream, the WoT surface that is trickier over the MCP bridge. |
-| [04_trust.py](04_trust.py) | Approval gating + `verify()` grounding (no model). See [docs/TRUST.md](../docs/TRUST.md). |
+| [04_trust.py](04_trust.py) | Approval gating + `verify()` grounding (no model). See [docs/USAGE.md](../docs/USAGE.md). |
 | [05_oauth2.py](05_oauth2.py) | A full OAuth2 client-credentials flow, offline: local token server + protected API, driven from a TD. |
-| [13_custom_stack.py](13_custom_stack.py) | **Extending thingctx.** All four parts you can extend, in one programming model: a custom transport (`ProtocolBinding` + `AuthMixin`), auth scheme (`CredentialProvider`/`BaseAuth`), discovery source (`Registry`), and media engine (`MediaBackend`), each `@implements`-checked and run through its conformance kit. Offline. See [docs/BINDINGS.md](../docs/BINDINGS.md). |
+| [13_custom_stack.py](13_custom_stack.py) | **Extending thingctx.** All four parts you can extend, in one programming model: a custom transport (`ProtocolBinding` + `AuthMixin`), auth scheme (`CredentialProvider`/`BaseAuth`), discovery source (`Registry`), and media engine (`MediaBackend`), each `@implements`-checked and run through its conformance kit. Offline. See [docs/USAGE.md](../docs/USAGE.md). |
 | [registry/](registry/) | Standalone TDs. Point `thingctx-mcp` or `from_registry` here. |
 
 01/02 need no model. The pump device is [_pump.py](_pump.py) (HTTP + SSE + MQTT).
@@ -19,7 +19,7 @@ Run from the repo root with `PYTHONPATH=src`.
 Two seams, kept apart on purpose. Authorization (decide what a caller may do)
 lives in `thingctx.authz` and runs on the dependency-free core. Authentication
 (prove who the caller is) lives in `thingctx.identity` behind the `authz` extra
-because it needs crypto. See [docs/AUTHZ.md](../docs/AUTHZ.md).
+because it needs crypto. See [docs/SECURITY.md](../docs/SECURITY.md).
 
 | | |
 |--|--|
@@ -50,7 +50,7 @@ and the reply goes back on the bus. If the client was built with the authz seam
 (`pdp`/`identity`), the same check runs for a bus request too, so the gateway is
 not an authorization bypass. Adding a new middleware (a different bus) is one
 `GatewayBinding` class; the engine never changes. See
-[docs/MIDDLEWARE.md](../docs/MIDDLEWARE.md).
+[docs/SECURITY.md](../docs/SECURITY.md).
 
 ## Media (audio/video)
 

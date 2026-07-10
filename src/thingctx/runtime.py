@@ -205,10 +205,10 @@ class ThingClient:
         """Register TDs into a live client and return the added Thing ids.
 
         The runtime counterpart of the constructor's ``tds=`` for Things that
-        appear after construction: a self-describing binding (see
-        docs/DISCOVERY.md), a directory push. Each TD is parsed, appended, and
-        the client is fully reindexed (tool specs, route, property/event maps,
-        media split, and the declared-security binding on every binding).
+        appear after construction (a directory push, for example). Each TD is
+        parsed, appended, and the client is fully reindexed (tool specs, route,
+        property/event maps, media split, and the declared-security binding on
+        every binding).
 
         Collision policy, so a re-describe is idempotent and safe:
         - Thing id: a new TD whose id already exists REPLACES the prior Thing
