@@ -33,10 +33,6 @@ llm = ["litellm>=1.0"]
 # Transports.
 http = ["httpx>=0.25"]
 mqtt = ["paho-mqtt>=2.0"]
-# CoAP north binding (request/reply over UDP, Observe for events). aiocoap is
-# confined to this extra; the driver module imports it lazily so the base install
-# and the module import stay dependency-free.
-coap = ["aiocoap>=0.4"]
 # Validate TDs against the official W3C WoT TD 1.1 schema.
 validate = ["jsonschema>=4.0"]
 # Expose a Thing (or a whole fleet of TDs) to any MCP client.
@@ -79,13 +75,12 @@ entra = "thingctx.identity:make_provider"
 entra = "thingctx.identity.providers.entra:make_entra_guard"
 cloudflare = "thingctx.identity.providers.cloudflare:make_cloudflare_guard"
 
-# North bindings (middleware drivers): serve a fleet over a bus. A third-party
-# thingctx-<middleware>-gateway advertises its driver here and discover_north_bindings
-# picks it up on install, exactly as south bindings register under thingctx.bindings.
+# Gateway bindings (middleware drivers): serve a fleet over a bus. A third-party
+# thingctx-<middleware>-gateway advertises its driver here and discover_gateway_bindings
+# picks it up on install, exactly as consumer bindings register under thingctx.bindings.
 [project.entry-points."thingctx.gateways"]
 mqtt = "thingctx.gateways.builtin.mqtt:MqttGatewayBinding"
 mcp = "thingctx.gateways.builtin.mcp:McpGatewayBinding"
-coap = "thingctx.gateways.builtin.coap:CoapGatewayBinding"
 
 [tool.setuptools.packages.find]
 where = ["src"]

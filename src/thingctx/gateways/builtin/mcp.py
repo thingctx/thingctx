@@ -1,11 +1,11 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""MCP north binding: serve a WoT fleet to MCP clients, KEEPING MCP's rich surface.
+"""MCP gateway binding: serve a WoT fleet to MCP clients, KEEPING MCP's rich surface.
 
 MCP is not a plain address-mapped bus. It has a protocol-specific middleware
 surface a bus lacks: tools (actions), resources (properties), prompts
 (``tc:PromptTemplate`` actions), media snapshots, and elicitation-based approval.
-This driver proves the north seam carries that richness without flattening it: the
+This driver proves the gateway seam carries that richness without flattening it: the
 MCP specifics ride in ``mcpv:`` form vocabulary that the engine passes through
 opaquely, exactly as MQTT's specifics ride in ``mqv:``.
 
@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from thingctx.gateways.north import (
+from thingctx.gateways.engine import (
     INVOKE,
     READ,
     WRITE,

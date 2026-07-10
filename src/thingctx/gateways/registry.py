@@ -1,6 +1,6 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""Discover north bindings shipped as installed packages.
+"""Discover gateway bindings shipped as installed packages.
 
 A third-party middleware driver ships as ``thingctx-<middleware>-gateway`` and
 advertises a factory under the ``thingctx.gateways`` entry-point group. On
@@ -22,7 +22,7 @@ GATEWAY_GROUP = "thingctx.gateways"
 
 
 def discover_gateway_bindings() -> dict[str, Any]:
-    """Map each installed north binding's scheme/name to its factory. Broken or
+    """Map each installed gateway binding's scheme/name to its factory. Broken or
     unimportable entry points are skipped, not raised, so one bad plugin cannot
     break discovery for the rest (same rule as south-binding discovery)."""
     from importlib.metadata import entry_points
@@ -41,9 +41,9 @@ def discover_gateway_bindings() -> dict[str, Any]:
 
 
 def make_gateway_binding(name: str, endpoint: str, **config: Any) -> Any:
-    """Build a discovered north binding by name. Raises ``KeyError`` if no
+    """Build a discovered gateway binding by name. Raises ``KeyError`` if no
     installed package advertises that name under ``thingctx.gateways``."""
     factories = discover_gateway_bindings()
     if name not in factories:
-        raise KeyError(f"no north binding {name!r} installed; available: {sorted(factories)}")
+        raise KeyError(f"no gateway binding {name!r} installed; available: {sorted(factories)}")
     return factories[name](endpoint, **config)

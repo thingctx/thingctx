@@ -174,7 +174,7 @@ def assert_registry_contract(registry: Any, *, call: bool = True) -> None:
 
 
 def gateway_binding_capabilities(binding: Any) -> dict[str, bool]:
-    """Report which optional capabilities a NORTH binding (middleware driver)
+    """Report which optional capabilities a gateway binding (middleware driver)
     advertises. A driver opts into a capability by implementing its protocol, so
     the engine calls only what a driver declares (the anti-lowest-common-
     denominator rule)."""
@@ -216,10 +216,10 @@ def assert_gateway_binding_contract(binding: Any) -> None:
 
     assert isinstance(
         binding, GatewayBinding
-    ), "a north binding must expose scheme, project_forms, serve, aclose"
+    ), "a gateway binding must expose scheme, project_forms, serve, aclose"
     assert (
         isinstance(getattr(binding, "scheme", None), str) and binding.scheme
-    ), "a north binding must name a non-empty scheme"
+    ), "a gateway binding must name a non-empty scheme"
     assert callable(binding.project_forms), "project_forms must be callable"
     assert not inspect.iscoroutinefunction(
         binding.project_forms

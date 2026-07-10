@@ -105,7 +105,7 @@ ALICE = {"sub": "alice", "roles": ["op"]}
 async def test_guarded_subscribe_denied_when_not_granted(monkeypatch):
     """Guarded: a subscribe the caller was NOT granted is denied, no mirror starts."""
     gw = Gateway(_guarded_client(event_granted=False), MqttGatewayBinding("bus:1883"))
-    mb = gw.north
+    mb = gw.binding
     mb._gateway = gw  # serve() wires this; the test drives _handle_subscribe directly
     replies, mirrors = _capture(mb, monkeypatch)
     req = ServeRequest("pump", "telemetry", "subscribeevent", {}, correlation="t", identity=ALICE)
@@ -119,7 +119,7 @@ async def test_guarded_subscribe_allowed_when_granted(monkeypatch):
     """Guarded: a granted subscribe authorizes, then mirrors to the caller's own
     stream topic, not an open one."""
     gw = Gateway(_guarded_client(event_granted=True), MqttGatewayBinding("bus:1883"))
-    mb = gw.north
+    mb = gw.binding
     mb._gateway = gw  # serve() wires this; the test drives _handle_subscribe directly
     replies, mirrors = _capture(mb, monkeypatch)
     req = ServeRequest(

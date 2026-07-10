@@ -1,6 +1,6 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""The north side of a middleware binding: serve a WoT fleet over a transport.
+"""The gateway engine: serve a WoT fleet over a middleware transport.
 
 A binding has two sides. The CONSUMER side (``ProtocolBinding`` in
 ``thingctx.bindings``) drives a device: it speaks one transport outbound. The
@@ -170,7 +170,7 @@ class Authenticates(Protocol):
     authorizes each inbound request as the caller who sent it, not as one
     server-level identity.
 
-    This is the north-side mirror of the south-side ``AuthMixin`` (which
+    This is the gateway-side mirror of the consumer-side ``AuthMixin`` (which
     authenticates thingctx OUTBOUND to a device). ``authenticate`` turns a
     driver's raw inbound context into a claims dict the authz seam consumes, by
     whatever mechanism the transport carries it: a bearer token in an MQTT v5
@@ -209,16 +209,16 @@ class Gateway:
 
     Args:
         client: a ThingClient over the Things' real (native) transports.
-        north: the middleware (north-facing) driver that serves the fleet.
+        binding: the middleware driver (a GatewayBinding) that serves the fleet.
     """
 
-    def __init__(self, client: ThingClient, north: GatewayBinding) -> None:
-        if not isinstance(north, GatewayBinding):
+    def __init__(self, client: ThingClient, binding: GatewayBinding) -> None:
+        if not isinstance(binding, GatewayBinding):
             raise TypeError(
-                f"{north!r} is not a GatewayBinding (needs scheme, project_forms, serve, aclose)"
+                f"{binding!r} is not a GatewayBinding (needs scheme, project_forms, serve, aclose)"
             )
         self._client = client
-        self._north = north
+        self._binding = binding
         self._projected: dict[str, dict] = {}
         # The PDP the native client enforces with, if any. Held so a per-caller
         # request can be re-guarded (client.guarded(pdp, identity=caller)) to
@@ -230,22 +230,24 @@ class Gateway:
         return self._client
 
     @property
-    def north(self) -> GatewayBinding:
-        return self._north
+    def binding(self) -> GatewayBinding:
+        return self._binding
 
     # -- capability queries the driver answered by presence ---------------- #
 
     @property
     def can_reply(self) -> bool:
-        return isinstance(self._north, RequestReply) and not self._is_pubsub_only
+        return isinstance(self._binding, RequestReply) and not self._is_pubsub_only
 
     @property
     def can_mirror(self) -> bool:
-        return isinstance(self._north, EventMirroring)
+        return isinstance(self._binding, EventMirroring)
 
     @property
     def _is_pubsub_only(self) -> bool:
-        return isinstance(self._north, PubSubOnly) and getattr(self._north, "is_pubsub_only", False)
+        return isinstance(self._binding, PubSubOnly) and getattr(
+            self._binding, "is_pubsub_only", False
+        )
 
     # -- lifecycle --------------------------------------------------------- #
 
@@ -254,14 +256,14 @@ class Gateway:
         If the driver announces (birth), do it after projecting."""
         for thing in self._client.things:
             self._projected[_slug(thing)] = self._project(thing)
-        await self._north.serve(self)
-        if isinstance(self._north, Announces):
-            await self._north.announce(self)
+        await self._binding.serve(self)
+        if isinstance(self._binding, Announces):
+            await self._binding.announce(self)
 
     async def aclose(self) -> None:
-        if isinstance(self._north, Announces):
-            await self._north.reap()
-        await self._north.aclose()
+        if isinstance(self._binding, Announces):
+            await self._binding.reap()
+        await self._binding.aclose()
         await self._client.aclose()
 
     # -- the invariant loop: neutral request -> native call -> reply ------- #
@@ -304,7 +306,7 @@ class Gateway:
         # A reply-bearing op on a pub/sub-only driver is an explicit error, never a
         # silent flatten: the driver told us it has no reply channel.
         if op in (INVOKE, READ, OBSERVE, WRITE) and not self.can_reply:
-            scheme = self._north.scheme
+            scheme = self._binding.scheme
             return {
                 "error": f"op {op!r} needs a reply channel; driver {scheme!r} is pub/sub-only",
                 "no_reply_channel": True,
@@ -344,7 +346,7 @@ class Gateway:
     async def mirror(self, thing_slug: str, event: str, payload: Any) -> None:
         """Push a native event onto the driver's wire, if it mirrors events."""
         if self.can_mirror:
-            await self._north.mirror_event(thing_slug, event, payload)
+            await self._binding.mirror_event(thing_slug, event, payload)
 
     # -- projection: ask the driver for each affordance's re-served forms --- #
 
@@ -359,7 +361,7 @@ class Gateway:
         }
         actions: dict = {}
         for name in thing.actions:
-            forms = self._north.project_forms(thing, name, INVOKE)
+            forms = self._binding.project_forms(thing, name, INVOKE)
             if forms:
                 actions[name] = {"forms": forms}
         if actions:
@@ -369,14 +371,14 @@ class Gateway:
             ops = ([READ] if prop.readable else []) + ([WRITE] if prop.writable else [])
             forms: list[dict] = []
             for op in ops:
-                forms.extend(self._north.project_forms(thing, name, op))
+                forms.extend(self._binding.project_forms(thing, name, op))
             if forms:
                 props[name] = {"forms": forms}
         if props:
             td["properties"] = props
         events: dict = {}
         for name in thing.events:
-            forms = self._north.project_forms(thing, name, SUBSCRIBE)
+            forms = self._binding.project_forms(thing, name, SUBSCRIBE)
             if forms:
                 events[name] = {"forms": forms}
         if events:

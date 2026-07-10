@@ -9,7 +9,7 @@ now one thin provider on a provider-neutral base:
 * :class:`~thingctx.identity.jwt_guard.JwtGatewayGuard` holds all the generic JWT
   validation (JWKS fetch + cache, RS256 signature verification against the
   ``kid``, iss/aud/exp/nbf checks, the reason-not-leaked errors, the
-  north-south ``authorize_and_invoke`` bridge);
+  caller-to-device ``authorize_and_invoke`` bridge);
 * :class:`~thingctx.identity.providers.entra.EntraGatewayGuard` supplies only the
   three Entra-specific things (the issuers, the JWKS URL, the scp/roles
   claims);

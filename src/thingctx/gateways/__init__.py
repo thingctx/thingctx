@@ -1,32 +1,31 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""Serve a WoT fleet over a middleware: the north side of a binding.
+"""Serve a WoT fleet over a middleware.
 
-A binding has two directions. The SOUTH side (:class:`~thingctx.ProtocolBinding`,
-formerly ``ProtocolBinding``) drives a device: thingctx speaks one transport
-outbound to reach a real Thing. The NORTH side, here, is the mirror: it re-serves
-a fleet of Things onto a middleware (an MQTT bus, a CoAP server, MCP, DDS) so any
-consumer on that middleware drives the fleet uniformly.
+thingctx has two sides. A :class:`~thingctx.ProtocolBinding` drives a device:
+thingctx speaks one transport outbound to reach a real Thing. A gateway is the
+mirror: it re-serves a fleet of Things onto a middleware (an MQTT bus, MCP, DDS)
+so any consumer on that middleware drives the fleet uniformly.
 
-A :class:`~thingctx.gateways.north.Gateway` joins the two: it holds a
-``ThingClient`` (south, to reach devices) and a
-:class:`~thingctx.gateways.north.GatewayBinding` (north, to serve the bus).
+A :class:`~thingctx.gateways.engine.Gateway` joins the two: it holds a
+``ThingClient`` to reach the devices, and a
+:class:`~thingctx.gateways.engine.GatewayBinding` to serve them on the bus.
 
-A north binding declares what its transport can do by IMPLEMENTING optional
+A gateway binding declares what its transport can do by IMPLEMENTING optional
 capability protocols (``RequestReply``, ``EventMirroring``, ``PubSubOnly``,
 ``Announces``, ``QoSAware``); the engine calls only what a driver advertises, so a
 protocol's specific features are used, never flattened. Protocol-specific options
-ride in the projected TD form as namespaced vocabulary (``mqv:``/``covv:``/
-``mcpv:``), which the engine passes through opaquely.
+ride in the projected TD form as namespaced vocabulary (``mqv:``/``mcpv:``), which
+the engine passes through opaquely.
 
-New north bindings ship as ``pip install``-able packages and register through the
-``thingctx.gateways`` entry-point group (see :func:`discover_gateway_bindings`),
-exactly as south bindings register through ``thingctx.bindings``.
+New gateway bindings ship as ``pip install``-able packages and register through
+the ``thingctx.gateways`` entry-point group (see :func:`discover_gateway_bindings`),
+exactly as consumer bindings register through ``thingctx.bindings``.
 """
 
 from __future__ import annotations
 
-from thingctx.gateways.north import (
+from thingctx.gateways.engine import (
     INVOKE,
     OBSERVE,
     READ,
@@ -76,9 +75,4 @@ def __getattr__(name: str):
         from thingctx.gateways.builtin.mcp import McpGatewayBinding
 
         return McpGatewayBinding
-    # The CoAP driver needs the ``coap`` extra (aiocoap); load it lazily too.
-    if name == "CoapGatewayBinding":
-        from thingctx.gateways.builtin.coap import CoapGatewayBinding
-
-        return CoapGatewayBinding
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

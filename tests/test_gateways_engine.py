@@ -80,7 +80,7 @@ def _client(device=None, *, pdp=None, identity=None):
 
 
 def _project(gw):
-    from thingctx.gateways.north import _slug
+    from thingctx.gateways.engine import _slug
 
     for t in gw.client.things:
         gw._projected[_slug(t)] = gw._project(t)

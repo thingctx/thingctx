@@ -4,7 +4,7 @@
 
 :class:`JwtGatewayGuard` is the engine behind every identity-provider guard in
 this package. It validates an *incoming* bearer JWT and authorizes the caller,
-so thingctx can sit north of devices that do not speak the provider's protocol
+so thingctx can sit in front of devices that do not speak the provider's protocol
 and drive them south with their own native auth. The guard is only about the
 inbound identity; the device is invoked with the existing outbound stack (its
 own bearer / basic / apikey), a different credential entirely.
@@ -310,7 +310,7 @@ class JwtGatewayGuard:
         for grant in self.grants:
             grant.check(claims)
 
-    # -- the north-south bridge ----------------------------------------- #
+    # -- the caller-to-device bridge ------------------------------------ #
 
     async def authorize_and_invoke(
         self,
@@ -322,8 +322,8 @@ class JwtGatewayGuard:
         """Validate the inbound ``token``, then, only if authorized, drive the
         device via ``client.invoke(tool, arguments)``.
 
-        This is the north-south bridge in one object: the caller's identity is
-        checked on the north side; the device is invoked on the south side with
+        This is the caller-to-device bridge in one object: the caller's identity is
+        checked on the caller side; the device is invoked on the device side with
         its own native auth (whatever ``client``'s TD declares). The device is
         never touched if validation fails: :meth:`validate` raises first, so
         ``invoke`` never runs.

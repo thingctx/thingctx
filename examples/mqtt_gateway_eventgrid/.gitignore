@@ -1,8 +1,0 @@
-# Client certificates and keys are generated at run time and are NEVER committed.
-# The harness reads paths to these files; it never embeds any material.
-*.pem
-*.key
-*.crt
-*.pfx
-*.p12
-certs/

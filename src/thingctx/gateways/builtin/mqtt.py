@@ -1,6 +1,6 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""MQTT north binding: serve a WoT fleet onto an MQTT bus.
+"""MQTT gateway binding: serve a WoT fleet onto an MQTT bus.
 
 This is the reference middleware driver. It implements the ``GatewayBinding``
 contract (project forms, serve, teardown) plus the ``RequestReply``,
@@ -28,7 +28,7 @@ import asyncio
 import json
 from typing import Any
 
-from thingctx.gateways.north import (
+from thingctx.gateways.engine import (
     INVOKE,
     READ,
     SUBSCRIBE,
@@ -267,7 +267,7 @@ class MqttGatewayBinding:
         (fall back to the server identity) when there is no guard, no token, or
         the token fails validation. ``inbound`` is the paho ``Properties`` object.
 
-        This is the north-side mirror of the south ``AuthMixin``: it authenticates
+        This is the gateway-side mirror of the consumer ``AuthMixin``: it authenticates
         the caller coming IN, as ``AuthMixin`` authenticates thingctx going OUT to
         a device. It reuses the same ``thingctx.identity`` guard the HTTP gateway
         uses, so a caller validated on the bus yields the same claims shape as one
