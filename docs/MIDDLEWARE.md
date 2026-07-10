@@ -77,7 +77,7 @@ assert_gateway_binding_contract(MyGatewayBinding("endpoint"))
 The seam is NOT a lowest-common-denominator abstraction. A driver declares what
 its transport can do by IMPLEMENTING optional capability protocols; the engine
 calls only what a driver advertises (`isinstance`-detected, the same idiom the
-south side uses for `Readable`/`Writable`). Implement the ones your transport
+consumer side uses for `Readable`/`Writable`). Implement the ones your transport
 supports, omit the rest:
 
 | Capability | Method | Implement when |
@@ -110,7 +110,7 @@ driver's own namespace, and none of them leaks into the engine.
 
 A third-party middleware ships as `thingctx-<bus>-gateway` and advertises its
 driver under the `thingctx.gateways` entry-point group. On `pip install` it is
-discoverable with zero change to thingctx, exactly as a south binding registers
+discoverable with zero change to thingctx, exactly as a consumer binding registers
 under `thingctx.bindings`:
 
 ```toml
