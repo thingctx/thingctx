@@ -1,32 +1,32 @@
-# Middleware bindings: serve a fleet over any bus
+# Gateway bindings: serve a fleet over any bus
 
-thingctx drives devices (the south side) and serves them (the north side). This
-document is how to add a NEW middleware, an MQTT bus, a CoAP server, MCP, DDS,
-Kafka, so that a fleet of Things becomes reachable over it, by writing one driver
-and shipping it as a package. The engine never changes.
+thingctx drives devices, and it serves them. This document is how to add a NEW
+middleware, an MQTT bus, MCP, DDS, Kafka, so that a fleet of Things becomes
+reachable over it, by writing one driver and shipping it as a package. The engine
+never changes.
 
 The design follows how OPC-UA (Part 14), W3C WoT (Binding Templates), and DDS all
 separate a neutral capability model from a swappable transport, and carry
 protocol-specific richness in a per-transport slot the core never inspects.
 
-## The two sides of a binding
+## The two sides
 
-- **South binding** (`ProtocolBinding`): drives a device.
+- **Consumer binding** (`ProtocolBinding`): drives a device.
   thingctx speaks one transport outbound to reach a real Thing. Documented in
   [BINDINGS.md](BINDINGS.md).
-- **North binding** (`GatewayBinding`): serves a fleet. thingctx re-serves Things
-  onto a middleware so any consumer drives them uniformly. This document.
+- **Gateway binding** (`GatewayBinding`): serves a fleet. thingctx re-serves
+  Things onto a middleware so any consumer drives them uniformly. This document.
 
-A `Gateway` joins them: it holds a `ThingClient` (south, to reach devices) and a
-`GatewayBinding` (north, to serve the bus).
+A `Gateway` joins them: it holds a `ThingClient` to reach the devices, and a
+`GatewayBinding` to serve them on the bus.
 
 ```python
 from thingctx import ThingClient
 from thingctx.gateways import Gateway
 from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
 
-client = ThingClient(tds=[...], bindings=[...])       # south: reach the devices
-gateway = Gateway(client, MqttGatewayBinding("broker:1883"))  # north: serve the bus
+client = ThingClient(tds=[...], bindings=[...])              # reach the devices
+gateway = Gateway(client, MqttGatewayBinding("broker:1883"))  # serve them on the bus
 await gateway.start()
 ```
 
@@ -44,7 +44,7 @@ encode/decode, and the transport's specific features.
 
 ## The contract: what a driver implements
 
-A north binding is a class satisfying `GatewayBinding`:
+A gateway binding is a class satisfying `GatewayBinding`:
 
 ```python
 class MyGatewayBinding:
@@ -96,17 +96,15 @@ op, so a caller learns the bus cannot do it, rather than getting a dropped reply
 
 Each protocol's specific features live in the projected form as namespaced,
 ignore-if-unknown vocabulary, exactly as W3C WoT does it (`htv:` for HTTP, `mqv:`
-for MQTT, `cov:` for CoAP). The driver WRITES its own terms and READS only its
-own; the engine passes the form through opaquely and never enumerates a
-protocol's fields.
+for MQTT). The driver WRITES its own terms and READS only its own; the engine
+passes the form through opaquely and never enumerates a protocol's fields.
 
 - MQTT (`mqv:`): `mqv:qos`, `mqv:retain`, `mqv:userProperties` (MQTT v5).
-- CoAP (`covv:`): `covv:method`, `covv:observe` (RFC 7641), `covv:contentFormat`.
 - MCP (`mcpv:`): `mcpv:kind` (`tool`/`resource`/`prompt`), MCP-specific annotations.
 
 This is why a driver keeps its transport's full power: MQTT v5 user-properties,
-DDS QoS, CoAP observe, and MCP resources/prompts all survive projection because
-they ride in the driver's own namespace, and none of them leaks into the engine.
+DDS QoS, and MCP resources/prompts all survive projection because they ride in the
+driver's own namespace, and none of them leaks into the engine.
 
 ## Ship it as a package (auto-discovered)
 
@@ -169,9 +167,8 @@ gateway streams it, rather than collapsing a result set into a single reply.
 - MQTT (`thingctx.gateways.builtin.mqtt.MqttGatewayBinding`): the request/reply +
   event-mirroring bus driver; implements `RequestReply`, `EventMirroring`,
   `QoSAware`.
-- CoAP (`thingctx.gateways.builtin.coap.CoapGatewayBinding`): request/reply over UDP
-  with observe for events; a deliberately different shape (no retain, `covv:`
-  vocab) that shows the seam is not MQTT-specific.
 - MCP (`thingctx.gateways.builtin.mcp.McpGatewayBinding`): a rich driver whose
   "topics" are MCP tools/resources/prompts; shows a middleware with
-  protocol-specific constructs a plain bus lacks.
+  protocol-specific constructs a plain bus lacks. A driver of a different shape
+  (request/reply over UDP, a fire-and-forget bus) shows the seam is not
+  MQTT-specific.
