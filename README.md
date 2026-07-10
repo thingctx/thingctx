@@ -206,6 +206,31 @@ Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
 MCP is just one way to deliver the description, for agents where direct tool
 calling isn't available.
 
+## Serve a whole fleet: the gateway
+
+The MCP bridge and the direct client both REACH devices. A gateway goes the other
+way: it re-serves a fleet of Things onto a middleware, so any consumer on that bus
+drives every device through one protocol, with no client per device. One process
+fronts the fleet.
+
+```python
+from thingctx import ThingClient
+from thingctx.gateways import Gateway
+from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
+
+client = ThingClient(tds=[...], bindings=[...])              # reach the devices
+gateway = Gateway(client, MqttGatewayBinding("broker:1883"))  # serve them on the bus
+await gateway.start()
+```
+
+A request arrives on a topic, the gateway resolves it against the native device,
+and the reply goes back on the bus. The engine names only the five WoT operations;
+the driver owns the wire. If the client carries the authorization seam
+(`pdp`/`identity`), the same per-operation check runs for a bus request, so the
+gateway is not a bypass. MQTT and MCP ship as drivers; a new middleware is one
+`GatewayBinding` class and the engine never changes. See
+[`docs/MIDDLEWARE.md`](docs/MIDDLEWARE.md).
+
 ## Why not MCP
 
 MCP solves the wrong problem. Calling a real system from a model was always a

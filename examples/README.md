@@ -29,6 +29,29 @@ because it needs crypto. See [docs/AUTHZ.md](../docs/AUTHZ.md).
 14 is the authz seam alone; 15 adds the authn guard in front of it so you see
 where the identity actually comes from.
 
+## Gateways (serve a fleet over a bus)
+
+The other direction. A `ThingClient` reaches devices; a `Gateway` re-serves that
+whole fleet onto a middleware (MQTT, MCP) so any consumer on the bus drives every
+Thing through one protocol, with no client per device.
+
+```python
+from thingctx import ThingClient
+from thingctx.gateways import Gateway
+from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
+
+client = ThingClient(tds=[...], bindings=[...])              # reach the devices
+gateway = Gateway(client, MqttGatewayBinding("broker:1883"))  # serve them on the bus
+await gateway.start()
+```
+
+A request arrives on a topic, the gateway resolves it against the native device,
+and the reply goes back on the bus. If the client was built with the authz seam
+(`pdp`/`identity`), the same check runs for a bus request too, so the gateway is
+not an authorization bypass. Adding a new middleware (a different bus) is one
+`GatewayBinding` class; the engine never changes. See
+[docs/MIDDLEWARE.md](../docs/MIDDLEWARE.md).
+
 ## Media (audio/video)
 
 The continuous-binary plane: consume frames from a source, or publish them to a
