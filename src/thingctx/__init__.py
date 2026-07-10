@@ -94,8 +94,10 @@ from thingctx.contracts import implements
 
 # LLMHost: optional tool-calling loop, in thingctx.contrib.
 from thingctx.contrib.llm import LLMHost
+from thingctx.gateway import GatewayProjection
 
 # Compile a non-WoT description (OpenAPI) into a TD.
+from thingctx.lint import LintFinding, lint_td
 from thingctx.openapi import from_openapi, load_spec
 from thingctx.quality import (
     QUALITY_KEY,
@@ -138,7 +140,10 @@ __all__ = [
     "from_td",
     "from_openapi",
     "load_spec",
+    "lint_td",
+    "LintFinding",
     "ThingClient",
+    "GatewayProjection",
     "LLMHost",
     "Registry",
     "FileRegistry",

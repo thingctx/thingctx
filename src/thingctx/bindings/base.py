@@ -21,21 +21,20 @@ from thingctx.auth import (
 )
 from thingctx.thing import WoTAction, WoTForm
 
+# NOTE: this module holds the transport-NEUTRAL binding contract only. Response
+# decoding is transport-specific and lives with each binding (HTTP's content-type
+# decoder is in builtin/http.py). Do not add a shared decoder here; a binding
+# returns its own native result shape. The HTTP decoder is re-exported lazily
+# below (import-on-access, no module-level cycle) so callers reaching it through
+# the binding layer resolve one implementation.
 
-def _decode(resp, empty=None):
-    """Decode a response by its content type: JSON to a value, text to a str,
-    anything else (e.g. an image) to raw bytes. An empty body returns `empty`."""
-    ctype = resp.headers.get("content-type", "").split(";")[0].strip()
-    # An empty body (a 204 No Content, or any empty 2xx) has nothing to parse,
-    # even when the response still declares a JSON content type. Check this first
-    # so a successful response never raises a decode error.
-    if not resp.content:
-        return empty
-    if ctype == "application/json" or ctype.endswith("+json"):
-        return resp.json()
-    if ctype.startswith("text/") or ctype == "":
-        return resp.text
-    return resp.content
+
+def __getattr__(name: str) -> Any:
+    if name == "_decode":
+        from thingctx.bindings.builtin.http import _decode
+
+        return _decode
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @runtime_checkable

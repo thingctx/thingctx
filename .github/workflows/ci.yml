@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "ruff>=0.6"
+      - run: pip install "ruff==0.8.6"
       - run: ruff check .
       - run: ruff format --check .
 
@@ -48,17 +48,59 @@ jobs:
       - name: Test (offline)
         run: pytest -m "not network" -q
 
+  # The base install must stay dependency-free. Install thingctx with NO extras,
+  # import the core and the authorization seam, and fail if any heavy dependency
+  # (httpx, pyjwt, azure-identity, cryptography) is reachable from that import.
+  # This is the tripwire that keeps thingctx.authz stdlib-only and confines the
+  # guard/providers to their extras; a regression that leaks a dep into base
+  # breaks this job loudly instead of shipping a heavier core.
+  dep-free-base:
+    name: dep-free-base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install base only (no extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+      - name: Import core + authz seam and assert no heavy deps loaded
+        run: |
+          python - <<'PY'
+          import sys
+          import importlib.util
+          import thingctx
+          import thingctx.authz
+          from thingctx.authz import pdp, pep, vocabulary, authzen  # noqa: F401
+          heavy = [m for m in ("httpx", "jwt", "azure", "cryptography") if m in sys.modules]
+          assert not heavy, f"base install leaked heavy deps into import: {heavy}"
+
+          def absent(pkg):
+              # find_spec raises ModuleNotFoundError when a parent package is
+              # missing (e.g. azure for azure.identity); that means absent.
+              try:
+                  return importlib.util.find_spec(pkg) is None
+              except ModuleNotFoundError:
+                  return True
+
+          for pkg in ("httpx", "jwt", "azure.identity"):
+              assert absent(pkg), f"{pkg} is installed in a base env; it belongs behind an extra"
+          print("dep-free base OK: thingctx + thingctx.authz import stdlib-only")
+          PY
+
   # Single stable gate to require in branch protection, so the matrix can
   # change without touching the protected-branch config.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [lint, test]
+    needs: [lint, test, dep-free-base]
     runs-on: ubuntu-latest
     steps:
       - name: Check upstream jobs
         run: |
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ]; then
-            echo "lint=${{ needs.lint.result }} test=${{ needs.test.result }}"
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
+            echo "lint=${{ needs.lint.result }} test=${{ needs.test.result }} dep-free-base=${{ needs.dep-free-base.result }}"
             exit 1
           fi
