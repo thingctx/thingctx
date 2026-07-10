@@ -4,17 +4,26 @@
 lazily here only, so the pure ThingClient has no LLM dependency.
 
     client = ThingClient(tds=[td], bindings=[HttpBinding()])
-    host = LLMHost(client, model="anthropic/claude-sonnet-4-6")
+    host = LLMHost(client, model="openai/gpt-4o-mini")
     print(await host.chat("read temp-1 and report it"))
 """
 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from thingctx.runtime import ThingClient, to_text
+
+
+def default_model() -> str:
+    """The model the convenience helpers use when the caller names none. Reads
+    ``THINGCTX_MODEL`` so a deployment picks its own provider and version without
+    a code change; the fallback is a small, widely available tool-calling model.
+    A litellm-style ``provider/model`` string."""
+    return os.environ.get("THINGCTX_MODEL", "openai/gpt-4o-mini")
 
 
 def _summary_from_memo(memo: dict) -> str:
@@ -48,14 +57,14 @@ class LLMHost:
         self,
         client: ThingClient,
         *,
-        model: str = "anthropic/claude-sonnet-4-6",
+        model: str | None = None,
         system: str | None = None,
         max_rounds: int = 8,
         chat_fn: ChatFn | None = None,
         resilient: bool = False,
     ) -> None:
         self._client = client
-        self._model = model
+        self._model = model or default_model()
         self._system = system
         self._max_rounds = max_rounds
         self._chat_fn = chat_fn
@@ -69,7 +78,24 @@ class LLMHost:
 
     @property
     def tool_specs(self) -> list[dict[str, Any]]:
-        return self._client.list_actions()
+        return self._openai_tools()
+
+    def _openai_tools(self) -> list[dict[str, Any]]:
+        """The client's full tool surface in OpenAI function-tool shape: actions
+        plus property get/set, bulk read, and long-running cancel tools."""
+        tools = []
+        for t in self._client.tool_surface():
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t["description"],
+                        "parameters": t["input_schema"],
+                    },
+                }
+            )
+        return tools
 
     async def chat(self, prompt: str) -> str:
         """Run the tool-calling loop for one prompt; return the final text
@@ -159,7 +185,7 @@ class LLMHost:
             messages.append({"role": "system", "content": self._system})
         messages.append({"role": "user", "content": user_content})
 
-        tools = self._client.list_actions()
+        tools = self._openai_tools()
         chat = self._chat_fn or self._litellm_chat
         memo: dict[tuple, str] = {}  # only used when resilient
 
@@ -183,7 +209,7 @@ class LLMHost:
                     result_text = memo[(name, raw_args)]  # cached; don't re-run
                 else:
                     all_repeats = False
-                    result_text = to_text(await self._client.invoke(name, args))
+                    result_text = to_text(await self._client.call_tool(name, args))
                     if self._resilient:
                         memo[(name, raw_args)] = result_text
                 messages.append(

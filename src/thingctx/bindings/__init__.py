@@ -20,7 +20,9 @@ interaction; this is the client that executes it.
 from __future__ import annotations
 
 from thingctx.bindings.base import (
+    AsyncAction,
     AuthMixin,
+    BulkProperties,
     Closeable,
     ContentRouted,
     MediaConsumer,
@@ -33,6 +35,7 @@ from thingctx.bindings.base import (
     binding_schemes,
     select_binding,
 )
+from thingctx.bindings.builtin.exec import ExecBinding
 from thingctx.bindings.builtin.http import HttpBinding
 from thingctx.bindings.builtin.local import LocalBinding
 from thingctx.bindings.builtin.media import Frame, MediaBackend, MediaBinding, is_media_form
@@ -44,6 +47,7 @@ from thingctx.bindings.registry import (
     build_builtin,
     default_bindings,
     discover_bindings,
+    discover_local_handlers,
 )
 
 __all__ = [
@@ -57,6 +61,8 @@ __all__ = [
     "Readable",
     "Writable",
     "Subscribable",
+    "BulkProperties",
+    "AsyncAction",
     "MediaConsumer",
     "MediaPublisher",
     "SecurityAware",
@@ -68,12 +74,14 @@ __all__ = [
     "build_builtin",
     "default_bindings",
     "discover_bindings",
+    "discover_local_handlers",
     "BUILTIN_BINDINGS",
     # Built-in bindings
     "HttpBinding",
     "LocalBinding",
     "MqttBinding",
     "MediaBinding",
+    "ExecBinding",
     "is_media_form",
     # Media backend sub-contract (pluggable engines behind MediaBinding)
     "MediaBackend",

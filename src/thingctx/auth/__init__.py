@@ -49,6 +49,7 @@ from thingctx.auth.media import (
     ytdlp_auth_options,
 )
 from thingctx.auth.mqtt import MqttAuthPlan, apply_mqtt
+from thingctx.auth.oauth_consent import authorize_code_flow, login
 from thingctx.auth.providers import (
     ApiKeyAuth,
     AuthStrategy,
@@ -58,6 +59,7 @@ from thingctx.auth.providers import (
     CredentialProvider,
     DirectCredentialAuth,
     NoSecAuth,
+    OAuth2AuthorizationCodeAuth,
     OAuth2ClientCredentialsAuth,
     OAuth2JwtBearerAuth,
     StaticBearerAuth,
@@ -65,6 +67,13 @@ from thingctx.auth.providers import (
 from thingctx.auth.registry import DEFAULT_AUTH, AuthRegistry, discover_auth, register_auth
 from thingctx.auth.resolve import resolve_credentials
 from thingctx.auth.sigv4 import _aws_region_service, sigv4_sign
+from thingctx.auth.store import (
+    FileTokenStore,
+    MemoryTokenStore,
+    TokenStore,
+    default_token_store,
+    token_key,
+)
 
 __all__ = [
     # Context + registry
@@ -84,8 +93,17 @@ __all__ = [
     "ApiKeyAuth",
     "OAuth2ClientCredentialsAuth",
     "OAuth2JwtBearerAuth",
+    "OAuth2AuthorizationCodeAuth",
     "AwsSigV4Auth",
     "BaseAuth",
+    # User-consent OAuth (authorization-code + refresh)
+    "authorize_code_flow",
+    "login",
+    "TokenStore",
+    "MemoryTokenStore",
+    "FileTokenStore",
+    "token_key",
+    "default_token_store",
     # Neutral credential material
     "Credential",
     "Secret",

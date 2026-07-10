@@ -12,9 +12,15 @@ line.
   author+run a FastMCP server     ->    none, consume the TD
   @tool set_speed / estop         ->    invoke("pump.set_speed", ...)
   @tool read_sensor(id)           ->    invoke("pump.read_sensor", {id})  (uriVar)
-  @resource pump://status         ->    invoke("pump.status")  (idempotent -> GET)
+  @resource pump://status         ->    invoke("pump.status")  (gzip, idempotent -> GET)
   get_/set_target_rpm TOOL PAIR   ->    read_property / write_property (typed)
   poll pump://overheat/latest     ->    subscribe("pump.overheat")  (data inline)
+
+It then drives the rest of the invocable surface end to end: bulk property
+read/write and a subset read (the Thing-level forms), a filtered subscription
+(the event's subscription schema), the async calibrate lifecycle (handle ->
+poll -> completed, and invoke -> cancel), and the declared error response a
+failed call surfaces.
 
 Run::  python examples/02_thingctx_baseline.py
 """
@@ -33,9 +39,10 @@ async def main() -> None:
     pump.start_telemetry(temps=(70, 85, 99), period=0.2)
     try:
         # No server authored. We consume the device's TD and call its
-        # endpoints; validate=True checks it against the W3C TD 1.1 schema.
-        # One binding per transport the TD's forms name: local, http(+bearer),
-        # mqtt, covering the full surface.
+        # endpoints; validate="strict" checks it against the W3C TD 1.1 schema
+        # AND the semantic rules a schema cannot (uriVariable presence,
+        # security/scope references, op legality). One binding per transport the
+        # TD's forms name: local, http(+bearer), mqtt, covering the full surface.
         client = ThingClient(
             tds=[td],
             bindings=[
@@ -43,7 +50,7 @@ async def main() -> None:
                 HttpBinding(credentials={"bearer_sc": DEVICE_TOKEN}),
                 MqttBinding(timeout=5),
             ],
-            validate=True,
+            validate="strict",
         )
 
         # No wrappers needed: client.invoke / read_property /
@@ -120,6 +127,60 @@ async def main() -> None:
             n += 1
             if n >= 2:
                 break
+
+        # BULK, the Thing-level readall/writeall forms drive every property in
+        # one call (a per-property fallback covers a TD with no bulk form).
+        check(
+            "BULK       write_properties",
+            await client.write_properties({"target_rpm": 1800}),
+            {"ok": True, "written": {"target_rpm": 1800}},
+        )
+        check(
+            "BULK       read_all_properties",
+            await client.read_all_properties(),
+            {"rpm": pump.rpm, "target_rpm": pump.target_rpm},
+        )
+        check(
+            "BULK       read_properties(subset)",
+            await client.read_properties(["target_rpm"]),
+            {"target_rpm": pump.target_rpm},
+        )
+
+        # FILTERED PUSH, the event's subscription schema; only readings at or
+        # above the threshold are delivered (the device honors ?threshold=).
+        print(f"{'PUSH       subscribe(overheat>=90)':<34}-> filtered, data inline:")
+        n = 0
+        async for evt in await client.subscribe("pump.overheat", {"threshold": 90}):
+            assert evt["temp"] >= 90, "filter must drop sub-threshold readings"
+            print(f"           {evt}  ok >= threshold")
+            n += 1
+            if n >= 2:
+                break
+
+        # ASYNC, calibrate is synchronous:false (queryaction/cancelaction):
+        # invoke returns a handle, wait=True polls it to a terminal state, and
+        # cancel_action stops one in flight.
+        check(
+            "ASYNC      calibrate -> handle",
+            (await client.invoke("pump.calibrate", {"target": 1200})).status,
+            "running",
+        )
+        check(
+            "ASYNC      calibrate wait=True",
+            (await client.invoke("pump.calibrate", {"target": 1200}, wait=True)).output,
+            {"calibrated_to": 1200},
+        )
+        started = await client.invoke("pump.calibrate", {"target": 50})
+        cancelled = await client.cancel_action(started)
+        check("ASYNC      calibrate -> cancel", cancelled.status, "cancelled")
+
+        # ERROR, the status form's declared additionalResponses (a 503 shape).
+        # Force a fault and the runtime surfaces the declared error schema, not
+        # a bare failure.
+        pump.fault = True
+        err = await client.invoke("pump.status")
+        pump.fault = False
+        check("ERROR      status 503 -> declared", err["response"]["schema"], "errorResponse")
 
         print("\nEvery thingctx result asserted == calling the pump directly.")
         print("full surface, 4 transports (local/http/mqtt/sse), no server written.")

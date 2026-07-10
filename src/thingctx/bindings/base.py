@@ -26,10 +26,13 @@ def _decode(resp, empty=None):
     """Decode a response by its content type: JSON to a value, text to a str,
     anything else (e.g. an image) to raw bytes. An empty body returns `empty`."""
     ctype = resp.headers.get("content-type", "").split(";")[0].strip()
-    if ctype == "application/json" or ctype.endswith("+json"):
-        return resp.json()
+    # An empty body (a 204 No Content, or any empty 2xx) has nothing to parse,
+    # even when the response still declares a JSON content type. Check this first
+    # so a successful response never raises a decode error.
     if not resp.content:
         return empty
+    if ctype == "application/json" or ctype.endswith("+json"):
+        return resp.json()
     if ctype.startswith("text/") or ctype == "":
         return resp.text
     return resp.content
@@ -151,12 +154,18 @@ class AuthMixin:
         of the interaction. A form may override the owner's active schemes with
         its own (form-level security), resolved against the same definitions."""
         active, schemes = self._active, self._schemes_by_name
+        slug = self._slug(owner_id) if owner_id is not None else None
         if owner_id is not None and owner_id in self._things_by_id:
             active, schemes = self._things_by_id[owner_id]
+        elif owner_id is None and not active and len(self._things_by_id) == 1:
+            # Owner-less paths (e.g. subscribe, which carries no owner) resolve
+            # against the sole bound Thing, whose declared security is
+            # unambiguous; otherwise the affordance would carry no auth.
+            sole_id, (active, schemes) = next(iter(self._things_by_id.items()))
+            slug = self._slug(sole_id)
         form_sec = self._form_security(form)
         if form_sec is not None:
             active = form_sec
-        slug = self._slug(owner_id) if owner_id is not None else None
         return active, schemes, slug
 
     def _credential_for(self, owner_id, slug, sname):
@@ -241,9 +250,44 @@ class Writable(Protocol):
 @runtime_checkable
 class Subscribable(Protocol):
     """A binding that can open a push stream for an event or observable
-    property and yield each value."""
+    property and yield each value. ``target`` is the affordance (a
+    ``WoTEvent``/``WoTProperty``), so the binding can authenticate as its owner;
+    ``args`` carries any subscribe-time parameters (an event's
+    ``subscription`` schema)."""
 
-    async def subscribe(self, name: str, form: WoTForm) -> Any: ...
+    async def subscribe(
+        self, target: Any, form: WoTForm, args: dict[str, Any] | None = None
+    ) -> Any: ...
+
+
+@runtime_checkable
+class BulkProperties(Protocol):
+    """A binding that reads or writes several properties through a Thing-level
+    bulk form (the readallproperties / readmultipleproperties /
+    writeallproperties / writemultipleproperties ops). ``read_all`` returns a
+    ``{name: value}`` map (``names`` selects a subset); ``write_all`` takes one.
+    The runtime falls back to per-property read/write when a binding lacks this."""
+
+    async def read_all(self, thing: Any, form: WoTForm, names: Any = None) -> Any: ...
+
+    async def write_all(self, thing: Any, form: WoTForm, values: dict[str, Any]) -> Any: ...
+
+
+@runtime_checkable
+class AsyncAction(Protocol):
+    """A binding that drives the long-running action lifecycle: start with
+    ``invoke_async`` (returns an ``ActionStatus`` handle), poll with
+    ``query_action``, and stop with ``cancel_action``, for an action declared
+    ``synchronous: false`` with the queryaction / cancelaction ops. The runtime
+    falls back to a plain ``invoke`` when a binding lacks this."""
+
+    async def invoke_async(
+        self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]
+    ) -> Any: ...
+
+    async def query_action(self, status: Any) -> Any: ...
+
+    async def cancel_action(self, status: Any) -> Any: ...
 
 
 @runtime_checkable

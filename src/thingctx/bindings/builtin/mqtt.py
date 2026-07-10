@@ -50,6 +50,17 @@ class MqttBinding(AuthMixin):
     and connect/reply failures surface as the same ``TransportError`` the HTTP
     binding raises. Pass ``client_factory`` to supply your own configured client
     (or a fake, in tests).
+
+    Capability coverage: ``invoke`` (request/reply over a topic) and ``subscribe``
+    (a long-lived topic subscription for events / observable properties), with the
+    shared auth layer (username/password, mutual TLS, or v5 enhanced auth).
+    Not implemented, because they do not map cleanly to pub/sub: property
+    ``read`` / ``write`` (a TD routing a property read over MQTT gets no readable
+    transport), bulk property ops (the runtime's per-property fallback then also
+    has no MQTT read/write to call), and the async action lifecycle
+    (``queryaction`` / ``cancelaction``) -- a long-running action over MQTT falls
+    back to a plain request/reply ``invoke``, which returns the reply rather than
+    an ``ActionStatus`` handle to poll or cancel.
     """
 
     scheme = "mqtt"
@@ -253,17 +264,20 @@ class MqttBinding(AuthMixin):
         finally:
             self._shutdown(client)
 
-    async def subscribe(self, name, form):  # noqa: ANN001
+    async def subscribe(self, target, form, args=None):  # noqa: ANN001
         """Subscribe to the form's MQTT topic; yield each message. This is the
         events / observable-property binding for MQTT: a long-lived subscription
         that survives broker reconnects (the topic is re-subscribed on every
-        reconnect)."""
+        reconnect). ``target`` is the affordance, so the connection
+        authenticates as its owner."""
         import asyncio
 
+        name = target if isinstance(target, str) else target.name
+        owner = getattr(target, "thing_id", None)
         host, port, topic = self._endpoint(form, name)
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
-        client, props = await self._connect(getattr(form, "thing_id", None), host, port, form)
+        client, props = await self._connect(owner, host, port, form)
 
         def _on_message(_c, _u, msg):  # noqa: ANN001
             loop.call_soon_threadsafe(queue.put_nowait, _decode_mqtt(msg.payload))

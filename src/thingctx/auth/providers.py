@@ -30,6 +30,7 @@ from thingctx.auth.credentials import (
     SignatureCredential,
 )
 from thingctx.auth.sigv4 import _AWS_SCHEMES, _aws_creds
+from thingctx.auth.store import TokenStore, default_token_store, token_key
 
 __all__ = [
     "CredentialProvider",
@@ -42,6 +43,7 @@ __all__ = [
     "ApiKeyAuth",
     "OAuth2ClientCredentialsAuth",
     "OAuth2JwtBearerAuth",
+    "OAuth2AuthorizationCodeAuth",
     "AwsSigV4Auth",
     "RequestSigner",
 ]
@@ -199,6 +201,33 @@ def _cache_put(cache: dict, key: tuple, token: str, expires_in: Any) -> None:
     except (TypeError, ValueError):
         ttl = 3600.0
     cache[key] = (token, time.monotonic() + ttl)
+
+
+async def _refresh_grant(
+    token_url: str,
+    client_id: str | None,
+    client_secret: str | None,
+    refresh_token: str,
+    scopes: tuple[str, ...] = (),
+    *,
+    timeout: float = 30.0,
+) -> dict:
+    """Exchange a refresh token for a fresh access token (RFC 6749 section 6).
+    Reusable beyond the authorization-code provider; the caller guards TLS and
+    persists any rotated refresh token."""
+    import httpx
+
+    data: dict[str, str] = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+    if client_id:
+        data["client_id"] = client_id
+    if client_secret:
+        data["client_secret"] = client_secret
+    if scopes:
+        data["scope"] = " ".join(scopes)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(token_url, data=data)
+        resp.raise_for_status()
+        return resp.json()
 
 
 class OAuth2ClientCredentialsAuth(BaseAuth):
@@ -375,6 +404,89 @@ class OAuth2JwtBearerAuth(BaseAuth):
         if not access:
             return None
         _cache_put(ctx.cache, key, access, (tok or {}).get("expires_in", 3600))
+        return BearerToken(token=access)
+
+
+class OAuth2AuthorizationCodeAuth(BaseAuth):
+    """OAuth2 authorization-code grant for *user*-authorized APIs (YouTube,
+    Google, most SaaS): the access token is minted on behalf of a user, not the
+    client itself.
+
+    This provider only refreshes silently. The one-time browser consent that
+    issues the first refresh token is an explicit, out-of-band step
+    (``thingctx auth login`` or :func:`thingctx.auth.authorize_code_flow`) and is
+    never reached from ``resolve`` -- a token call, which an agent can trigger,
+    must never open a browser. With no stored refresh token ``resolve`` raises,
+    pointing the operator at consent.
+
+    The refresh token (a long-lived secret) is read from a :class:`TokenStore`
+    so it survives restarts; the short-lived access token is cached in
+    ``ctx.cache`` like the other OAuth providers. Matches an ``oauth2`` scheme
+    whose ``flow`` is ``code``, which keeps it distinct from the
+    client-credentials provider.
+    """
+
+    name = "oauth2-authorization-code"
+
+    def __init__(self, *, store: TokenStore | None = None) -> None:
+        self._store = store
+
+    @property
+    def store(self) -> TokenStore:
+        if self._store is None:  # the shared default file store
+            self._store = default_token_store()
+        return self._store
+
+    def matches(self, scheme: Any, credential: Any) -> bool:
+        return getattr(scheme, "scheme", None) == "oauth2" and getattr(scheme, "flow", "") in (
+            "code",
+            "authorization_code",
+        )
+
+    async def resolve(self, ctx: AuthContext) -> Credential | None:
+        cred, scheme = ctx.credential, ctx.scheme
+        if isinstance(cred, dict) and cred.get("access_token"):
+            return BearerToken(token=cred["access_token"])  # caller supplied one
+        token_url = getattr(scheme, "token", "") or (
+            cred.get("token_url") if isinstance(cred, dict) else ""
+        )
+        if not token_url:
+            return None
+        scopes = tuple(getattr(scheme, "scopes", ()) or ())
+        key = ("ac", ctx.owner_id or scheme.name, token_url, scopes)
+        cached = _cache_get(ctx.cache, key)
+        if cached:
+            return BearerToken(token=cached)
+
+        cid, secret = OAuth2ClientCredentialsAuth._creds(cred)
+        skey = token_key(ctx.owner_id, token_url, scopes)
+        record = self.store.get(skey) or {}
+        # An explicit refresh token in the credential wins; else the one consent
+        # persisted under this owner/endpoint/scope.
+        refresh = (cred.get("refresh_token") if isinstance(cred, dict) else None) or record.get(
+            "refresh_token"
+        )
+        if not refresh:
+            raise RuntimeError(
+                f"no stored refresh token for {skey!r}; run a one-time consent first "
+                "(thingctx auth login), then this resolves silently"
+            )
+        # A runtime credential wins; else fall back to what consent persisted, so
+        # a confidential client refreshes with no runtime credential config.
+        if cid is None:
+            cid = record.get("client_id")
+        if secret is None:
+            secret = record.get("client_secret")
+
+        _guard_tls(token_url, ctx.allow_insecure_oauth)
+        tok = await _refresh_grant(token_url, cid, secret, refresh, scopes, timeout=ctx.timeout)
+        access = (tok or {}).get("access_token")
+        if not access:
+            return None
+        _cache_put(ctx.cache, key, access, (tok or {}).get("expires_in", 3600))
+        rotated = (tok or {}).get("refresh_token")
+        if rotated and rotated != refresh:  # some IdPs rotate the refresh token
+            self.store.set(skey, {**record, "refresh_token": rotated, "client_id": cid})
         return BearerToken(token=access)
 
 

@@ -24,7 +24,7 @@ from thingctx.runtime import ThingClient
 def from_td(
     td: dict[str, Any] | list[dict[str, Any]],
     *,
-    model: str = "anthropic/claude-sonnet-4-6",
+    model: str | None = None,
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
     validate: bool = False,
     approve: Any = None,
@@ -49,7 +49,7 @@ def from_td(
 def from_file(
     path: str | Path,
     *,
-    model: str = "anthropic/claude-sonnet-4-6",
+    model: str | None = None,
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
     **host_kwargs: Any,
 ) -> LLMHost:
@@ -61,22 +61,35 @@ def from_file(
 async def from_url(
     url: str,
     *,
-    model: str = "anthropic/claude-sonnet-4-6",
+    model: str | None = None,
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
+    timeout: float = 10.0,
     **host_kwargs: Any,
 ) -> LLMHost:
     """Fetch a live Thing's TD from ``url`` and return a ready host.
 
     ``url`` points at the Thing Description document (e.g.
     ``http://device.local/.well-known/wot`` or a TD-Directory entry).
-    The device side is WoT's, thingctx just consumes the document.
+    The device side is WoT's, thingctx just consumes the document. The fetch has
+    a ``timeout`` and caps the document size (see ``THINGCTX_MAX_TD_BYTES``) so a
+    slow or oversized response cannot hang or exhaust the client.
     """
     import httpx
 
-    from thingctx.registry import _user_agent
+    from thingctx.registry import _max_td_bytes, _user_agent
 
-    async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}) as http:
-        resp = await http.get(url)
-        resp.raise_for_status()
-        td = resp.json()
+    limit = _max_td_bytes()
+    async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}, timeout=timeout) as http:
+        # Stream and enforce the cap while reading, so an oversized document is
+        # cut off mid-download rather than fully buffered before the check.
+        async with http.stream("GET", url) as resp:
+            resp.raise_for_status()
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in resp.aiter_bytes():
+                total += len(chunk)
+                if limit is not None and total > limit:
+                    raise ValueError(f"Thing Description at {url!r} exceeds the {limit}-byte limit")
+                chunks.append(chunk)
+        td = json.loads(b"".join(chunks))
     return from_td(td, model=model, bindings=bindings, **host_kwargs)

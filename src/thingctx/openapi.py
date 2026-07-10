@@ -74,10 +74,35 @@ def _slim(spec: dict, schema: Any, depth: int = 0) -> dict:
     return out
 
 
+_STRUCTURED_BODY = (
+    "application/json",
+    "application/x-www-form-urlencoded",
+    "multipart/form-data",
+)
+
+
+def _request_media(spec: dict, op: dict) -> tuple[str | None, dict | None]:
+    """The operation's representative request body media type and media object,
+    or ``(None, None)``. A structured type (json, form, multipart) is preferred
+    so its schema yields arguments; otherwise the first declared type (e.g. a
+    binary ``application/octet-stream`` upload) is used."""
+    body = _deref(spec, op.get("requestBody")) if op.get("requestBody") else None
+    if not body:
+        return None, None
+    content = body.get("content") or {}
+    for ct in _STRUCTURED_BODY:
+        if ct in content:
+            return ct, _deref(spec, content[ct])
+    for ct, media in content.items():
+        return ct, _deref(spec, media)
+    return None, None
+
+
 def _input_schema(spec: dict, op: dict) -> dict | None:
     """Build the action input JSON Schema from an operation's path/query
-    parameters and (if present) its JSON or form-encoded request body. Returns
-    None when the operation takes no input."""
+    parameters and (if present) its request body. A structured body contributes
+    its schema properties; a binary body contributes a single ``body`` argument
+    carrying the bytes. Returns None when the operation takes no input."""
     props: dict[str, Any] = {}
     required: list[str] = []
 
@@ -93,18 +118,18 @@ def _input_schema(spec: dict, op: dict) -> dict | None:
         if p.get("required") or p.get("in") == "path":
             required.append(p["name"])
 
-    body = _deref(spec, op.get("requestBody")) if op.get("requestBody") else None
-    if body:
-        content = body.get("content", {})
-        media = (
-            content.get("application/json")
-            or content.get("application/x-www-form-urlencoded")
-            or {}
-        )
+    ct, media = _request_media(spec, op)
+    if media is not None:
         bschema = _deref(spec, media.get("schema", {}))
-        for name, sub in (bschema.get("properties") or {}).items():
-            props[name] = _slim(spec, sub)
-        required += [r for r in bschema.get("required", []) if r not in required]
+        if ct in _STRUCTURED_BODY and bschema.get("properties"):
+            for name, sub in (bschema.get("properties") or {}).items():
+                props[name] = _slim(spec, sub)
+            required += [r for r in bschema.get("required", []) if r not in required]
+        elif ct not in _STRUCTURED_BODY:
+            # A binary / opaque body: one argument carries the request bytes.
+            props["body"] = {"type": "string", "format": "binary", "description": "request body"}
+            if "body" not in required:
+                required.append("body")
 
     if not props:
         return None
@@ -152,13 +177,24 @@ def _security_from_spec(spec: dict) -> tuple[dict, list[str]]:
             }
         elif kind == "oauth2":
             flows = raw.get("flows") or {}
-            flow = flows.get("clientCredentials") or flows.get("password") or {}
-            defs[name] = {
-                "scheme": "oauth2",
-                "flow": "client_credentials" if "clientCredentials" in flows else "password",
-                "token": flow.get("tokenUrl", ""),
-                "scopes": list((flow.get("scopes") or {}).keys()),
-            }
+            if "authorizationCode" in flows:  # the user-consent flow
+                f = flows["authorizationCode"]
+                defs[name] = {
+                    "scheme": "oauth2",
+                    "flow": "code",
+                    "authorization": f.get("authorizationUrl", ""),
+                    "token": f.get("tokenUrl", ""),
+                    "refresh": f.get("refreshUrl", ""),
+                    "scopes": list((f.get("scopes") or {}).keys()),
+                }
+            else:
+                f = flows.get("clientCredentials") or flows.get("password") or {}
+                defs[name] = {
+                    "scheme": "oauth2",
+                    "flow": "client_credentials" if "clientCredentials" in flows else "password",
+                    "token": f.get("tokenUrl", ""),
+                    "scopes": list((f.get("scopes") or {}).keys()),
+                }
     groups = [g for g in spec.get("security", []) if g]
     # A requirement object lists every scheme that must be satisfied together
     # (AND), so keep all of its keys, not just the first. Fall back to every
@@ -231,10 +267,11 @@ def from_openapi(
             name = _action_name(op, method, path)
             if not keep(name, method, path):
                 continue
+            body_ct, _ = _request_media(spec, op)
             form: dict[str, Any] = {
                 "href": base + path,
                 "htv:methodName": method.upper(),
-                "contentType": "application/json",
+                "contentType": body_ct or "application/json",
             }
             # An operation may override the Thing-level security; carry that
             # onto the form so the generated TD authenticates per-operation.
