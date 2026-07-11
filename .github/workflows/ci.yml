@@ -21,7 +21,9 @@ jobs:
   # the contribution; a tool cannot. See CONTRIBUTING.md.
   dco:
     name: dco
-    if: github.event_name == 'pull_request'
+    # Bots (Dependabot) cannot add a Signed-off-by; the DCO certifies a human
+    # takes responsibility, which does not apply to an automated dependency bump.
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
