@@ -114,7 +114,7 @@ async def test_allowlisted_interpreter_inline_code_is_refused():
     base = __import__("os").path.basename(sys.executable)
     client = _client([sys.executable, "-c", "print('pwned')"], allow=[base], allow_any=False)
     res = await client.invoke("host.run")
-    assert "bypasses the allow list" in res["error"]
+    assert "bypass the allow list" in res["error"]
 
 
 @pytest.mark.asyncio

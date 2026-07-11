@@ -615,7 +615,10 @@ class ExtractorBackend(PyAVBackend):
         if mode == "direct":
             return False
         if mode == "page" or hint.get("source") == "youtube":
-            return True
+            # A page is always http(s). Refuse any other scheme (file:, ftp:,
+            # data:, javascript:) here, independent of the file/private flags, so
+            # a page hint cannot hand a local-file or SSRF URL to the extractor.
+            return urlparse(url).scheme in ("http", "https")
         if mode == "auto":
             # Only an http(s) page resolves via yt-dlp; other schemes (and a
             # direct media URL) are opened directly by PyAVBackend.

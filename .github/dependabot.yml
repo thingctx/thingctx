@@ -1,0 +1,29 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
+version: 2
+updates:
+  # Python dependencies (the optional extras: httpx, pyjwt, av, azure-identity,
+  # paho-mqtt, and the rest). The base install is dependency-free, so this only
+  # tracks the extras and the dev toolchain.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for routine minor/patch bumps; majors stay separate for review.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # The GitHub Actions used by the CI, security, and CodeQL workflows. Pinned to
+  # commit SHAs, so Dependabot proposes the SHA bump with a changelog.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        update-types: ["minor", "patch"]

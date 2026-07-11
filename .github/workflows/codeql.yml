@@ -1,0 +1,44 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly disclosed pattern is caught even with no push.
+    - cron: "27 4 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (python)
+    runs-on: ubuntu-latest
+    permissions:
+      # Least privilege: read the tree, write only the code-scanning results.
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@d6bbdef45e766d081b84a2def353b0055f728d3e # v3.29.0
+        with:
+          languages: python
+          # The broader suite: the security queries plus the maintainability
+          # and correctness ones, so this gate covers quality, not only CVEs.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@d6bbdef45e766d081b84a2def353b0055f728d3e # v3.29.0
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@d6bbdef45e766d081b84a2def353b0055f728d3e # v3.29.0
+        with:
+          category: "/language:python"

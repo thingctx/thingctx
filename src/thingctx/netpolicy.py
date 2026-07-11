@@ -65,14 +65,32 @@ def require_scheme(url: str, allowed, *, what: str = "URL") -> str:
     return url
 
 
+def _as_ip(host: str):
+    """Parse ``host`` as an IP literal, or return None. Accepts the canonical
+    forms plus the non-canonical IPv4 encodings a URL parser and the OS resolver
+    both accept (decimal ``2130706433``, hex ``0x7f.1``, octal, and short forms
+    like ``127.1``); ``ipaddress`` alone rejects those, which would let a
+    loopback or metadata address written that way slip past a private check."""
+    host = (host or "").strip("[]")
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    # inet_aton accepts the non-canonical IPv4 encodings; normalize to a literal.
+    try:
+        return ipaddress.ip_address(socket.inet_ntoa(socket.inet_aton(host)))
+    except OSError:
+        return None
+
+
 def is_private_host(host: str) -> bool:
     """Whether ``host`` is an IP literal in a private, loopback, link-local,
     reserved, multicast, or unspecified range. A hostname (not an IP literal)
-    returns ``False`` here; use :func:`resolve_is_private` to resolve it first."""
-    host = (host or "").strip("[]")
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
+    returns ``False`` here; use :func:`resolve_is_private` to resolve it first.
+    Non-canonical IPv4 encodings (decimal, hex, octal, short form) are normalized
+    first, so ``2130706433`` is recognized as loopback."""
+    ip = _as_ip(host)
+    if ip is None:
         return False
     return (
         ip.is_private
@@ -103,12 +121,14 @@ def check_url(
     *,
     allowed_schemes=WEB_SCHEMES,
     block_private: bool = False,
-    resolve: bool = False,
+    resolve: bool = True,
     what: str = "URL",
 ) -> str:
     """Validate ``url`` and return it. Always enforces ``allowed_schemes``; when
-    ``block_private`` is set, also refuses a host that is (``resolve=True``: or
-    resolves to) a private/loopback/link-local address."""
+    ``block_private`` is set, refuses a host that is, or resolves to, a private,
+    loopback, or link-local address. Resolution is on by default: a private-host
+    block that skipped hostnames would miss ``localhost`` and a cloud metadata
+    name, so pass ``resolve=False`` only when the host is already a literal."""
     require_scheme(url, allowed_schemes, what=what)
     if block_private:
         host = urlsplit(url).hostname or ""

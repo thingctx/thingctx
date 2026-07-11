@@ -751,7 +751,16 @@ class ThingClient:
         for thing in self._things:
             form = self._bulk_form(thing, "readallproperties")
             binding = self._registry.resolve(form) if form else None
-            if form is not None and binding is not None and hasattr(binding, "read_all"):
+            # The bulk fast path reaches the device in one request and cannot
+            # authorize per property, so it is used only when authorization is
+            # off. With a PDP set, every read goes through the per-property
+            # authorized path below; a bulk read is not an authorization bypass.
+            if (
+                self._pdp is None
+                and form is not None
+                and binding is not None
+                and hasattr(binding, "read_all")
+            ):
                 res = await binding.read_all(thing, form)
                 if isinstance(res, dict):
                     out.update(res)
@@ -772,7 +781,13 @@ class ThingClient:
                 continue
             form = self._bulk_form(thing, "readmultipleproperties", "readallproperties")
             binding = self._registry.resolve(form) if form else None
-            if form is not None and binding is not None and hasattr(binding, "read_all"):
+            # Bulk fast path only when authorization is off (see read_all_properties).
+            if (
+                self._pdp is None
+                and form is not None
+                and binding is not None
+                and hasattr(binding, "read_all")
+            ):
                 res = await binding.read_all(thing, form, names=mine)
                 if isinstance(res, dict):
                     out.update(res)
@@ -793,7 +808,13 @@ class ThingClient:
                 continue
             form = self._bulk_form(thing, "writeallproperties", "writemultipleproperties")
             binding = self._registry.resolve(form) if form else None
-            if form is not None and binding is not None and hasattr(binding, "write_all"):
+            # Bulk fast path only when authorization is off (see read_all_properties).
+            if (
+                self._pdp is None
+                and form is not None
+                and binding is not None
+                and hasattr(binding, "write_all")
+            ):
                 res = await binding.write_all(thing, form, mine)
                 out.update(res if isinstance(res, dict) else {"result": res})
                 continue

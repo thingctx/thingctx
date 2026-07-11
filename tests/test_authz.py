@@ -176,6 +176,72 @@ async def test_read_write_split():
     await client2.aclose()
 
 
+async def test_bulk_property_read_write_cannot_bypass_the_pdp():
+    """A binding that offers a bulk read_all/write_all must not let
+    read_all_properties / read_properties / write_properties skip authorization.
+    With a deny-all PDP the bulk fast path is never taken; every property goes
+    through the per-property authorized path and is denied."""
+
+    class _BulkBinding(ProtocolBinding):
+        scheme = "http"
+
+        def __init__(self) -> None:
+            self.bulk_fired: list[str] = []
+
+        async def read(self, prop, form):
+            return {"value": 1}
+
+        async def write(self, prop, form, value):
+            return {"ok": True}
+
+        async def invoke(self, action, form, arguments):
+            return {"ok": True}
+
+        # The bulk fast path. If authorization is enforced, this must never run.
+        async def read_all(self, thing, form, names=None):
+            self.bulk_fired.append("read_all")
+            return {"setpoint": 7, "serial": "SN"}
+
+        async def write_all(self, thing, form, values):
+            self.bulk_fired.append("write_all")
+            return {"ok": True}
+
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": PUMP_ID,
+        "title": "Pump",
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "properties": {
+            "setpoint": {
+                "type": "number",
+                "forms": [{"href": "http://p/setpoint", "op": ["readproperty", "writeproperty"]}],
+            },
+        },
+        # bulk forms the fast path keys on
+        "forms": [
+            {"href": "http://p/all", "op": ["readallproperties", "writeallproperties"]},
+        ],
+    }
+    vocab = build_vocabulary(parse_thing(td))
+    # deny-all: an identity with a role that has no grants at all
+    pdp = PolicyDecisionPoint(vocab, LocalPolicyGrantSource({}))
+
+    binding = _BulkBinding()
+    client = ThingClient(
+        tds=[td], bindings=[binding], pdp=pdp, identity={"roles": ["nobody"]}, authz_raise=False
+    )
+
+    got = await client.read_all_properties()
+    # The device's bulk read never ran; the per-property path returned a denial.
+    assert binding.bulk_fired == [], "bulk read_all bypassed the PDP"
+    assert any(isinstance(v, dict) and v.get("error") for v in got.values())
+
+    await client.write_properties({"setpoint": 9})
+    assert binding.bulk_fired == [], "bulk write_all bypassed the PDP"
+    await client.aclose()
+
+
 async def test_read_write_split_envelope_mode():
     """``raise_on_deny=False`` returns a thingctx-style error envelope instead of
     raising, and still touches no device."""

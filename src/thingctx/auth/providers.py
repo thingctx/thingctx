@@ -188,6 +188,18 @@ def _guard_tls(url: str, allow_insecure: bool) -> None:
     )
 
 
+def _secret_fp(secret: Any) -> str:
+    """A short, non-reversible fingerprint of a client secret, for a cache key.
+    Keys the cached access token to the exact credential, so a rotated or revoked
+    secret does not reuse a token minted under the old one. Empty when absent."""
+    import hashlib
+
+    if not secret:
+        return ""
+    raw = secret if isinstance(secret, bytes) else str(secret).encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
 def _cache_get(cache: dict, key: tuple) -> str | None:
     hit = cache.get(key)
     if hit and hit[1] - 60 > time.monotonic():  # 60s safety margin
@@ -293,8 +305,8 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         cid, secret = self._creds(cred)
         if not token_url or cid is None:
             return None
-        scopes = tuple(getattr(scheme, "scopes", ()) or ())
-        key = ("cc", ctx.owner_id or scheme.name, token_url, scopes)
+        scopes = tuple(sorted(getattr(scheme, "scopes", ()) or ()))
+        key = ("cc", ctx.owner_id or scheme.name, token_url, scopes, cid, _secret_fp(secret))
         cached = _cache_get(ctx.cache, key)
         if cached:
             return BearerToken(token=cached)
@@ -358,9 +370,10 @@ class OAuth2JwtBearerAuth(BaseAuth):
             or getattr(scheme, "token", "")
             or ("https://oauth2.googleapis.com/token")
         )
-        scopes = tuple(cred.get("scopes") or getattr(scheme, "scopes", ()) or ())
+        scopes = tuple(sorted(cred.get("scopes") or getattr(scheme, "scopes", ()) or ()))
         iss = cred.get("client_email") or cred.get("iss") or cred.get("client_id")
-        key = ("jwt", ctx.owner_id or scheme.name, token_url, scopes)
+        fp = _secret_fp(cred.get("private_key"))
+        key = ("jwt", ctx.owner_id or scheme.name, token_url, scopes, iss, fp)
         cached = _cache_get(ctx.cache, key)
         if cached:
             return BearerToken(token=cached)
@@ -452,8 +465,12 @@ class OAuth2AuthorizationCodeAuth(BaseAuth):
         )
         if not token_url:
             return None
-        scopes = tuple(getattr(scheme, "scopes", ()) or ())
-        key = ("ac", ctx.owner_id or scheme.name, token_url, scopes)
+        scopes = tuple(sorted(getattr(scheme, "scopes", ()) or ()))
+        _cid, _sec = OAuth2ClientCredentialsAuth._creds(cred)
+        _rt = cred.get("refresh_token") if isinstance(cred, dict) else None
+        # Key the cached access token to the client and to a runtime-supplied
+        # refresh token, so a changed credential does not reuse a stale token.
+        key = ("ac", ctx.owner_id or scheme.name, token_url, scopes, _cid, _secret_fp(_rt or _sec))
         cached = _cache_get(ctx.cache, key)
         if cached:
             return BearerToken(token=cached)

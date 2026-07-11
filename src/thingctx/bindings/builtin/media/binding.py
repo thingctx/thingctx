@@ -252,10 +252,13 @@ class MediaBinding(AuthMixin):
         if not self._allow_file and scheme in ("", "file"):
             raise MediaError(f"local-file media source is not allowed by policy: {url!r}")
         if self._block_private and scheme in _HOSTED_SCHEMES:
-            from thingctx.netpolicy import is_private_host
+            from thingctx.netpolicy import resolve_is_private
 
             host = urlparse(url).hostname or ""
-            if is_private_host(host):
+            # Resolve the host: a hostname (localhost, a cloud metadata name, or
+            # an attacker A-record) that points at a private address must be
+            # blocked too, not only a literal private IP.
+            if resolve_is_private(host):
                 raise MediaError(
                     f"media source host {host!r} is a private or loopback address "
                     "(blocked by policy)"
