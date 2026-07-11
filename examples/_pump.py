@@ -8,6 +8,7 @@ real MQTT broker (the set_coolant action).
 from __future__ import annotations
 
 import json
+import os
 import queue
 import socket
 import threading
@@ -145,7 +146,9 @@ class PumpDevice:
         return asyncio.ensure_future(_emit_loop())
 
 
-DEVICE_TOKEN = "demo-bearer-token"  # the secret the TD's bearer_sc expects
+# Demo bearer token the TD's bearer_sc expects; read from the environment so no
+# secret literal is committed. The fallback keeps the example self-contained.
+DEVICE_TOKEN = os.environ.get("THINGCTX_DEMO_DEVICE_TOKEN", "demo-bearer-token")
 
 
 def start_http_server(device: PumpDevice):

@@ -19,6 +19,7 @@ Run::  python examples/09_rtsp_local.py
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import socket
 import subprocess
@@ -31,10 +32,12 @@ from thingctx.bindings.builtin.media import MediaBinding
 from thingctx.runtime import ThingClient
 
 RTSP_URL = "rtsp://127.0.0.1:8554/cam"
-# Demo credentials. The '@' and '!' prove the userinfo is percent-encoded by the
-# auth layer so they can't break the URL.
-USERNAME = "cam"
-PASSWORD = "p@ssw0rd!"
+# Demo credentials for the local throwaway server. Read from the environment so
+# no password literal is committed; the fallback keeps the example runnable with
+# no setup. The '@' and '!' in the fallback prove the userinfo is percent encoded
+# by the auth layer so they cannot break the URL.
+USERNAME = os.environ.get("THINGCTX_DEMO_RTSP_USER", "cam")
+PASSWORD = os.environ.get("THINGCTX_DEMO_RTSP_PASSWORD", "p@ssw0rd!")
 
 # A camera described by a TD: the form points at the rtsp:// stream (no secret),
 # and `basic` security says "this stream needs a login". The secret is supplied

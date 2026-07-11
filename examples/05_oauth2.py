@@ -21,15 +21,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
 import thingctx
 
-CLIENT_ID = "pump-agent"
-CLIENT_SECRET = "s3cret"
-VALID_TOKEN = "demo-access-token-123"
+# Demo credentials for this self-contained local roundtrip; read from the
+# environment so no secret literal is committed. The same values feed the demo
+# client and the demo server, so a matched pair is all that is needed.
+CLIENT_ID = os.environ.get("THINGCTX_DEMO_CLIENT_ID", "pump-agent")
+CLIENT_SECRET = os.environ.get("THINGCTX_DEMO_CLIENT_SECRET", "s3cret")
+VALID_TOKEN = os.environ.get("THINGCTX_DEMO_TOKEN", "demo-access-token-123")
 
 # Server-side counters so the demo can show what actually happened.
 STATE = {"token_issued": 0, "speed": 0}
