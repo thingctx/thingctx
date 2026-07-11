@@ -174,6 +174,15 @@ and [`examples/15_authn_to_authz.py`](examples/15_authn_to_authz.py) (a real
 token validated by the guard, then enforced). Full model:
 [`docs/SECURITY.md`](docs/SECURITY.md).
 
+**Trusting the description itself.** A TD carries no secrets, so it is safe to
+commit and share, and thingctx fetches only over `http(s)` and validates a TD
+against the W3C TD 1.1 schema before using it (install `thingctx[validate]`). But
+a description you fetch is code your agent acts on, so treat its source the way you
+treat any dependency: prefer a TD you wrote or a directory you control over an
+arbitrary URL. Content pinning and signature verification (so a fetched TD must
+match a known digest or a trusted signer) are a design in progress, not yet shipped;
+until then, the trust boundary is the source you point thingctx at.
+
 ## Reach a closed agent: the MCP bridge
 
 Some agents are closed: you can't hand their model tools directly, only
@@ -231,31 +240,38 @@ gateway is not a bypass. MQTT and MCP ship as drivers; a new middleware is one
 `GatewayBinding` class and the engine never changes. See
 [`docs/SECURITY.md`](docs/SECURITY.md).
 
-## Why not MCP
+## Where MCP fits
 
-MCP solves the wrong problem. Calling a real system from a model was always a
-tooling limitation, not a protocol one: read an interface, hand the model tool
-specs, route each call to its transport , all client-side, drivable from a plain
-description. MCP turns that gap into infrastructure you operate instead of data
-you read.
+MCP is a way to deliver tools to an agent you cannot hand them to directly. It is
+a delivery channel, not the integration itself. The integration, what a system
+does, how to reach it, who may call it, is the description. thingctx reads that
+description and drives the system client-side; when an agent is closed and only
+takes tools through MCP, the same description is delivered over the bridge (see
+above). The document is the durable part; the channel is the agent vendor's choice,
+and it can change without touching a Thing Description.
 
 To expose a system over MCP you write a server, deploy it, and keep it running,
 one per integration. N systems means N processes to operate. A Thing Description
-is a static file: write it (or generate it), check it into git, or serve it from
-a URL. There is nothing to run, nothing to keep alive. Integration becomes data,
-not a service, and data scales to a fleet for free.
+is a static file: write it, or generate one from an existing spec
+(`thingctx import openapi <spec>` compiles an OpenAPI file or URL into a TD), then
+check it into git or serve it from a URL. There is nothing to run, nothing to keep
+alive. Integration becomes data, not a service, and data scales to a fleet for free.
 
 A messy device (binary protocol, a session dance) gets one thin connector that
 exposes a clean WoT face; the TD describes *that*. The connector is consumed
 the same way by an LLM, an MCP client, or anything else.
 
+The table below measures one axis: what you build and operate per integration, not
+what each approach can do. thingctx wins on operational weight and cold-start; it
+says nothing about auth depth, policy, or ecosystem, which are their own questions.
+
 See [`examples/01_mcp_baseline.py`](examples/01_mcp_baseline.py) (a server per
 integration) and
 [`examples/02_thingctx_baseline.py`](examples/02_thingctx_baseline.py) (no
 server). Both drive the same pump; every result is asserted equal to calling
-the system directly. The difference is what you build and run to get there:
+the system directly.
 
-| per integration     | MCP (stdio) | MCP (http)   | thingctx |
+| per integration      | MCP (stdio) | MCP (http)   | thingctx |
 | -------------------- | ----------- | ------------ | -------- |
 | server process       | per session | 1, long-run  | 0        |
 | hand-written lines   | 142         | 142          | 10       |

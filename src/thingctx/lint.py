@@ -4,7 +4,7 @@
 
 ``validate_td`` answers whether a TD is legal against the W3C TD 1.1 schema.
 ``lint_td`` answers a different question: once the TD is projected to tool
-specs (see ``docs/USAGE.md``, which describes what a model sees), will
+specs (see ``docs/MAPPING.md``, which is normative for what a model sees), will
 a model be able to choose and call its affordances? A TD can be schema-valid and
 still project a tool with no description, no argument names, or a name the model
 providers reject.
