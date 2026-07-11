@@ -166,6 +166,56 @@ hint (`"x-thingctx-auth": "my-scheme"`) and match on
 `scheme.raw["x-thingctx-auth"]`. See
 [13_custom_stack.py](../examples/13_custom_stack.py).
 
+## Connect a user-authorized service (OAuth)
+
+For a Thing that acts for a person and needs them to sign in, the TD declares an
+`oauth2` scheme with flow `code`, naming the provider's endpoints:
+
+```json
+"securityDefinitions": {
+  "google": {
+    "scheme": "oauth2", "flow": "code",
+    "authorization": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/calendar.readonly"]
+  }
+}
+```
+
+The TD holds no secret. You sign in once; thingctx stores a refresh token and
+refreshes access tokens on its own after that.
+
+Over the MCP bridge, sign in happens on demand: a `connect` tool lists what needs
+it, and a call that lacks a token prompts you to connect first. Either way you
+confirm, then approve once in a browser on the provider's page. Just ask the agent
+to do the task and approve when prompted.
+
+The OAuth client (the app's id and secret) is yours, supplied once at
+`~/.config/thingctx/oauth-clients/<token-host>.json` (for Google,
+`oauth2.googleapis.com.json`), never in a TD or the agent config. One file per
+provider. To sign in from the shell instead:
+
+```
+thingctx auth login --td service.td.json --client-secrets-file client.json
+```
+
+Tokens are keyed by Thing id, so connecting one Thing does not connect another.
+
+### The agent never holds your token
+
+The refresh token lives in a local store (owner-only file) that only thingctx
+reads; the agent calls a described operation and never receives a token. A
+compromised or prompt-injected agent cannot take a credential it was never given,
+and with the authorization seam (see [SECURITY.md](SECURITY.md)) a misused token
+is still bounded to the operations you granted.
+
+This is narrower than "the secret is safe." The token store is a file like any
+other credential file: an attacker who owns the host can read it, and redacting
+logs is not a hardware boundary. The durable difference is that the agent is not
+in the credential path. Unlike pasting an API key into an agent's config or an
+MCP server's session, the token stays below the agent and is attached only when
+thingctx reaches the real system.
+
 ## Trust: approval and grounding
 
 Two primitives on `ThingClient`, both off until you opt in.

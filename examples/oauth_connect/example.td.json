@@ -1,0 +1,25 @@
+{
+  "@context": "https://www.w3.org/2022/wot/td/v1.1",
+  "id": "urn:example:oauth-service",
+  "title": "Example OAuth Service",
+  "description": "A minimal Thing that needs the user to sign in, so the connect flow has something to run against. Replace the endpoints and scopes with a real provider's, or point the bridge at a curated TD from td.thingctx.com.",
+  "securityDefinitions": {
+    "user_oauth": {
+      "scheme": "oauth2",
+      "flow": "code",
+      "authorization": "https://provider.example/oauth/authorize",
+      "token": "https://provider.example/oauth/token",
+      "scopes": ["read"]
+    }
+  },
+  "security": ["user_oauth"],
+  "actions": {
+    "whoami": {
+      "title": "whoami",
+      "description": "Return the signed-in account. A placeholder action so the flow is drivable.",
+      "forms": [
+        { "href": "https://provider.example/api/me", "htv:methodName": "GET" }
+      ]
+    }
+  }
+}

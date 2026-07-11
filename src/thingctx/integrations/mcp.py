@@ -273,6 +273,36 @@ def build_mcp_server(
                     ),
                 )
             )
+        # Expose a single ``connect`` tool when the registry has a user-authorized
+        # Thing, so the agent can offer to sign you in and see what still needs it.
+        # The consent still confirms with you before any browser opens.
+        from thingctx.integrations.connect import CONNECT_TOOL, connect_status
+
+        if connect_status(client):
+            out.append(
+                types.Tool(
+                    name=CONNECT_TOOL,
+                    description=(
+                        "Sign in to a service this agent can reach that needs your "
+                        "consent (e.g. a calendar). Call with no argument to list "
+                        "what needs connecting, or with a service name to connect it. "
+                        "Opens a browser for you to approve; no password or token is "
+                        "shared with the agent."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "thing": {
+                                "type": "string",
+                                "description": "The service to connect. Omit to list what needs it.",  # noqa: E501
+                            }
+                        },
+                    },
+                    annotations=types.ToolAnnotations(
+                        readOnlyHint=False, idempotentHint=True, destructiveHint=False
+                    ),
+                )
+            )
         return out
 
     async def _snapshot(name: str, args: dict):
@@ -344,6 +374,21 @@ def build_mcp_server(
     @server.call_tool()
     async def call_tool(tool: str, args: dict):
         args = args or {}
+        from thingctx.integrations.connect import CONNECT_TOOL, connect_tool, ensure_connected
+
+        try:
+            session = server.request_context.session
+        except Exception:  # noqa: BLE001 - no live session (e.g. a piped call)
+            session = None
+        # The explicit connect tool: the agent (or the user) drives a sign in.
+        if tool == CONNECT_TOOL:
+            return _tool_result(await connect_tool(client, args, session))
+        # Connect a user-authorized Thing on demand: if this tool needs a sign in
+        # the store does not have yet, confirm and run the one-time browser consent
+        # locally, so the agent never handles the token.
+        connect_err = await ensure_connected(client, tool, session)
+        if connect_err is not None:
+            return _tool_result({"error": connect_err})
         if tool in media_tools:
             return await _snapshot(media_tools[tool], args)
         # client.call_tool dispatches actions (a long-running action blocks to
