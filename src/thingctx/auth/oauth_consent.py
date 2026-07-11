@@ -130,8 +130,16 @@ _PAGE = (
 
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - http.server API
-        query = urllib.parse.urlparse(self.path).query
-        params = dict(urllib.parse.parse_qsl(query))
+        parsed = urllib.parse.urlparse(self.path)
+        # Only the registered redirect (path "/") from a loopback Host counts, so
+        # a stray local request to another path or origin cannot fill or race the
+        # single callback slot. The provider redirects to exactly "/".
+        host = (self.headers.get("Host") or "").split(":")[0]
+        if parsed.path != "/" or host not in ("127.0.0.1", "localhost"):
+            self.send_response(404)
+            self.end_headers()
+            return
+        params = dict(urllib.parse.parse_qsl(parsed.query))
         if "code" in params or "error" in params:
             self.server.result = params  # type: ignore[attr-defined]
         self.send_response(200)

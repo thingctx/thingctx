@@ -206,10 +206,13 @@ class JwtGatewayGuard:
             for jwk in keys:
                 if jwk.get("kid") == kid:
                     return jwt.PyJWK.from_dict(jwk).key
-        # No kid match: a token whose kid is absent from a multi-key set is a
-        # real failure (either forged or the keys rotated). Only fall back to a
-        # lone key when the set has exactly one, matching common practice.
-        if len(keys) == 1:
+        # No kid match. Fall back to a lone key ONLY when the token carries no
+        # kid, matching common single-key practice. A token that DOES name a kid
+        # absent from the set is a real miss: raise, so the caller refetches the
+        # JWKS and picks up a rotated key, rather than silently trusting the one
+        # stale cached key (which would lock out every new-kid token for the
+        # cache TTL after rotation).
+        if kid is None and len(keys) == 1:
             return jwt.PyJWK.from_dict(keys[0]).key
         raise AuthorizationError(f"no signing key in the JWKS matches the token kid {kid!r}")
 

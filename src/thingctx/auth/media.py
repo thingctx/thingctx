@@ -71,10 +71,13 @@ class MediaAuthPlan:
         )
 
 
-# Credentials can ride inside a media URL (userinfo or a token query param), and
-# FFmpeg / extractors echo that URL into their error messages. Redact before any
-# media error is surfaced.
-_USERINFO_RE = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]+@")
+# Credentials can ride inside a media URL (userinfo or a token query param), or a
+# request header, and FFmpeg / extractors echo those into their error messages
+# and logs. Redact before any media error or log line is surfaced.
+# The userinfo match extends to the LAST '@' before a path or whitespace, so a
+# password that itself contains '@' (e.g. ``p@ss:w0rd``) is fully redacted; the
+# lookahead keeps a bare or path-boundary '@' from being consumed.
+_USERINFO_RE = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)[^/\s]+@(?=[^/@\s])")
 _SENSITIVE_QS = (
     "password",
     "passwd",
@@ -105,18 +108,41 @@ _QS_RE = re.compile(r"(?i)([?&](?:" + "|".join(_SENSITIVE_QS) + r")=)[^&\s'\"]+"
 # An RTMP ingest stream key is a path segment (``rtmp://host/app/<key>``), not
 # userinfo or a query value; keep ``scheme://host/app/`` and redact the rest.
 _RTMP_KEY_RE = re.compile(r"(?i)(rtmps?://[^/\s]+/[^/\s]+/)[^\s'\"?#]+")
+# FFmpeg takes request headers as CRLF-joined lines; a credential header (Bearer,
+# api key, cookie) can echo into a libav log or an error. Redact the value after
+# a sensitive header name, whether the lines are real CRLFs or a literal ``\r\n``.
+_SENSITIVE_HDR = (
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+    "api-key",
+    "apikey",
+    "x-auth-token",
+    "x-access-token",
+    "x-amz-security-token",
+)
+_HEADER_RE = re.compile(r"(?im)^([ \t]*(?:" + "|".join(_SENSITIVE_HDR) + r")[ \t]*:[ \t]*)[^\r\n]+")
+_HEADER_LITERAL_RE = re.compile(
+    r"(?i)((?:" + "|".join(_SENSITIVE_HDR) + r")[ \t]*:[ \t]*)(?:(?!\\r\\n).)+"
+)
 
 
 def redact_url(text: str) -> str:
-    """Redact credentials embedded in any URL inside ``text``: userinfo
-    (``scheme://user:pass@`` becomes ``scheme://***@``), sensitive query values
-    (``?token=...`` becomes ``?token=***``), and an RTMP stream key carried as a
-    path segment (``rtmp://host/app/key`` becomes ``rtmp://host/app/***``)."""
+    """Redact credentials in ``text``: URL userinfo (``scheme://user:pass@``
+    becomes ``scheme://***@``), sensitive query values (``?token=...`` becomes
+    ``?token=***``), an RTMP stream key path segment
+    (``rtmp://host/app/key`` becomes ``rtmp://host/app/***``), and the value of a
+    credential request header (``Authorization: Bearer ...`` becomes
+    ``Authorization: ***``)."""
     if not text:
         return text
     text = _USERINFO_RE.sub(lambda m: m.group("scheme") + _REDACTED + "@", text)
     text = _QS_RE.sub(r"\1" + _REDACTED, text)
-    return _RTMP_KEY_RE.sub(r"\1" + _REDACTED, text)
+    text = _RTMP_KEY_RE.sub(r"\1" + _REDACTED, text)
+    text = _HEADER_RE.sub(r"\1" + _REDACTED, text)
+    return _HEADER_LITERAL_RE.sub(r"\1" + _REDACTED, text)
 
 
 def apply_media(creds: list[Credential]) -> MediaAuthPlan:

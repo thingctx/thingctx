@@ -69,8 +69,6 @@ _INTERPRETERS = frozenset(
         "setsid",
     }
 )
-# Flags that hand an interpreter inline code to run.
-_INLINE_FLAGS = frozenset({"-c", "-e", "--eval", "--exec", "-"})
 # A minimal environment for spawned programs: enough to find and run a binary,
 # without leaking the parent's secrets (API keys, cloud creds) to it.
 _SAFE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ", "SystemRoot")
@@ -120,12 +118,16 @@ class ExecBinding:
         if not (program in self._allow or os.path.basename(program) in self._allow):
             return f"program not allowed: {program!r}"
         # The program is allowlisted; make sure it is not an interpreter being
-        # handed inline code, which would run past the allowlist.
+        # handed inline code or a module, which would run past the allow list. A
+        # legitimate wrapper takes data or file arguments, never flags, so for an
+        # interpreter refuse ANY flag argument. A membership test on known flags
+        # ("-c", "-m") misses a concatenated form ("-cCODE") and every future
+        # flag; keying on the leading "-" catches them all.
         base = os.path.basename(program)
-        if base in _INTERPRETERS and (base == "env" or any(a in _INLINE_FLAGS for a in argv[1:])):
+        if base in _INTERPRETERS and (base == "env" or any(a.startswith("-") for a in argv[1:])):
             return (
-                f"program {program!r} is an interpreter invoked with inline code, "
-                "which bypasses the allow list; allowlist a concrete wrapper program instead"
+                f"program {program!r} is an interpreter invoked with a flag argument, "
+                "which can bypass the allow list; allowlist a concrete wrapper program instead"
             )
         return None
 
