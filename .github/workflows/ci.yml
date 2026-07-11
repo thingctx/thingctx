@@ -23,7 +23,11 @@ jobs:
     name: dco
     # Bots (Dependabot) cannot add a Signed-off-by; the DCO certifies a human
     # takes responsibility, which does not apply to an automated dependency bump.
-    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    # Gate on the PR author, not the triggering actor: an update-branch or a
+    # maintainer action changes the actor, but the author stays the bot.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
