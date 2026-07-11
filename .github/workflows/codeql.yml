@@ -39,6 +39,6 @@ jobs:
         uses: github/codeql-action/autobuild@d6bbdef45e766d081b84a2def353b0055f728d3e # v3.29.0
 
       - name: Analyze
-        uses: github/codeql-action/analyze@d6bbdef45e766d081b84a2def353b0055f728d3e # v3.29.0
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v3.29.0
         with:
           category: "/language:python"
