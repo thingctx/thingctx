@@ -95,6 +95,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             return self._json(401, {"error": "unauthorized"})
         self._json(404, {})
+        return None
 
 
 @pytest.fixture()

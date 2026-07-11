@@ -187,7 +187,7 @@ class McpGatewayBinding:
         reply needs no separate publish. This method exists to ADVERTISE the
         RequestReply capability (the engine feature-detects it by presence); the
         actual reply is delivered by the MCP server's own call machinery."""
-        return None
+        return
 
 
 # The mcpv:kind value for each MCP surface segment.

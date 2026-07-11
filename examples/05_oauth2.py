@@ -96,6 +96,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "rpm": STATE["speed"]})
 
         self._json(404, {"error": "not found"})
+        return None
 
 
 def _td(base: str) -> dict:

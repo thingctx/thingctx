@@ -26,7 +26,7 @@ from typing import Protocol, runtime_checkable
 class Registry(Protocol):
     def fetch(self) -> list[dict]:
         """Return the current set of Thing Descriptions."""
-        ...
+        pass
 
 
 class FileRegistry:

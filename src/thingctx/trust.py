@@ -17,7 +17,7 @@ Both are opt-in and have no LLM dependency.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable  # noqa
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 

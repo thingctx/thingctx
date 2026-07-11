@@ -3,6 +3,7 @@
 """Unit tests for the Secret container: masked display, explicit unwrap,
 constant-time equality, blocked serialization/copy, and wiping."""
 
+import builtins
 import copy
 import pickle
 
@@ -36,8 +37,13 @@ def test_constant_time_equality():
 
 
 def test_unhashable():
+    # Secret sets __hash__ = None, so it is unhashable by design and hashing one
+    # must raise. hash() is applied through builtins so the check is a plain
+    # "does this raise", not a statically resolvable hash of a known type.
+    secret = Secret(PLAIN)
+    hash_fn = builtins.hash
     with pytest.raises(TypeError):
-        hash(Secret(PLAIN))
+        hash_fn(secret)
 
 
 def test_pickle_is_blocked():

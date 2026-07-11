@@ -29,6 +29,23 @@ dependency-free base install is never affected.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Static visibility for the lazily served names below. This block never runs
+    # (TYPE_CHECKING is False at runtime), so it imports no heavy dependency; it
+    # only lets type checkers and static analysis resolve the __all__ exports.
+    from thingctx.identity.jwt_guard import AuthorizationError, Grant, JwtGatewayGuard
+    from thingctx.identity.provider import EntraAuth, make_provider
+    from thingctx.identity.providers.cloudflare import CloudflareAccessGuard
+    from thingctx.identity.providers.entra import EntraGatewayGuard
+    from thingctx.identity.registry import (
+        DEFAULT_GUARDS,
+        GuardRegistry,
+        discover_guards,
+        register_guard,
+    )
+
 __all__ = [
     # Outbound Entra credential provider (needs azure-identity, the ``entra`` extra).
     "EntraAuth",

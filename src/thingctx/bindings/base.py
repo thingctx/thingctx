@@ -49,7 +49,8 @@ class ProtocolBinding(Protocol):
         action: WoTAction,
         form: WoTForm,
         arguments: dict[str, Any],
-    ) -> Any: ...
+    ) -> Any:
+        pass
 
 
 class AuthMixin:
@@ -229,21 +230,24 @@ class ContentRouted(Protocol):
     example a media hint riding on an http href). Checked before scheme
     routing, so it can take a form a scheme match would otherwise win."""
 
-    def handles(self, form: WoTForm) -> bool: ...
+    def handles(self, form: WoTForm) -> bool:
+        pass
 
 
 @runtime_checkable
 class Readable(Protocol):
     """A binding that can read a property's current value."""
 
-    async def read(self, prop: Any, form: WoTForm) -> Any: ...
+    async def read(self, prop: Any, form: WoTForm) -> Any:
+        pass
 
 
 @runtime_checkable
 class Writable(Protocol):
     """A binding that can write a property's value."""
 
-    async def write(self, prop: Any, form: WoTForm, value: Any) -> Any: ...
+    async def write(self, prop: Any, form: WoTForm, value: Any) -> Any:
+        pass
 
 
 @runtime_checkable
@@ -256,7 +260,8 @@ class Subscribable(Protocol):
 
     async def subscribe(
         self, target: Any, form: WoTForm, args: dict[str, Any] | None = None
-    ) -> Any: ...
+    ) -> Any:
+        pass
 
 
 @runtime_checkable
@@ -267,9 +272,11 @@ class BulkProperties(Protocol):
     ``{name: value}`` map (``names`` selects a subset); ``write_all`` takes one.
     The runtime falls back to per-property read/write when a binding lacks this."""
 
-    async def read_all(self, thing: Any, form: WoTForm, names: Any = None) -> Any: ...
+    async def read_all(self, thing: Any, form: WoTForm, names: Any = None) -> Any:
+        pass
 
-    async def write_all(self, thing: Any, form: WoTForm, values: dict[str, Any]) -> Any: ...
+    async def write_all(self, thing: Any, form: WoTForm, values: dict[str, Any]) -> Any:
+        pass
 
 
 @runtime_checkable
@@ -282,11 +289,14 @@ class AsyncAction(Protocol):
 
     async def invoke_async(
         self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]
-    ) -> Any: ...
+    ) -> Any:
+        pass
 
-    async def query_action(self, status: Any) -> Any: ...
+    async def query_action(self, status: Any) -> Any:
+        pass
 
-    async def cancel_action(self, status: Any) -> Any: ...
+    async def cancel_action(self, status: Any) -> Any:
+        pass
 
 
 @runtime_checkable
@@ -301,7 +311,8 @@ class MediaConsumer(Protocol):
         arguments: dict[str, Any],
         *,
         track: str = "video",
-    ) -> Any: ...
+    ) -> Any:
+        pass
 
 
 @runtime_checkable
@@ -316,7 +327,8 @@ class MediaPublisher(Protocol):
         arguments: dict[str, Any],
         *,
         track: str = "video",
-    ) -> None: ...
+    ) -> None:
+        pass
 
 
 @runtime_checkable
@@ -324,11 +336,13 @@ class SecurityAware(Protocol):
     """A binding that accepts the consumed Things' declared security, so the
     runtime can bind auth without the adopter wiring it per call."""
 
-    def with_things(self, things: Any) -> Any: ...
+    def with_things(self, things: Any) -> Any:
+        pass
 
 
 @runtime_checkable
 class Closeable(Protocol):
     """A binding that pools transport resources and releases them on close."""
 
-    async def aclose(self) -> None: ...
+    async def aclose(self) -> None:
+        pass

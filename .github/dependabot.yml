@@ -16,7 +16,7 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # The GitHub Actions used by the CI, security, and CodeQL workflows. Pinned to
+  # The GitHub Actions used by the CI and security workflows. Pinned to
   # commit SHAs, so Dependabot proposes the SHA bump with a changelog.
   - package-ecosystem: github-actions
     directory: "/"

@@ -6,8 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-import thingctx
-from thingctx import LocalBinding, ThingClient
+from thingctx import LocalBinding, ThingClient, validate_td
 
 TD = {
     "@context": "https://www.w3.org/2022/wot/td/v1.1",
@@ -76,7 +75,7 @@ async def test_write_property(client):
 
 
 def test_td_validates():
-    assert thingctx.validate_td(TD) == []
+    assert validate_td(TD) == []
 
 
 async def test_unknown_action_errors(client):

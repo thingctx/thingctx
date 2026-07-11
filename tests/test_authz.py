@@ -667,13 +667,12 @@ def _native_deny_all(td: dict, fired: list):
     deny-all PDP (a role holding no grants). No guard_client, no wrapper."""
     vocab = build_vocabulary(parse_thing(td))
     pdp = PolicyDecisionPoint(vocab, LocalPolicyGrantSource({"nobody": set()}))
-    client = ThingClient(
+    return ThingClient(
         tds=[td],
         bindings=[_StreamingBinding("mqtt", fired)],
         pdp=pdp,
         identity={"roles": ["nobody"], "exp": time.time() + 3600},
     )
-    return client
 
 
 async def test_native_constructor_blocks_every_method_before_device():

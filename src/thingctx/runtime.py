@@ -943,6 +943,7 @@ class ThingClient:
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
         await binding.publish(action, filled, frames, rest, track=track, audio=audio)
+        return None
 
     async def save(
         self,

@@ -57,11 +57,11 @@ class CredentialProvider(Protocol):
 
     def matches(self, scheme: Any, credential: Any) -> bool:
         """True if this provider handles ``scheme`` given ``credential``."""
-        ...
+        pass
 
     async def resolve(self, ctx: AuthContext) -> Credential | None:
         """Return the credential material for this scheme, or ``None``."""
-        ...
+        pass
 
 
 class BaseAuth:

@@ -38,11 +38,14 @@ class TokenStore(Protocol):
     """Persist and retrieve a token record (a JSON-able mapping that carries at
     least ``refresh_token``) keyed by :func:`token_key`."""
 
-    def get(self, key: str) -> dict[str, Any] | None: ...
+    def get(self, key: str) -> dict[str, Any] | None:
+        pass
 
-    def set(self, key: str, record: dict[str, Any]) -> None: ...
+    def set(self, key: str, record: dict[str, Any]) -> None:
+        pass
 
-    def delete(self, key: str) -> None: ...
+    def delete(self, key: str) -> None:
+        pass
 
 
 class MemoryTokenStore:

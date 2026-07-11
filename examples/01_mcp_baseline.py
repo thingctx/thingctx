@@ -39,7 +39,7 @@ def build_server(pump: PumpDevice, http_url: str, mqtt_addr: str) -> Server:
     import urllib.parse
 
     server: Server = Server("pump")
-    subscribers: set[str] = set()  # resource URIs the client subscribed to
+    subscribers: set[str] = set()
     auth = {"Authorization": f"Bearer {DEVICE_TOKEN}"}
 
     async def http_get(path: str):

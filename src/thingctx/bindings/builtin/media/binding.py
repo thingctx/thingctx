@@ -435,7 +435,7 @@ class MediaBinding(AuthMixin):
                 copy(url, target, options=options, stop=stop)
             except MediaError as exc:  # already a clear, scrubbed media error
                 error.append(exc)
-            except BaseException as exc:  # surface remux/connect errors to the caller
+            except BaseException as exc:
                 error.append(MediaError(f"{type(exc).__name__}: {redact_url(str(exc))}"))
             finally:
                 stop.set()
@@ -477,7 +477,7 @@ class MediaBinding(AuthMixin):
         def _worker() -> None:
             try:
                 write(_blocking_frames(), target, options=options, stop=stop)
-            except BaseException as exc:  # surface encode and connect errors to the caller
+            except BaseException as exc:
                 # Scrub credentials the engine may echo from the target URL; do
                 # not chain the original (its message can hold the raw URL).
                 error.append(MediaError(f"{type(exc).__name__}: {redact_url(str(exc))}"))
@@ -552,7 +552,7 @@ class MediaBinding(AuthMixin):
         def _worker() -> None:
             try:
                 write_av(_blocking(qv), _blocking(qa), target, options=options, stop=stop)
-            except BaseException as exc:  # surface encode/connect errors to the caller
+            except BaseException as exc:
                 error.append(MediaError(f"{type(exc).__name__}: {redact_url(str(exc))}"))
             finally:
                 stop.set()
@@ -662,7 +662,7 @@ class MediaBinding(AuthMixin):
                             last_pts = frame.pts
                         _emit_frame(frame)
                     break  # clean end of stream
-                except BaseException as exc:  # decode/connect error on the read
+                except BaseException as exc:
                     if stop.is_set():
                         break
                     # A read that produced frames before failing earned a fresh

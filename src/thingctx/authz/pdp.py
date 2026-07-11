@@ -138,7 +138,8 @@ class GrantSource(Protocol):
     backed by a network policy engine (OPA) fits the same contract.
     """
 
-    async def grant_for(self, identity: Any) -> GrantSet: ...
+    async def grant_for(self, identity: Any) -> GrantSet:
+        pass
 
 
 class LocalPolicyGrantSource:

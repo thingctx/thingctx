@@ -497,7 +497,6 @@ def _chunks(media: Media, chunk_size: int):
                 if not block:
                     return
                 yield block
-        return
     while True:
         block = media.read(chunk_size)
         if not block:

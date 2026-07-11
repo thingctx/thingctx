@@ -1,0 +1,23 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Configuration for GitHub code scanning (CodeQL default setup reads this file).
+# It keeps the security queries and filters a handful of code-quality rules that
+# fire on patterns this codebase uses deliberately. Every exclusion below is a
+# style or false-positive case, never a security rule.
+name: thingctx CodeQL config
+
+query-filters:
+  # A module imported both ``import x`` and ``from x import y``. The examples do
+  # this on purpose to show the ``thingctx`` namespace, and a few tests re-import
+  # a submodule inside a function to reset module state.
+  - exclude:
+      id: py/import-and-import-from
+  # ``except BaseException`` in the media plane bridges errors across a worker
+  # thread boundary, so it must catch everything and surface it to the caller.
+  - exclude:
+      id: py/catch-base-exception
+  # Handlers that return early on some paths and fall through on others. A
+  # style preference, not a defect.
+  - exclude:
+      id: py/mixed-returns

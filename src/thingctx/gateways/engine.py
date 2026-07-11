@@ -104,17 +104,17 @@ class GatewayBinding(Protocol):
         """The re-served form(s) for one (affordance, op), with this driver's own
         namespaced vocabulary. Return ``[]`` for an op this transport cannot carry
         (so the projected TD is honest about what the bus can do)."""
-        ...
+        pass
 
     async def serve(self, engine: Gateway) -> None:
         """Connect and begin serving the fleet: subscribe to inbound addresses,
         and on each inbound message build a ``ServeRequest`` and await
         ``engine.dispatch(req)``, then deliver the reply on the wire."""
-        ...
+        pass
 
     async def aclose(self) -> None:
         """Stop serving and release the transport."""
-        ...
+        pass
 
 
 @runtime_checkable
@@ -122,7 +122,8 @@ class EventMirroring(Protocol):
     """A driver that can push native events onto its wire. The engine feeds each
     mirrored payload here; a pub/sub-only or one-shot transport may omit this."""
 
-    async def mirror_event(self, thing_slug: str, event: str, payload: Any) -> None: ...
+    async def mirror_event(self, thing_slug: str, event: str, payload: Any) -> None:
+        pass
 
 
 @runtime_checkable
@@ -132,7 +133,8 @@ class RequestReply(Protocol):
     simply does not implement this, and the engine will not route reply-bearing
     ops to it, rather than silently dropping the reply."""
 
-    async def reply(self, request: ServeRequest, result: Any) -> None: ...
+    async def reply(self, request: ServeRequest, result: Any) -> None:
+        pass
 
 
 @runtime_checkable
@@ -150,9 +152,11 @@ class Announces(Protocol):
     (Sparkplug-style birth/death, a CoAP /.well-known/core, a DDS discovery).
     Announce format is entirely the driver's; the engine has no catalog schema."""
 
-    async def announce(self, engine: Gateway) -> None: ...
+    async def announce(self, engine: Gateway) -> None:
+        pass
 
-    async def reap(self) -> None: ...
+    async def reap(self) -> None:
+        pass
 
 
 @runtime_checkable
@@ -161,7 +165,8 @@ class QoSAware(Protocol):
     own vocabulary (mqv:qos, ddsv:reliability). Purely informational to the engine;
     it never interprets the values, it only knows the driver handles them."""
 
-    def quality_terms(self) -> tuple[str, ...]: ...
+    def quality_terms(self) -> tuple[str, ...]:
+        pass
 
 
 @runtime_checkable
@@ -186,7 +191,8 @@ class Authenticates(Protocol):
     Return ``None`` to fall back to the server-level identity for this request
     (e.g. an anonymous message on a bus that usually carries identity)."""
 
-    async def authenticate(self, inbound: Any) -> Any | None: ...
+    async def authenticate(self, inbound: Any) -> Any | None:
+        pass
 
 
 # --------------------------------------------------------------------------- #

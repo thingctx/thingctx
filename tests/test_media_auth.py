@@ -143,11 +143,12 @@ def test_media_errors_redact_credentials_end_to_end():
             return True
 
         def read(self, url, *, options, stop):
+            if False:  # makes this a generator without an unreachable statement
+                yield
             plan = options.get("auth")
             if plan is not None:
                 url, _ = av_auth_options(plan, url)
             raise RuntimeError(f"connect failed for {url!r}")
-            yield  # pragma: no cover (unreachable; makes this a generator)
 
         def write(self, frames, target, *, options, stop):  # noqa: ANN001
             raise NotImplementedError
