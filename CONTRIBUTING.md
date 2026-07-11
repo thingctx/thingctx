@@ -22,7 +22,7 @@ You do not have to contribute it back: register it with `BindingRegistry` and
 pass `ThingClient(bindings=...)` from your own package. To add one here, drop it
 under `src/thingctx/bindings/builtin/`, prove it with the conformance kit
 (`thingctx.testing.assert_binding_contract`), add a test, and a line in the
-README. See `docs/BINDINGS.md`. A new transport reaches every device that speaks
+README. See the bindings section in `docs/USAGE.md`. A new transport reaches every device that speaks
 it, for a small amount of code.
 
 ## Add a Thing Description

@@ -9,57 +9,15 @@ live in [examples/](../examples/).
 
 ## Mapping a TD to tools
 
-Each action projects to exactly one tool in OpenAI function format.
+Each action projects to exactly one tool in OpenAI function format: the tool name
+is `<thing>.<action>`, the parameters are the action's `input` schema, and a call
+resolves back to a form invocation over the form's transport. So `createIssue` on
+`urn:svc:github` becomes the tool `github.createIssue`, and calling it issues
+`POST https://api.github.com/repos/{owner}/{repo}/issues`.
 
-- **Name.** `<thing>.<action>`, where `<thing>` is the final significant segment
-  of the Thing's `id` with a trailing version token (`v1`, `2`) removed. Action
-  `createIssue` on `urn:svc:github` projects to `github.createIssue`.
-- **Parameters.** The action's `input` JSON Schema, unmodified. No `input` means
-  no arguments.
-- **Description.** The action's `description`. An action's `output` schema is
-  appended as `Returns: <schema>`.
-
-This action on `urn:svc:github`:
-
-```json
-"createIssue": {
-  "input": { "type": "object", "properties": {
-    "owner": {"type": "string"}, "repo": {"type": "string"},
-    "title": {"type": "string"}, "body": {"type": "string"} } },
-  "forms": [{ "href": "https://api.github.com/repos/{owner}/{repo}/issues",
-              "htv:methodName": "POST" }]
-}
-```
-
-projects to:
-
-```json
-{ "type": "function", "function": {
-  "name": "github.createIssue",
-  "description": "createIssue",
-  "parameters": { "type": "object", "properties": {
-    "owner": {"type": "string"}, "repo": {"type": "string"},
-    "title": {"type": "string"}, "body": {"type": "string"} } } } }
-```
-
-A property projects to read and write operations, not one tool. A read is `GET`;
-a write is `PUT` by default. An event, and an observable property, projects to a
-subscription over the form's streaming binding: Server-Sent Events for HTTP, the
-named topic for MQTT.
-
-## Resolving a call to a request
-
-Each `{name}` template variable in the form's `href` is replaced by the argument
-of the same name, which is then removed from the remaining arguments. For HTTP:
-
-- The method is the form's `htv:methodName` where declared.
-- With no method declared, an `idempotent` action is issued as `GET` with the
-  remaining arguments bound as query parameters; any other action is `POST` with
-  the remaining arguments bound as a JSON body.
-
-So `github.createIssue` with `owner` `my-org` and `repo` `api` issues
-`POST https://api.github.com/repos/my-org/api/issues` with the body
-`{"title": ..., "body": ...}`.
+The full rules (tool naming, parameter and description projection, property and
+event projection, call-to-request resolution, security schemes, the constant
+gateway projection) are the normative spec: [MAPPING.md](MAPPING.md).
 
 ## Bindings
 
