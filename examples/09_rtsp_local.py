@@ -131,8 +131,11 @@ async def main() -> None:
         print("Need mediamtx and ffmpeg on PATH. Install: brew install mediamtx ffmpeg")
         return
 
+    # 0o600: the config carries the demo credential, so keep it owner-only.
     cfg = Path(tempfile.mkdtemp()) / "mediamtx.yml"
-    cfg.write_text(MEDIAMTX_CONFIG)
+    fd = os.open(cfg, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(MEDIAMTX_CONFIG)
 
     server = subprocess.Popen(
         ["mediamtx", str(cfg)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
