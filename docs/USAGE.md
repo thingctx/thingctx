@@ -16,7 +16,7 @@ resolves back to a form invocation over the form's transport. So `createIssue` o
 `POST https://api.github.com/repos/{owner}/{repo}/issues`.
 
 The full rules (tool naming, parameter and description projection, property and
-event projection, call-to-request resolution, security schemes, the constant
+event projection, call resolution to a request, security schemes, the constant
 gateway projection) are the normative spec: [MAPPING.md](MAPPING.md).
 
 ## Bindings
@@ -39,7 +39,7 @@ from thingctx import BindingRegistry, ThingClient
 
 reg = BindingRegistry.default()   # http + local
 reg.register(OpcUaBinding())      # add a new protocol
-reg.register(MyHttpBinding())     # replace the built-in http binding
+reg.register(MyHttpBinding())     # replace the bundled http binding
 
 client = ThingClient(tds=[...], bindings=reg)
 ```
@@ -116,7 +116,7 @@ class HmacAuth(BaseAuth):
         return RequestSigner(sign=lambda r: r.headers.__setitem__("X-Sig", ...))
 
 thingctx.register_auth(HmacAuth())                  # global
-thingctx.HttpBinding(..., extra_auth=[HmacAuth()])  # or per-binding (wins)
+thingctx.HttpBinding(..., extra_auth=[HmacAuth()])  # or on one binding (wins)
 ```
 
 Keep a custom scheme TD valid under W3C: declare `"scheme": "auto"` plus a namespaced
@@ -124,7 +124,7 @@ hint (`"x-thingctx-auth": "my-scheme"`) and match on
 `scheme.raw["x-thingctx-auth"]`. See
 [13_custom_stack.py](../examples/13_custom_stack.py).
 
-## Connect a user-authorized service (OAuth)
+## Connect a service that a user signs in to (OAuth)
 
 For a Thing that acts for a person and needs them to sign in, the TD declares an
 `oauth2` scheme with flow `code`, naming the provider's endpoints:
@@ -161,11 +161,11 @@ Tokens are keyed by Thing id, so connecting one Thing does not connect another.
 
 ### The agent never holds your token
 
-The refresh token lives in a local store (owner-only file) that only thingctx
-reads; the agent calls a described operation and never receives a token. A
-compromised or prompt-injected agent cannot take a credential it was never given,
-and with the authorization seam (see [SECURITY.md](SECURITY.md)) a misused token
-is still bounded to the operations you granted.
+The refresh token lives in a local store that only thingctx reads, a file only its
+owner can open. The agent calls a described operation and never receives a token.
+A compromised agent, or one under prompt injection, cannot take a credential it was
+never given. With the authorization seam (see [SECURITY.md](SECURITY.md)) a misused
+token is still bounded to the operations you granted.
 
 This is narrower than "the secret is safe." The token store is a file like any
 other credential file: an attacker who owns the host can read it, and redacting

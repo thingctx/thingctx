@@ -128,8 +128,8 @@ subscribe_event(thing_id, event)
 ```
 
 The two projections are equivalent in reach; they differ only in surface. Under the
-per-affordance projection the agent selects a named tool directly. Under the
-constant projection the agent first names the Thing and the affordance as arguments
+first projection the agent selects a named tool for each affordance directly. Under
+the constant projection the agent first names the Thing and the affordance as arguments
 (discovering them through `search_things` and `describe`), and the verb routes to
 the same form invocation. `thing_id` is the Thing's slug, the `<thing>` segment
 defined above; `action`, `property`, and `event` are affordance names, unique
@@ -150,8 +150,8 @@ modification of the request:
 - `oauth2` with `flow` equal to `code`: the header `Authorization: Bearer <token>`,
   where the token is obtained by the authorization-code grant against the scheme's
   `authorization` and `token` endpoints. The user authorizes once; the resulting
-  refresh token is held by the client, keyed by the Thing, and a short-lived access
-  token is refreshed on each use. The token is never contained in the description
+  refresh token is held by the client, keyed by the Thing, and a fresh access
+  token is minted on each use. The token is never contained in the description
   and is never surfaced to the agent.
 - `nosec`: no modification.
 
@@ -184,6 +184,6 @@ state.
 
 ## Status
 
-This mapping is a convention rather than a wire protocol. Its intended long-term
+This mapping is a convention rather than a wire protocol. Over time its intended
 home is a W3C Web of Things note on the consumption of Thing Descriptions as agent
 tools, to which this document is a contribution.
