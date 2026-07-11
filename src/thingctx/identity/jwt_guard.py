@@ -13,10 +13,10 @@ Everything here is provider-agnostic. A concrete provider (Entra, Cloudflare
 Access, ...) is nothing more than a choice of three things, all passed to the
 constructor:
 
-* ``issuers``  — the accepted ``iss`` values (a tenant/team fixes these);
-* the signing keys — either a live ``jwks_url`` to fetch and cache, or a static
-  ``jwks`` set for offline / test use;
-* the authorization grants — one or more :class:`Grant` objects, each naming the
+* ``issuers``: the accepted ``iss`` values (a tenant or team fixes these);
+* the signing keys: either a live ``jwks_url`` to fetch and cache, or a static
+  ``jwks`` set for offline or test use;
+* the authorization grants: one or more :class:`Grant` objects, each naming the
   claim that carries the grant and the values required in it.
 
 The validation itself is real, not decorative, and identical for every provider:

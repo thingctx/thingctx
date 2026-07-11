@@ -62,10 +62,10 @@ PUMP_ID = "urn:dev:pump"
 def _pump_td() -> dict:
     """A pump exercising every vocabulary case:
 
-    * ``setpoint``: read+write over TWO transports (http AND mqtt) — multi-transport.
-    * ``serial``: ``readOnly`` with an explicit ``["readproperty"]`` — closure case.
-    * ``telemetry``: a property form with NO ``op`` — default-op (read+write).
-    * ``reboot``: an action form with NO ``op`` — default-op (invokeaction).
+    * ``setpoint``: read+write over TWO transports (http AND mqtt); multi transport.
+    * ``serial``: ``readOnly`` with an explicit ``["readproperty"]``; closure case.
+    * ``telemetry``: a property form with NO ``op``; default op (read+write).
+    * ``reboot``: an action form with NO ``op``; default op (invokeaction).
     * ``alarm``: an event.
     """
     return {

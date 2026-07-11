@@ -29,9 +29,9 @@ Authorization mapping (be honest, this is the load-bearing design decision):
 Cloudflare Access does authorization at its EDGE via Access policies: if the
 caller is allowed to reach the application, the token is minted at all. So the
 FLOOR of authorization is "holding a valid token for this AUD means the policy
-let you in" — coarser than Entra, where the app-role in the token names the
-exact permission. To get a per-device / per-action grant (the
-``Thing1.Write``-equivalent) INTO the token, a real deployment has two paths,
+let you in", coarser than Entra, where the app role in the token names the
+exact permission. To get a grant per device or per action (the
+equivalent of ``Thing1.Write``) INTO the token, a real deployment has two paths,
 and this guard supports both through the generic grant machinery:
 
   * SERVICE-TOKEN MAPPING (``service_token_permissions=``): the guard is
