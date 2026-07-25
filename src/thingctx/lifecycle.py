@@ -20,13 +20,16 @@ TERMINAL = ("completed", "failed", "cancelled")
 class ActionStatus:
     """The state of a long-running action invocation. ``href`` is the status
     resource the transport polls; ``form`` is the affordance form (so the
-    runtime can resolve the binding to poll/cancel with)."""
+    runtime can resolve the binding to poll/cancel with); ``thing_id`` is the
+    owning Thing, carried so a poll/cancel authenticates as that Thing (the form
+    alone does not name its owner)."""
 
     status: str = "running"
     output: Any = None
     error: Any = None
     href: str | None = None
     form: Any = field(default=None, repr=False)
+    thing_id: str | None = None
 
     @property
     def terminal(self) -> bool:
@@ -41,15 +44,22 @@ class ActionStatus:
         }
 
 
-def status_from_body(body: Any, form: Any, href: str | None = None) -> ActionStatus:
+def status_from_body(
+    body: Any, form: Any, href: str | None = None, thing_id: str | None = None
+) -> ActionStatus:
     """Map a transport's status payload to an ``ActionStatus``. A non-dict body
-    is treated as the completed output of a synchronous-style response."""
+    is treated as the completed output of a synchronous-style response.
+    ``thing_id`` names the owning Thing so a later poll/cancel re-authenticates
+    as it."""
     if not isinstance(body, dict):
-        return ActionStatus(status="completed", output=body, href=href, form=form)
+        return ActionStatus(
+            status="completed", output=body, href=href, form=form, thing_id=thing_id
+        )
     return ActionStatus(
         status=body.get("status", "completed"),
         output=body.get("output"),
         error=body.get("error"),
         href=body.get("href", href),
         form=form,
+        thing_id=thing_id,
     )
