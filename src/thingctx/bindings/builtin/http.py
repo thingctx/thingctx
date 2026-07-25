@@ -20,7 +20,7 @@ from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
 from thingctx.lifecycle import ActionStatus, status_from_body
 from thingctx.netpolicy import check_url, confine_path, resolve_and_pin
-from thingctx.reliability import IDEMPOTENT_METHODS, RetryPolicy, TransportError, _retry_after
+from thingctx.reliability import IDEMPOTENT_METHODS, RetryPolicy, TransportError, retry_after
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -501,7 +501,7 @@ class HttpBinding(AuthMixin):
                         continue
                     raise TransportError(method, url, attempts=attempt + 1, cause=exc) from exc
                 if resp.status_code in self._policy.retry_statuses and attempt < max_retries:
-                    await asyncio.sleep(_retry_after(resp, self._policy, attempt))
+                    await asyncio.sleep(retry_after(resp, self._policy, attempt))
                     continue
                 if resp.is_error:
                     detail = ""

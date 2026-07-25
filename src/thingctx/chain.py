@@ -54,7 +54,12 @@ from urllib.request import url2pathname
 from thingctx.bindings.base import _decode
 from thingctx.bindings.builtin.http import _http_body
 from thingctx.netpolicy import WEB_SCHEMES, check_url, confine_path
-from thingctx.reliability import TransportError
+from thingctx.reliability import (
+    DEFAULT_RETRY_STATUSES,
+    RetryPolicy,
+    TransportError,
+    retry_after,
+)
 from thingctx.thing import _filled_form
 
 DEFAULT_CHUNK = 8 * 1024 * 1024  # 8 MiB, a multiple of the 256 KiB resumable-upload unit
@@ -465,8 +470,6 @@ async def _follow_poll(
 # a 308 between chunks, download resumes from the last received byte. Reached only
 # through the follow modes above, never directly.
 
-_RETRY_STATUS = (408, 429, 500, 502, 503, 504)
-
 
 def _coerce_media(media: Media) -> bytes | bytearray | Path | BinaryIO:
     """Turn a str media into a Path: a ``file://`` URL maps to its filesystem
@@ -611,11 +614,14 @@ async def _get_with_retry(
     backoff: float,
 ) -> httpx.Response:
     """GET ``url`` once, retrying transient transport errors and retryable
-    statuses with bounded backoff. A connection dropped mid-body raises, so the
-    caller re-requests the same range, resuming from the last completed byte."""
+    statuses. A connection dropped mid-body raises, so the caller re-requests the
+    same range, resuming from the last completed byte. The wait between attempts
+    reuses the shared retry policy: exponential backoff with jitter, and a numeric
+    Retry-After on a 429/503 is honored over the schedule."""
     # optional dep, kept local so the core imports without the extra
     import httpx  # noqa: PLC0415
 
+    policy = RetryPolicy(retries=retries, backoff=backoff)
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
         try:
@@ -623,11 +629,11 @@ async def _get_with_retry(
         except httpx.TransportError as exc:
             last_exc = exc
             if attempt < retries:
-                await asyncio.sleep(backoff * (2**attempt))
+                await asyncio.sleep(policy.delay(attempt))
                 continue
             raise TransportError("GET", url, attempts=attempt + 1, cause=exc) from exc
-        if resp.status_code in _RETRY_STATUS and attempt < retries:
-            await asyncio.sleep(backoff * (2**attempt))
+        if resp.status_code in DEFAULT_RETRY_STATUSES and attempt < retries:
+            await asyncio.sleep(retry_after(resp, policy, attempt))
             continue
         if resp.is_error:
             raise TransportError(

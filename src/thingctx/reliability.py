@@ -98,7 +98,7 @@ class TransportError(Exception):
         }
 
 
-def _retry_after(resp: httpx.Response | None, policy: RetryPolicy, attempt: int) -> float:
+def retry_after(resp: httpx.Response | None, policy: RetryPolicy, attempt: int) -> float:
     """Honor a numeric ``Retry-After`` header (429/503) if present and sane,
     otherwise fall back to the policy's backoff schedule."""
     if resp is not None:
@@ -136,7 +136,7 @@ async def send_with_retry(
                 continue
             raise TransportError(method, url, attempts=attempt + 1, cause=exc) from exc
         if resp.status_code in policy.retry_statuses and attempt < max_retries:
-            await asyncio.sleep(_retry_after(resp, policy, attempt))
+            await asyncio.sleep(retry_after(resp, policy, attempt))
             continue
         return resp, attempt + 1
     raise AssertionError("unreachable")  # pragma: no cover
