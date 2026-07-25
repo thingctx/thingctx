@@ -28,6 +28,7 @@ __all__ = [
     "confine_path",
     "is_private_host",
     "require_scheme",
+    "resolve_and_pin",
     "resolve_is_private",
     "url_scheme",
 ]
@@ -110,6 +111,49 @@ def resolve_is_private(host: str) -> bool:
     except OSError:
         return False
     return any(is_private_host(ai[4][0]) for ai in infos)
+
+
+def resolve_and_pin(host: str, *, what: str = "URL") -> str:
+    """Resolve ``host`` once, refuse it if it (or any address it resolves to) is
+    private/loopback/link-local/metadata, and return the single validated IP to
+    connect to.
+
+    This closes the DNS-rebinding TOCTOU that a plain resolve-then-check leaves
+    open: :func:`resolve_is_private` validates the resolved set, but the OS
+    re-resolves at connect time, so a name that answers a public IP at check time
+    and a private one at connect time slips past. Returning the exact validated
+    address lets the caller pin the socket to it, so the address that was checked
+    is the address that is dialed (Saltzer and Schroeder: no gap between check and
+    use).
+
+    A literal IP is validated and returned as-is. A hostname is resolved with
+    ``getaddrinfo``; every returned address must pass, and the first is pinned. A
+    resolution failure raises, rather than falling through to an unpinned connect
+    that would re-resolve unchecked."""
+    if is_private_host(host):
+        raise PolicyError(
+            f"{what} host {host!r} is a private or loopback address (blocked by policy)"
+        )
+    ip = _as_ip(host)
+    if ip is not None:
+        # A literal IP: already validated as public above; connect to it directly.
+        return host
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError as exc:
+        raise PolicyError(f"{what} host {host!r} could not be resolved") from exc
+    addrs = [ai[4][0] for ai in infos]
+    if not addrs:
+        raise PolicyError(f"{what} host {host!r} resolved to no address")
+    # Every resolved address must be public: a name that answers both a public and
+    # a private A-record must not be reachable by racing to the private one.
+    for addr in addrs:
+        if is_private_host(addr):
+            raise PolicyError(
+                f"{what} host {host!r} resolves to a private or loopback address "
+                f"{addr!r} (blocked by policy)"
+            )
+    return addrs[0]
 
 
 def check_url(

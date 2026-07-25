@@ -31,6 +31,30 @@ def test_is_private_host_ip_literals():
         assert not is_private_host(host), host
 
 
+@pytest.mark.parametrize(
+    "encoded",
+    [
+        "2130706433",  # decimal 127.0.0.1
+        "0x7f000001",  # hex 127.0.0.1
+        "0x7f.0.0.1",  # mixed hex-dotted
+        "017700000001",  # octal 127.0.0.1
+        "127.1",  # short form 127.0.0.1
+        "0177.0.0.1",  # octal first octet
+        "::ffff:127.0.0.1",  # IPv4-mapped IPv6 loopback
+        "::ffff:169.254.169.254",  # IPv4-mapped cloud metadata
+    ],
+)
+def test_non_canonical_ip_encodings_still_blocked(encoded):
+    # invariant NET-4: a loopback or metadata address written in a non-dotted form
+    # (decimal, hex, octal, short, IPv4-mapped) is canonicalized before the
+    # private-host check, so it does not slip past block_private as a "hostname".
+    assert is_private_host(encoded), encoded
+    # An IPv6 literal in a URL authority must be bracketed for urlsplit to read it.
+    host = f"[{encoded}]" if ":" in encoded else encoded
+    with pytest.raises(PolicyError, match="private or loopback"):
+        check_url(f"http://{host}/latest/meta-data/", block_private=True, resolve=False)
+
+
 def test_check_url_block_private_opt_in():
     # Off by default: a LAN device is legitimate for a WoT client.
     check_url("http://192.168.1.5/td", block_private=False)
@@ -277,5 +301,78 @@ async def test_block_private_unset_keeps_private_hosts_reachable(monkeypatch):
         href = f"http://127.0.0.1:{srv.server_address[1]}/meta"
         client = client_from_registry(_OneTdRegistry(_probe_td(href)))
         assert await client.invoke("probe__probe", {}) == {"ok": True}
+    finally:
+        srv.shutdown()
+
+
+# --- DNS-rebinding: pin the validated IP, never re-resolve to the rebind --------
+
+
+async def test_dns_rebinding_connects_to_pinned_ip_not_the_rebound_private(monkeypatch):
+    """GAP 1 fix (invariant NET-3, DNS-rebinding TOCTOU): with block_private set,
+    the host is resolved and validated ONCE, and the socket is pinned to that exact
+    IP. A resolver that answers a public (allowed) IP at check time and a private
+    (metadata) IP at connect time must not defeat the block: the connection uses
+    the pinned validated address and never re-resolves to the rebound private one.
+    """
+    import json
+    import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from thingctx import netpolicy
+    from thingctx.bindings import HttpBinding
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"ok": True, "host": self.headers.get("Host", "")}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    real_gai = socket.getaddrinfo
+    lookups: list[str] = []
+
+    def rebinding_gai(host, *a, **k):
+        if host == "victim.test":
+            lookups.append(host)
+            # First lookup (validation): the loopback we control, standing in for a
+            # validated public address. Any SECOND lookup is the rebind attempt:
+            # answer a cloud-metadata private IP to prove the connect never uses it.
+            return (
+                real_gai("127.0.0.1", None)
+                if len(lookups) == 1
+                else real_gai("169.254.169.254", None)
+            )
+        return real_gai(host, *a, **k)
+
+    # Treat the loopback validation address as public for this test, so the pin
+    # path runs (the point under test is the pin, not the private-IP literal check).
+    real_is_private = netpolicy.is_private_host
+
+    def is_private_except_loopback_probe(h):
+        return False if h == "127.0.0.1" else real_is_private(h)
+
+    monkeypatch.setattr(socket, "getaddrinfo", rebinding_gai)
+    monkeypatch.setattr(netpolicy, "is_private_host", is_private_except_loopback_probe)
+    # http.py calls resolve_and_pin, which reads is_private_host from netpolicy's
+    # module globals; patching the attribute above covers it.
+
+    try:
+        binding = HttpBinding(block_private=True)
+        result = await binding._send("GET", f"http://victim.test:{port}/x", signers=[], cert=None)
+        assert result["ok"] is True
+        assert result["host"].startswith("victim.test")  # Host header kept as the name
+        assert len(lookups) == 1  # resolved once; never re-resolved to the private rebind
+        await binding.aclose()
     finally:
         srv.shutdown()
