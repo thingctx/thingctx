@@ -116,6 +116,20 @@ jobs:
       - run: pip install "bandit==1.9.4"
       - run: bandit -r src/thingctx -c pyproject.toml -q
 
+  # Reuse guard: block the reinvention patterns a codebase audit found worth
+  # catching forever (a security value from `random`, a secret compared with
+  # ==/!=). The rule list and the rationale for each live in
+  # scripts/check_reuse.py.
+  reuse-guard:
+    name: reuse-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - run: python3 scripts/check_reuse.py $(git ls-files 'src/**/*.py')
+
   # Dependency CVE audit against the project's declared dependencies (a `.`
   # audit resolves them fresh), so an optional extra's transitive noise does not
   # mask a real advisory in what ships. The core install is dependency-free.
@@ -232,7 +246,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [dco, lint, types, dead-code, security-lint, deps-audit, architecture, test, coverage, dep-free-base]
+    needs: [dco, lint, types, dead-code, security-lint, reuse-guard, deps-audit, architecture, test, coverage, dep-free-base]
     runs-on: ubuntu-latest
     steps:
       - name: Check upstream jobs
@@ -243,7 +257,7 @@ jobs:
             echo "dco=${{ needs.dco.result }}"
             exit 1
           fi
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.security-lint.result }}" != "success" ] || [ "${{ needs.deps-audit.result }}" != "success" ] || [ "${{ needs.architecture.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.coverage.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
-            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} security-lint=${{ needs.security-lint.result }} deps-audit=${{ needs.deps-audit.result }} architecture=${{ needs.architecture.result }} test=${{ needs.test.result }} coverage=${{ needs.coverage.result }} dep-free-base=${{ needs.dep-free-base.result }}"
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.security-lint.result }}" != "success" ] || [ "${{ needs.reuse-guard.result }}" != "success" ] || [ "${{ needs.deps-audit.result }}" != "success" ] || [ "${{ needs.architecture.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.coverage.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
+            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} security-lint=${{ needs.security-lint.result }} reuse-guard=${{ needs.reuse-guard.result }} deps-audit=${{ needs.deps-audit.result }} architecture=${{ needs.architecture.result }} test=${{ needs.test.result }} coverage=${{ needs.coverage.result }} dep-free-base=${{ needs.dep-free-base.result }}"
             exit 1
           fi

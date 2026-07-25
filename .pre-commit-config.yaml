@@ -118,3 +118,15 @@ repos:
         language: script
         pass_filenames: true
         require_serial: true
+
+  # Local guard: block the reinvention patterns a codebase audit found (a
+  # security value from `random`, a secret compared with ==/!=). Each has a
+  # standard replacement. The rules and their rationale live in the script.
+  - repo: local
+    hooks:
+      - id: reuse-guard
+        name: no reinvention of a safer standard
+        entry: scripts/check_reuse.py
+        language: script
+        types: [python]
+        pass_filenames: true
