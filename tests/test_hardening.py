@@ -11,7 +11,14 @@ import pytest
 
 from thingctx.bindings import HttpBinding
 from thingctx.chain import ChainError
-from thingctx.netpolicy import PolicyError, check_url, confine_path, is_private_host, require_scheme
+from thingctx.netpolicy import (
+    PolicyError,
+    check_url,
+    confine_path,
+    is_private_host,
+    require_scheme,
+    resolve_and_pin,
+)
 from thingctx.reliability import TransportError
 from thingctx.runtime import ThingClient
 
@@ -60,6 +67,66 @@ def test_check_url_block_private_opt_in():
     check_url("http://192.168.1.5/td", block_private=False)
     with pytest.raises(PolicyError):
         check_url("http://192.168.1.5/td", block_private=True)
+
+
+def test_resolve_and_pin_returns_a_public_literal_as_is():
+    # invariant NET-3: a public IP literal is validated and returned unchanged, so
+    # a caller can pin the socket straight to it.
+    assert resolve_and_pin("93.184.216.34") == "93.184.216.34"
+
+
+def test_resolve_and_pin_refuses_a_private_literal():
+    # invariant NET-3: a private/loopback literal is refused before any connect.
+    with pytest.raises(PolicyError, match="private or loopback"):
+        resolve_and_pin("127.0.0.1")
+
+
+def test_resolve_and_pin_refuses_when_resolution_fails(monkeypatch):
+    # invariant NET-3: a name that cannot be resolved is refused (fail closed),
+    # never falling through to an unpinned connect that would re-resolve unchecked.
+    import socket as _socket
+
+    def _boom(host, *a, **k):
+        raise OSError("no such host")
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _boom)
+    with pytest.raises(PolicyError, match="could not be resolved"):
+        resolve_and_pin("nonexistent.invalid")
+
+
+def test_resolve_and_pin_refuses_a_name_that_resolves_private(monkeypatch):
+    # invariant NET-3: a name whose resolved address is private is refused, even
+    # when the name itself is not a literal (the rebind / split-horizon case).
+    import socket as _socket
+
+    def _fake(host, *a, **k):
+        return [(2, 1, 6, "", ("10.0.0.5", 0))]  # a private A-record
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _fake)
+    with pytest.raises(PolicyError, match="private or loopback"):
+        resolve_and_pin("internal.example")
+
+
+def test_resolve_and_pin_returns_the_resolved_public_ip(monkeypatch):
+    # invariant NET-3: a name that resolves to a public address returns that exact
+    # address, so the socket pins to the validated IP.
+    import socket as _socket
+
+    def _fake(host, *a, **k):
+        return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _fake)
+    assert resolve_and_pin("public.example") == "93.184.216.34"
+
+
+def test_resolve_and_pin_refuses_when_no_address_resolves(monkeypatch):
+    # invariant NET-3: getaddrinfo returning an empty set is refused, not treated
+    # as "not private" and allowed through.
+    import socket as _socket
+
+    monkeypatch.setattr(_socket, "getaddrinfo", lambda *a, **k: [])
+    with pytest.raises(PolicyError, match="no address"):
+        resolve_and_pin("empty.example")
 
 
 def test_confine_path_refuses_symlink(tmp_path):
