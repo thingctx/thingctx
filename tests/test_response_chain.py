@@ -111,7 +111,7 @@ async def test_op_presigned_upload():
         },
     )
     client = ThingClient(tds=[td], bindings=[http])
-    out = await client.invoke("up.upload", {"media": b"PAYLOAD"})
+    out = await client.invoke("up__upload", {"media": b"PAYLOAD"})
     assert out == {"ok": True}
     assert seen == {"auth": False, "sig": "abc", "body": b"PAYLOAD"}
 
@@ -136,7 +136,7 @@ async def test_op_cross_origin_refused_without_allowlist():
     )
     client = ThingClient(tds=[td], bindings=[http])
     with pytest.raises(ChainError, match="cross-origin"):
-        await client.invoke("up.upload", {"media": b"X"})
+        await client.invoke("up__upload", {"media": b"X"})
 
 
 # --- resumable mode (same-origin session, auth forwarded) -------------------
@@ -174,7 +174,7 @@ async def test_resumable_mode_chunks_and_finalizes():
         },
     )
     client = ThingClient(tds=[td], bindings=[http])
-    out = await client.invoke("up.upload", {"media": b"0123456789"})
+    out = await client.invoke("up__upload", {"media": b"0123456789"})
     assert out == {"id": "vid123"}
     assert ranges == ["bytes 0-3/10", "bytes 4-7/10", "bytes 8-9/10"]
 
@@ -212,7 +212,7 @@ async def test_poll_until_done():
         },
     )
     client = ThingClient(tds=[td], bindings=[http])
-    out = await client.invoke("up.run", {})
+    out = await client.invoke("up__run", {})
     assert out["status"] == "DONE" and out["result"] == 42
     assert calls["n"] == 3
 
@@ -241,7 +241,7 @@ async def test_poll_error_condition_raises():
     )
     client = ThingClient(tds=[td], bindings=[http])
     with pytest.raises(ChainError, match="failure"):
-        await client.invoke("up.run", {})
+        await client.invoke("up__run", {})
 
 
 async def test_poll_timeout_raises():
@@ -268,7 +268,7 @@ async def test_poll_timeout_raises():
     )
     client = ThingClient(tds=[td], bindings=[http])
     with pytest.raises(ChainError, match="timed out"):
-        await client.invoke("up.run", {})
+        await client.invoke("up__run", {})
 
 
 # --- multi-hop recursion ----------------------------------------------------
@@ -301,7 +301,7 @@ async def test_multi_hop_recursion():
         },
     )
     client = ThingClient(tds=[td], bindings=[http])
-    out = await client.invoke("up.chain", {})
+    out = await client.invoke("up__chain", {})
     assert out == {"done": True}
 
 
@@ -330,7 +330,7 @@ async def test_resumable_from_path_media(tmp_path):
         },
     )
     client = ThingClient(tds=[td], bindings=[http])
-    assert await client.invoke("up.upload", {"media": p}) == {"done": True}
+    assert await client.invoke("up__upload", {"media": p}) == {"done": True}
 
 
 @pytest.mark.parametrize("as_uri", [False, True])
@@ -362,7 +362,7 @@ async def test_resumable_media_accepts_str_path(tmp_path, as_uri):
     client = ThingClient(tds=[td], bindings=[http])
     # An agent driving this over MCP can only pass JSON, i.e. a string path.
     media = p.as_uri() if as_uri else str(p)
-    assert await client.invoke("up.upload", {"media": media}) == {"done": True}
+    assert await client.invoke("up__upload", {"media": media}) == {"done": True}
     assert ranges == ["bytes 0-3/10", "bytes 4-7/10", "bytes 8-9/10"]
 
 
@@ -381,7 +381,7 @@ async def test_resumable_initiate_error_raises():
     )
     client = ThingClient(tds=[td], bindings=[http])
     with pytest.raises(TransportError):
-        await client.invoke("up.upload", {"media": b"x"})
+        await client.invoke("up__upload", {"media": b"x"})
 
 
 async def test_resumable_missing_location_raises():
@@ -399,7 +399,7 @@ async def test_resumable_missing_location_raises():
     )
     client = ThingClient(tds=[td], bindings=[http])
     with pytest.raises(ChainError, match="no next address"):
-        await client.invoke("up.upload", {"media": b"x"})
+        await client.invoke("up__upload", {"media": b"x"})
 
 
 # --- ranged-get (resumable download) ----------------------------------------
@@ -455,7 +455,7 @@ async def test_ranged_get_assembles_full_blob():
     blob = bytes(range(20))
     http = _mock_client(_blob_server(blob), credentials={"dl": "TOK"})
     client = ThingClient(tds=[_download_td()], bindings=[http])
-    out = await client.invoke("dl.fetch", {})
+    out = await client.invoke("dl__fetch", {})
     assert out == blob
 
 
@@ -465,7 +465,7 @@ async def test_ranged_get_resumes_after_drop():
     # and resume, not restart from zero.
     http = _mock_client(_blob_server(blob, drop_at=8), credentials={"dl": "TOK"})
     client = ThingClient(tds=[_download_td({"backoff": 0.0})], bindings=[http])
-    out = await client.invoke("dl.fetch", {})
+    out = await client.invoke("dl__fetch", {})
     assert out == blob
 
 
@@ -474,7 +474,7 @@ async def test_ranged_get_to_dest_file(tmp_path):
     dest = tmp_path / "out.bin"
     http = _mock_client(_blob_server(blob), credentials={"dl": "TOK"})
     client = ThingClient(tds=[_download_td({"dest": "{out}"})], bindings=[http])
-    out = await client.invoke("dl.fetch", {"out": str(dest)})
+    out = await client.invoke("dl__fetch", {"out": str(dest)})
     assert out == {"path": str(dest), "bytes": 10, "contentType": "application/octet-stream"}
     assert dest.read_bytes() == blob
 
@@ -483,5 +483,5 @@ async def test_ranged_get_falls_back_when_no_range_support():
     blob = b"no-range-support-body"
     http = _mock_client(_blob_server(blob, ranges=False), credentials={"dl": "TOK"})
     client = ThingClient(tds=[_download_td()], bindings=[http])
-    out = await client.invoke("dl.fetch", {})
+    out = await client.invoke("dl__fetch", {})
     assert out == blob

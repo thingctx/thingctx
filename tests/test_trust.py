@@ -54,19 +54,19 @@ def _client(**kw):
 
 @pytest.mark.asyncio
 async def test_declared_destructive_blocked_without_approver():
-    res = await _client().invoke("pump.estop")  # default approve_when="declared"
+    res = await _client().invoke("pump__estop")  # default approve_when="declared"
     assert "approval required" in res["error"]
 
 
 @pytest.mark.asyncio
 async def test_declared_destructive_allowed_when_approved():
-    res = await _client(approve=lambda req: True).invoke("pump.estop")
+    res = await _client(approve=lambda req: True).invoke("pump__estop")
     assert res == {"stopped": True}
 
 
 @pytest.mark.asyncio
 async def test_declared_destructive_denied():
-    res = await _client(approve=lambda req: False).invoke("pump.estop")
+    res = await _client(approve=lambda req: False).invoke("pump__estop")
     assert res["error"] == "approval denied"
 
 
@@ -74,7 +74,7 @@ async def test_declared_destructive_denied():
 async def test_safe_action_not_gated():
     seen = []
     client = _client(approve=lambda req: seen.append(req) or True)
-    res = await client.invoke("pump.set_speed", {"rpm": 900})
+    res = await client.invoke("pump__set_speed", {"rpm": 900})
     assert res == {"ok": True, "rpm": 900}
     assert seen == []  # approver never consulted for a safe action
 
@@ -83,9 +83,9 @@ async def test_safe_action_not_gated():
 async def test_destructive_policy_gates_non_idempotent():
     assert (
         "approval required"
-        in (await _client(approve_when="destructive").invoke("pump.drain"))["error"]
+        in (await _client(approve_when="destructive").invoke("pump__drain"))["error"]
     )
-    ok = await _client(approve_when="destructive", approve=lambda req: True).invoke("pump.drain")
+    ok = await _client(approve_when="destructive", approve=lambda req: True).invoke("pump__drain")
     assert ok == {"drained": True}
 
 
@@ -93,13 +93,13 @@ async def test_destructive_policy_gates_non_idempotent():
 async def test_all_policy_gates_even_safe_action():
     seen = []
     client = _client(approve_when="all", approve=lambda req: seen.append(req.tool_name) or True)
-    await client.invoke("pump.set_speed", {"rpm": 900})
-    assert seen == ["pump.set_speed"]
+    await client.invoke("pump__set_speed", {"rpm": 900})
+    assert seen == ["pump__set_speed"]
 
 
 @pytest.mark.asyncio
 async def test_never_policy_disables_gate():
-    res = await _client(approve_when="never").invoke("pump.estop")  # no approver, still runs
+    res = await _client(approve_when="never").invoke("pump__estop")  # no approver, still runs
     assert res == {"stopped": True}
 
 
@@ -108,12 +108,12 @@ async def test_async_approver():
     async def approve(req):
         return True
 
-    assert await _client(approve=approve).invoke("pump.estop") == {"stopped": True}
+    assert await _client(approve=approve).invoke("pump__estop") == {"stopped": True}
 
 
 @pytest.mark.asyncio
 async def test_property_write_gated_under_all():
-    blocked = await _client(approve_when="all").write_property("pump.target_rpm", 1500)
+    blocked = await _client(approve_when="all").write_property("pump__target_rpm", 1500)
     assert "approval required" in blocked["error"]
 
 

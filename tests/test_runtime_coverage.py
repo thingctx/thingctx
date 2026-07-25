@@ -40,7 +40,7 @@ async def test_status_gzip_roundtrips(pump_client):
     """status declares contentCoding=gzip; the device gzips the body and the
     binding decodes it transparently to the same value the device returns."""
     pump, client = pump_client
-    assert await client.invoke("pump.status") == pump.status()
+    assert await client.invoke("pump__status") == pump.status()
 
 
 async def test_bulk_read_and_write_route_to_bulk_form(pump_client):
@@ -82,7 +82,7 @@ async def test_async_lifecycle_completes(pump_client):
 
     pump, client = pump_client
     # handle -> poll to completion (one job at a time so the setpoint is stable)
-    handle = await client.invoke("pump.calibrate", {"target": 1300})
+    handle = await client.invoke("pump__calibrate", {"target": 1300})
     assert handle.status == "running" and handle.href
     while not handle.terminal:
         await asyncio.sleep(0.05)
@@ -91,7 +91,7 @@ async def test_async_lifecycle_completes(pump_client):
     assert handle.output == {"calibrated_to": 1300}
     assert pump.target_rpm == 1300
     # the wait=True convenience polls to a terminal state for you
-    done = await client.invoke("pump.calibrate", {"target": 1400}, wait=True)
+    done = await client.invoke("pump__calibrate", {"target": 1400}, wait=True)
     assert done.status == "completed" and pump.target_rpm == 1400
 
 
@@ -99,7 +99,7 @@ async def test_async_lifecycle_cancel(pump_client):
     import asyncio
 
     pump, client = pump_client
-    handle = await client.invoke("pump.calibrate", {"target": 99})
+    handle = await client.invoke("pump__calibrate", {"target": 99})
     cancelled = await client.cancel_action(handle)
     assert cancelled.status == "cancelled"
     await asyncio.sleep(0.3)
@@ -110,7 +110,7 @@ async def test_subscription_threshold_filters(pump_client):
     pump, client = pump_client
     pump.start_telemetry(temps=(70, 85, 99), period=0.05)
     got = []
-    async for evt in await client.subscribe("pump.overheat", {"threshold": 90}):
+    async for evt in await client.subscribe("pump__overheat", {"threshold": 90}):
         assert evt["temp"] >= 90
         got.append(evt["temp"])
         if len(got) >= 2:
@@ -123,7 +123,7 @@ async def test_subscribe_authenticates_as_owner(pump_client):
     only because subscribe threads the affordance owner for auth."""
     pump, client = pump_client
     pump.start_telemetry(temps=(95,), period=0.05)
-    evt = await anext(aiter(await client.subscribe("pump.overheat")))
+    evt = await anext(aiter(await client.subscribe("pump__overheat")))
     assert evt == {"temp": 95, "limit": 80}
 
 
@@ -138,7 +138,7 @@ async def test_subscribe_unauthed_owner_gets_no_events():
     client = ThingClient(tds=[td], bindings=[LocalBinding(pump), HttpBinding()])
     try:
         pump.start_telemetry(temps=(95,), period=0.05)
-        stream = await client.subscribe("pump.overheat")
+        stream = await client.subscribe("pump__overheat")
         # 401 closes the stream (no events) rather than yielding unauthenticated:
         # either the iterator ends or nothing arrives in the window.
         with pytest.raises((StopAsyncIteration, asyncio.TimeoutError)):
@@ -150,7 +150,7 @@ async def test_subscribe_unauthed_owner_gets_no_events():
 async def test_additional_response_is_surfaced(pump_client):
     pump, client = pump_client
     pump.fault = True
-    res = await client.invoke("pump.status")
+    res = await client.invoke("pump__status")
     assert res["status"] == 503
     assert res["response"]["schema"] == "errorResponse"
     assert res["response"]["schemaDefinition"]["type"] == "object"
@@ -193,20 +193,20 @@ async def test_mcp_emits_output_schema_and_resource_templates(pump_client):
     from thingctx.integrations.mcp import build_mcp_server
 
     _, client = pump_client
-    server = build_mcp_server(client, approve="elicit", approve_when="never")
+    server = build_mcp_server(client, approve="elicit", approve_when="never", tool_mode="flat")
     async with connect(server) as s:
         tools = {t.name: t for t in (await s.list_tools()).tools}
         # a synchronous action advertises outputSchema; the async one does not
         # (its tool returns a status envelope, not the raw output)
-        assert tools["pump.status"].outputSchema is not None
-        assert tools["pump.calibrate"].outputSchema is None
+        assert tools["pump__status"].outputSchema is not None
+        assert tools["pump__calibrate"].outputSchema is None
         # unified surface: a cancel tool and a writable-property set tool
-        assert "pump.calibrate.cancel" in tools
-        assert "pump.target_rpm.set" in tools
+        assert "pump__calibrate__cancel" in tools
+        assert "pump__target_rpm__set" in tools
         # a safe uriVariable read becomes a resource template
         tmpls = [t.uriTemplate for t in (await s.list_resource_templates()).resourceTemplates]
-        assert "thing://pump.read_sensor/{id}" in tmpls
-        rr = await s.read_resource("thing://pump.read_sensor/temp-1")
+        assert "thing://pump__read_sensor/{id}" in tmpls
+        rr = await s.read_resource("thing://pump__read_sensor/temp-1")
         assert json.loads(rr.contents[0].text) == {"id": "temp-1", "value": 72}
 
 

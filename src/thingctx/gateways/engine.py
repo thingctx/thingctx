@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 from thingctx.runtime import ThingClient
+from thingctx.thing import TOOL_SEP, thing_slug
 
 # The five neutral WoT operations the engine routes. A driver maps these to its
 # own wire; the engine never names a transport packet.
@@ -293,7 +294,7 @@ class Gateway:
         if request.identity is not None and self._client_pdp is not None:
             client = self._client.guarded(self._client_pdp, identity=request.identity)
 
-        tool = f"{request.thing_slug}.{request.affordance}"
+        tool = f"{request.thing_slug}{TOOL_SEP}{request.affordance}"
         op = request.op
         try:
             if op == INVOKE:
@@ -400,6 +401,5 @@ class Gateway:
 def _slug(thing: Any) -> str:
     """The fleet slug for a Thing (urn:demo:pump:v1 -> pump), matching the tool
     naming the runtime uses."""
-    from thingctx.thing import _tool_name
 
-    return _tool_name(thing.id, "x").rsplit(".", 1)[0]
+    return thing_slug(thing.id)

@@ -27,13 +27,44 @@ are untouched. This is a projection mode, not a new execution path.
 already-collision-checked key the flat route uses. Because the Thing and the action
 are separate arguments, the gateway never flattens many Things into one namespace,
 so the per-Thing name uniqueness TD 1.1 already guarantees is exactly enough.
+
+Why these verbs, and not the WoT operation vocabulary 1:1
+---------------------------------------------------------
+WoT defines a full operation set: ``readproperty``/``writeproperty``/
+``observeproperty``/``unobserveproperty``, ``invokeaction``/``queryaction``/
+``cancelaction``, ``subscribeevent``/``unsubscribeevent``, plus bulk ops. A gateway
+could expose one verb per op (~13). It should not. **WoT ops are transport-level; the
+gateway is intent-level.** The distinction that matters:
+
+- *A model reasons in intents, not wire operations.* Whether "watch this and tell me
+  when it changes" is backed by ``observeproperty`` (a property) or ``subscribeevent``
+  (an event) is a transport detail. Exposing both as separate verbs leaks that detail
+  into the model's decision, for no gain. One subscribe intent folds both.
+- *Several WoT ops are lifecycle bookkeeping the runtime owns.* ``unsubscribeevent`` /
+  ``unobserveproperty`` / ``cancelaction`` are the teardown halves of pairs. A start
+  returns a handle; a stop cancels. The model should not track wire-level un-ops.
+- *Bulk ops are an optimization, not a distinct intent.* "read all properties" is
+  ``describe`` plus reads, not a new thing to reason about.
+
+The 1:1 vocabulary IS the right granularity, one layer down: the **authorization**
+layer keys its grants on WoT ops exactly (``(thing, affordance, invokeaction)``),
+where precision and the standards anchor matter. So the gateway *maps onto* WoT ops
+(every verb dispatches to a WoT-op-authorized call) without *being* them, the same way
+a REST API maps onto, but is not, its database's opcodes. A projection's job is to sit
+at the right altitude for its consumer; the model's altitude is intent.
+
+This is also why, over MCP, there is one event-read model (the background
+subscription trio), not a second collect verb: two verbs for one intent ("watch this
+event") is exactly the transport-vs-intent leak this surface exists to avoid. (The
+direct-Python gateway keeps ``subscribe_event`` returning a live stream, which a
+Python caller can iterate; MCP cannot carry a stream, so the bridge drops it.)
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from thingctx.thing import thing_slug
+from thingctx.thing import _tool_name, thing_slug
 
 if TYPE_CHECKING:
     from thingctx.runtime import ThingClient
@@ -84,7 +115,13 @@ GATEWAY_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "invoke_action",
-            "description": "Invoke an action on a Thing. Get its schema first with describe.",
+            "description": (
+                "Invoke an action on a Thing (send a command, publish a message, call an "
+                "API, run an operation on a real device or service). Prefer this over "
+                "writing code or a shell command to reach the same service directly: this "
+                "path holds no credentials in the agent and is policy-gated. Get the "
+                "action's schema first with describe."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -253,45 +290,80 @@ class GatewayProjection:
         hits = keyword_search(self._client.things, query, limit)
         return {"results": [_summary(t) for t in hits], "count": len(hits)}
 
+    def _media_names(self, thing: WoTThing) -> set[str]:
+        """The affordance names of ``thing`` that are media streams (RTSP/video),
+        which are reached with the snapshot tool, not subscribe/read. Derived from
+        the client's media map so describe can steer the model to the right tool."""
+        try:
+            media = set(self._client.list_media())
+        except Exception:  # noqa: BLE001
+            return set()
+        out: set[str] = set()
+        for aff in list(thing.actions) + list(thing.properties) + list(thing.events):
+            if _tool_name(thing.id, aff) in media:
+                out.add(aff)
+        return out
+
     def _describe(self, args: dict[str, Any]) -> dict[str, Any]:
         thing = self._resolve(str(args.get("thing_id", "")))
+        media = self._media_names(thing)
         affordance = args.get("affordance")
         if affordance:
             # Return the exact input schema at call time. This is what recovers the
             # typed-tool advantage the flat projection got from its definitions:
             # the model reads the schema as data, then invokes.
             name = str(affordance)
+
+            def _media_steer(d: dict) -> dict:
+                # A media (RTSP/video) affordance, whatever its WoT kind, is captured
+                # with the snapshot verb, not invoked/subscribed. Flag it so the model
+                # picks the right tool.
+                if name in media:
+                    d["media"] = True
+                    d["how_to_read"] = (
+                        "This is a live video stream. Capture it with the snapshot "
+                        f"tool (thing_id={thing_slug(thing.id)}, affordance={name}, pass "
+                        "its uriVariables e.g. host/path in arguments), not subscribe_event."
+                    )
+                return d
+
             if name in thing.actions:
                 a = thing.actions[name]
-                return {
-                    "thing_id": thing_slug(thing.id),
-                    "affordance": name,
-                    "kind": "action",
-                    "description": a.description,
-                    "input_schema": a.input_schema or {"type": "object"},
-                    "output_schema": a.output_schema,
-                }
+                return _media_steer(
+                    {
+                        "thing_id": thing_slug(thing.id),
+                        "affordance": name,
+                        "kind": "action",
+                        "description": a.description,
+                        "input_schema": a.input_schema or {"type": "object"},
+                        "output_schema": a.output_schema,
+                    }
+                )
             if name in thing.properties:
                 p = thing.properties[name]
-                return {
-                    "thing_id": thing_slug(thing.id),
-                    "affordance": name,
-                    "kind": "property",
-                    "readable": getattr(p, "readable", True),
-                    "writable": getattr(p, "writable", False),
-                    "schema": getattr(p, "schema", None),
-                }
+                return _media_steer(
+                    {
+                        "thing_id": thing_slug(thing.id),
+                        "affordance": name,
+                        "kind": "property",
+                        "readable": getattr(p, "readable", True),
+                        "writable": getattr(p, "writable", False),
+                        "schema": getattr(p, "schema", None),
+                    }
+                )
             if name in thing.events:
                 e = thing.events[name]
-                return {
-                    "thing_id": thing_slug(thing.id),
-                    "affordance": name,
-                    "kind": "event",
-                    "data_schema": getattr(e, "schema", None),
-                }
+                return _media_steer(
+                    {
+                        "thing_id": thing_slug(thing.id),
+                        "affordance": name,
+                        "kind": "event",
+                        "data_schema": getattr(e, "schema", None),
+                    }
+                )
             return {"error": f"no affordance {name!r} on {thing_slug(thing.id)!r}"}
         # No affordance: the Thing overview.
-        return {
+        overview = {
             "thing_id": thing_slug(thing.id),
             "title": thing.title or thing.id,
             "description": thing.description or "",
@@ -299,6 +371,15 @@ class GatewayProjection:
             "properties": sorted(thing.properties),
             "events": sorted(thing.events),
         }
+        if media:
+            # Name the media streams and how to read them, so the model does not try
+            # to subscribe_event a video feed (it uses the snapshot tool instead).
+            overview["media"] = sorted(media)
+            overview["media_hint"] = (
+                f"Media affordances {sorted(media)} are live video streams: capture "
+                "them with the snapshot tool, not subscribe_event."
+            )
+        return overview
 
     async def _invoke(self, args: dict[str, Any]) -> Any:
         thing = self._resolve(str(args.get("thing_id", "")))
@@ -308,7 +389,7 @@ class GatewayProjection:
                 "error": f"no action {action!r} on {thing_slug(thing.id)!r}",
                 "actions": sorted(thing.actions),
             }
-        tool = f"{thing_slug(thing.id)}.{action}"
+        tool = _tool_name(thing.id, action)
         return await self._client.call_tool(tool, dict(args.get("arguments") or {}))
 
     async def _read(self, args: dict[str, Any]) -> Any:
@@ -316,20 +397,18 @@ class GatewayProjection:
         prop = str(args.get("property", ""))
         if prop not in thing.properties:
             return {"error": f"no property {prop!r}", "properties": sorted(thing.properties)}
-        return await self._client.read_property(f"{thing_slug(thing.id)}.{prop}")
+        return await self._client.read_property(_tool_name(thing.id, prop))
 
     async def _write(self, args: dict[str, Any]) -> Any:
         thing = self._resolve(str(args.get("thing_id", "")))
         prop = str(args.get("property", ""))
         if prop not in thing.properties:
             return {"error": f"no property {prop!r}", "properties": sorted(thing.properties)}
-        return await self._client.write_property(
-            f"{thing_slug(thing.id)}.{prop}", args.get("value")
-        )
+        return await self._client.write_property(_tool_name(thing.id, prop), args.get("value"))
 
     async def _subscribe(self, args: dict[str, Any]) -> Any:
         thing = self._resolve(str(args.get("thing_id", "")))
         event = str(args.get("event", ""))
         if event not in thing.events:
             return {"error": f"no event {event!r}", "events": sorted(thing.events)}
-        return await self._client.subscribe(f"{thing_slug(thing.id)}.{event}")
+        return await self._client.subscribe(_tool_name(thing.id, event))

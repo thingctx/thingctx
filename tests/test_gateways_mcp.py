@@ -127,7 +127,7 @@ def test_projection_carries_mcpv_vocab():
 
     # An action projects to an mcp:// tool href carrying mcpv: vocab.
     tool_form = td["actions"]["set_speed"]["forms"][0]
-    assert tool_form["href"] == "mcp://fleet/tools/pump.set_speed"
+    assert tool_form["href"] == "mcp://fleet/tools/pump__set_speed"
     assert tool_form["mcpv:kind"] == "tool"
     ann = tool_form["mcpv:annotations"]
     # set_speed is not idempotent -> destructive hint, not read-only.
@@ -142,7 +142,7 @@ def test_projection_carries_mcpv_vocab():
 
     # A property projects to an mcp:// resource href with mcpv:kind = resource.
     prop_form = td["properties"]["rpm"]["forms"][0]
-    assert prop_form["href"].startswith("mcp://fleet/resources/pump.rpm")
+    assert prop_form["href"].startswith("mcp://fleet/resources/pump__rpm")
     assert prop_form["mcpv:kind"] == "resource"
 
     # No engine field leaked onto a form; mcpv: is the only namespaced vocab.
@@ -211,12 +211,12 @@ async def test_driving_through_mcp_server_enforces_authz():
     assert server is not None
 
     # Granted read_speed flows through to the device.
-    granted = await _call_via_server(server, "pump.read_speed")
+    granted = await _call_via_server(server, "pump__read_speed")
     assert "1200" in granted, granted
 
     # Ungranted set_speed is refused by the gate before the device; the denied
     # value never reaches it.
-    denied = await _call_via_server(server, "pump.set_speed", {"rpm": 3000})
+    denied = await _call_via_server(server, "pump__set_speed", {"rpm": 3000})
     assert "3000" not in denied, f"denied write must not reach the device: {denied}"
     assert (
         "ok" not in denied.lower() or "denied" in denied.lower() or "not" in denied.lower()

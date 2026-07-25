@@ -89,12 +89,12 @@ def test_media_wins_over_http_for_hinted_form():
 def test_media_action_split_from_invoke_tools():
     client = _client("rtsp://cam/stream")
     assert client.list_actions() == []  # not an invoke tool
-    assert client.list_media() == ["cam1.watch"]
+    assert client.list_media() == ["cam1__watch"]
 
 
 def test_invoke_on_media_is_redirected():
     client = _client("rtsp://cam/stream")
-    res = asyncio.run(client.invoke("cam1.watch"))
+    res = asyncio.run(client.invoke("cam1__watch"))
     assert res.get("media") is True
     assert "frames(" in res["error"]
 
@@ -103,8 +103,8 @@ def test_client_frames_yields_video_and_audio():
     client = _client("rtsp://cam/stream")
 
     async def run():
-        vid = [f async for f in await client.frames("cam1.watch", track="video")]
-        aud = [f async for f in await client.frames("cam1.watch", track="audio")]
+        vid = [f async for f in await client.frames("cam1__watch", track="video")]
+        aud = [f async for f in await client.frames("cam1__watch", track="audio")]
         return vid, aud
 
     vid, aud = asyncio.run(run())
@@ -116,10 +116,10 @@ def test_client_frames_yields_video_and_audio():
 def test_frames_over_http_hinted_form():
     # An http(s) href with a media hint still routes to media via the client.
     client = _client("https://example.com/clip.mp4", hint={"container": "mp4"})
-    assert client.list_media() == ["cam1.watch"]
+    assert client.list_media() == ["cam1__watch"]
 
     async def run():
-        return [f async for f in await client.frames("cam1.watch")]
+        return [f async for f in await client.frames("cam1__watch")]
 
     assert len(asyncio.run(run())) == 4
 
@@ -128,7 +128,7 @@ def test_frames_unknown_affordance_is_empty():
     client = _client("rtsp://cam/stream")
 
     async def run():
-        return [f async for f in await client.frames("cam1.nope")]
+        return [f async for f in await client.frames("cam1__nope")]
 
     assert asyncio.run(run()) == []
 
@@ -238,7 +238,7 @@ def test_frames_with_url_argument_routes_verbatim_to_backend():
     target = "https://vimeo.com/123?h=abc"
 
     async def run():
-        return [f async for f in await client.frames("pages.watch", {"url": target})]
+        return [f async for f in await client.frames("pages__watch", {"url": target})]
 
     frames = asyncio.run(run())
     assert len(frames) == 4
@@ -272,7 +272,7 @@ def test_call_time_options_reach_backend():
         return [
             f
             async for f in await client.frames(
-                "pages.watch",
+                "pages__watch",
                 {"url": "https://youtu.be/x", "cookies_from_browser": "safari", "format": "best"},
                 track="video",
             )
@@ -303,7 +303,7 @@ def test_call_time_arg_cannot_override_track():
 
     async def run():
         return [
-            f async for f in await client.frames("cam1.watch", {"track": "audio"}, track="video")
+            f async for f in await client.frames("cam1__watch", {"track": "audio"}, track="video")
         ]
 
     asyncio.run(run())

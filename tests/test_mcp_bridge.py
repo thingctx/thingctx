@@ -34,16 +34,97 @@ async def test_td_becomes_callable_mcp_tools():
     inv = LocalBinding(
         {"status": lambda: {"rpm": 0}, "set_speed": lambda rpm=0: {"ok": True, "rpm": rpm}}
     )
-    server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), name="pump")
+    server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), name="pump", tool_mode="flat")
     async with connect(server) as s:
         await s.initialize()
         tools = {t.name: t for t in (await s.list_tools()).tools}
-        assert "pump.set_speed" in tools
+        assert "pump__set_speed" in tools
         # the risk hints come from the TD's own semantics
-        assert tools["pump.status"].annotations.readOnlyHint is True
+        assert tools["pump__status"].annotations.readOnlyHint is True
         # call a tool for real
-        res = await s.call_tool("pump.set_speed", {"rpm": 1200})
+        res = await s.call_tool("pump__set_speed", {"rpm": 1200})
         assert "1200" in res.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_gateway_mode_projects_verbs_and_routes_invoke():
+    """Gateway mode collapses per-action tools to a constant verb surface. The
+    verbs are listed instead of pump__status/pump__set_speed, and invoke_action
+    routes back to the real action."""
+    pytest.importorskip("mcp")
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    inv = LocalBinding(
+        {"status": lambda: {"rpm": 0}, "set_speed": lambda rpm=0: {"ok": True, "rpm": rpm}}
+    )
+    server = build_mcp_server(
+        ThingClient(tds=[TD], bindings=[inv]), name="pump", tool_mode="gateway"
+    )
+    async with connect(server) as s:
+        await s.initialize()
+        names = {t.name for t in (await s.list_tools()).tools}
+        # the constant verb surface, not one tool per action
+        assert "invoke_action" in names
+        assert "search_things" in names
+        assert "describe" in names
+        # per-action tools are NOT listed in gateway mode
+        assert "pump__set_speed" not in names
+        assert "pump__status" not in names
+        # events are read only through the background trio; there is no separate
+        # collect verb (one event-read model, no transport-vs-intent duplication)
+        assert "subscribe_event" not in names
+        assert "start_subscription" in names
+        # search finds the Thing by keyword
+        found = await s.call_tool("search_things", {"query": "pump"})
+        assert "pump" in found.content[0].text
+        # invoke_action routes through to the real action
+        res = await s.call_tool(
+            "invoke_action",
+            {"thing_id": "pump", "action": "set_speed", "arguments": {"rpm": 1200}},
+        )
+        assert "1200" in res.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_is_flat_for_small_fleet_gateway_for_large():
+    """The default tool mode is auto: a small fleet stays flat (per-Thing names
+    like pump__set_speed match user intent and resist the bypass), a large fleet
+    flips to the constant gateway surface. Selected by the flat tool count."""
+    pytest.importorskip("mcp")
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    inv = LocalBinding(
+        {"status": lambda: {"rpm": 0}, "set_speed": lambda rpm=0: {"ok": True, "rpm": rpm}}
+    )
+    # Small fleet (2 actions) with the default (no tool_mode) -> flat.
+    small = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]))
+    async with connect(small) as s:
+        await s.initialize()
+        names = {t.name for t in (await s.list_tools()).tools}
+        assert "pump__set_speed" in names  # per-Thing name, intent-matching
+        assert "invoke_action" not in names  # not the generic verb
+
+    # Large fleet (> FLAT_MAX actions) with the default -> gateway.
+    def _many(i):
+        return {
+            "@context": "https://www.w3.org/2022/wot/td/v1.1",
+            "id": f"urn:demo:m{i}",
+            "title": f"m{i}",
+            "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+            "security": ["nosec_sc"],
+            "actions": {f"a{j}": {"forms": [{"href": f"local://a{j}"}]} for j in range(4)},
+        }
+
+    big = build_mcp_server(ThingClient(tds=[_many(i) for i in range(20)], bindings=[]))
+    async with connect(big) as s:
+        await s.initialize()
+        names = {t.name for t in (await s.list_tools()).tools}
+        assert "invoke_action" in names  # gateway verb
+        assert not any(n.startswith("m0__") for n in names)  # no per-Thing tools
 
 
 TELEMETRY_TD = {
@@ -110,25 +191,25 @@ async def test_writable_property_becomes_set_tool_and_errors_signal():
     from thingctx.integrations.mcp import build_mcp_server
 
     client = ThingClient(tds=[TELEMETRY_TD], bindings=[LocalBinding(_Dev())])
-    server = build_mcp_server(client, name="pump", approve=None)
+    server = build_mcp_server(client, name="pump", approve=None, tool_mode="flat")
     async with connect(server) as s:
         await s.initialize()
         tools = {t.name: t for t in (await s.list_tools()).tools}
-        assert "pump.target_rpm.set" in tools
-        setter = tools["pump.target_rpm.set"]
+        assert "pump__target_rpm__set" in tools
+        setter = tools["pump__target_rpm__set"]
         assert setter.annotations.readOnlyHint is False
         # the value is typed from the property's own schema
         assert setter.inputSchema["properties"]["value"]["type"] == "integer"
 
         # write through the tool, then read back through the property resource
-        res = await s.call_tool("pump.target_rpm.set", {"value": 1500})
+        res = await s.call_tool("pump__target_rpm__set", {"value": 1500})
         assert res.isError is False
         assert res.structuredContent == {"ok": True, "target_rpm": 1500}
-        read = await s.read_resource("thing://pump.target_rpm")
+        read = await s.read_resource("thing://pump__target_rpm")
         assert "1500" in read.contents[0].text
 
         # a runtime error becomes isError (with the message), not a silent pass
-        bad = await s.call_tool("pump.set_speed", {"rpm": 99999})
+        bad = await s.call_tool("pump__set_speed", {"rpm": 99999})
         assert bad.isError is True
         assert "too high" in bad.content[0].text
 
@@ -161,27 +242,27 @@ async def test_events_and_observables_are_subscribable_resources():
     async with connect(server, message_handler=on_message) as s:
         await s.initialize()
         resources = {r.name: str(r.uri) for r in (await s.list_resources()).resources}
-        assert resources["pump.overheat"] == "event://pump.overheat"
-        assert resources["pump.target_rpm"] == "thing://pump.target_rpm"
+        assert resources["pump__overheat"] == "event://pump__overheat"
+        assert resources["pump__target_rpm"] == "thing://pump__target_rpm"
 
         # an event: subscribe, the device emits one, a resources/updated arrives,
         # and reading the URI drains the buffered payload(s) (events have no live read)
-        await s.subscribe_resource("event://pump.overheat")
+        await s.subscribe_resource("event://pump__overheat")
         binding.emit("overheat", {"temp": 99, "limit": 80})
         await asyncio.sleep(0.05)
-        assert "event://pump.overheat" in updated
-        read = await s.read_resource("event://pump.overheat")
+        assert "event://pump__overheat" in updated
+        read = await s.read_resource("event://pump__overheat")
         assert "99" in read.contents[0].text
 
         # an observable property: an external change pushes an update, and the
         # re-read reflects the new live value
         updated.clear()
-        await s.subscribe_resource("thing://pump.target_rpm")
+        await s.subscribe_resource("thing://pump__target_rpm")
         dev.target = 3000
         binding.emit("target_rpm", 3000)
         await asyncio.sleep(0.05)
-        assert "thing://pump.target_rpm" in updated
-        read = await s.read_resource("thing://pump.target_rpm")
+        assert "thing://pump__target_rpm" in updated
+        read = await s.read_resource("thing://pump__target_rpm")
         assert "3000" in read.contents[0].text
 
 
@@ -206,7 +287,7 @@ async def test_event_buffer_delivers_burst_in_order_and_flags_drops():
         approve=None,
         event_history=3,
     )
-    uri = "event://pump.overheat"
+    uri = "event://pump__overheat"
     async with connect(server) as s:
         await s.initialize()
         await s.subscribe_resource(uri)
@@ -285,7 +366,7 @@ async def test_subscription_relay_deregisters_so_resubscribe_resumes():
         if type(node).__name__ == "ResourceUpdatedNotification":
             updated.append(str(node.params.uri))
 
-    uri = "event://pump.overheat"
+    uri = "event://pump__overheat"
     async with connect(server, message_handler=on_message) as s:
         await s.initialize()
         await s.subscribe_resource(uri)
@@ -298,6 +379,132 @@ async def test_subscription_relay_deregisters_so_resubscribe_resumes():
         await asyncio.sleep(0.05)
         assert updated.count(uri) == 2
         assert "2" in (await s.read_resource(uri)).contents[0].text
+
+
+@pytest.mark.asyncio
+async def test_gateway_start_subscription_fills_event_urivariables():
+    """start_subscription must fill the event's uriVariables (e.g. topic) into the
+    form href before subscribing, so a parameterized event is reachable. There is no
+    separate collect verb: the trio is the one event-read model over MCP."""
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    seen: dict = {}
+
+    class _Events:
+        scheme = "local"
+
+        async def subscribe(self, target, form, args=None):  # noqa: ANN001
+            # The topic uriVariable is filled into the href (form.fill) before the
+            # binding is called, so it arrives on the form, not in args.
+            seen["href"] = form.href
+
+            async def _gen():
+                yield {"n": 0}
+
+            return _gen()
+
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:demo:bus",
+        "title": "Bus",
+        "events": {
+            "feed": {
+                "uriVariables": {"topic": {"type": "string"}},
+                "data": {"type": "object"},
+                "forms": [{"href": "local://feed/{+topic}", "op": ["subscribeevent"]}],
+            }
+        },
+    }
+    server = build_mcp_server(
+        ThingClient(tds=[td], bindings=[_Events()]), approve=None, tool_mode="gateway"
+    )
+    import json as _json
+
+    async with connect(server) as s:
+        await s.initialize()
+        names = {t.name for t in (await s.list_tools()).tools}
+        assert "subscribe_event" not in names  # no collect verb
+        assert "start_subscription" in names
+        r = await s.call_tool(
+            "start_subscription",
+            {"thing_id": "bus", "event": "feed", "arguments": {"topic": "orders"}},
+        )
+        sid = _json.loads(r.content[0].text)["subscription_id"]
+        await asyncio.sleep(0.05)
+        await s.call_tool("stop_subscription", {"subscription_id": sid})
+    # the event's uriVariable was filled into the form href before subscribe
+    assert seen["href"] == "local://feed/orders"
+
+
+@pytest.mark.asyncio
+async def test_gateway_background_subscription_buffers_between_reads():
+    """start_subscription buffers an event's messages as they arrive; a later
+    read_subscription drains what accumulated between reads; stop ends it. This is
+    the 'receive anytime' path (vs subscribe_event's in-flight-only collect)."""
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    push = asyncio.Queue()
+
+    class _PushEvents:
+        scheme = "local"
+
+        async def subscribe(self, target, form, args=None):  # noqa: ANN001
+            async def _gen():
+                while True:
+                    yield await push.get()
+
+            return _gen()
+
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:demo:bus",
+        "title": "Bus",
+        "events": {
+            "feed": {
+                "data": {"type": "object"},
+                "forms": [{"href": "local://feed", "op": ["subscribeevent"]}],
+            }
+        },
+    }
+    server = build_mcp_server(
+        ThingClient(tds=[td], bindings=[_PushEvents()]), approve=None, tool_mode="gateway"
+    )
+    import json as _json
+
+    async def tool(s, name, args):
+        r = await s.call_tool(name, args)
+        return _json.loads(r.content[0].text)
+
+    async with connect(server) as s:
+        await s.initialize()
+        started = await tool(s, "start_subscription", {"thing_id": "bus", "event": "feed"})
+        sid = started["subscription_id"]
+        # nothing pushed yet: an immediate read is empty
+        await asyncio.sleep(0.05)
+        r0 = await tool(s, "read_subscription", {"subscription_id": sid})
+        assert r0["count"] == 0
+        # push 2 messages "between" reads
+        await push.put({"n": 1})
+        await push.put({"n": 2})
+        await asyncio.sleep(0.05)
+        r1 = await tool(s, "read_subscription", {"subscription_id": sid})
+        assert r1["messages"] == [{"n": 1}, {"n": 2}]
+        assert r1["dropped"] == 0
+        # already drained
+        r2 = await tool(s, "read_subscription", {"subscription_id": sid})
+        assert r2["count"] == 0
+        stopped = await tool(s, "stop_subscription", {"subscription_id": sid})
+        assert stopped["stopped"] is True
 
 
 CAMERA_TD = {
@@ -331,9 +538,11 @@ async def test_media_td_becomes_snapshot_image_tool():
             raise NotImplementedError
 
     client = ThingClient(tds=[CAMERA_TD], bindings=[MediaBinding(backends=[_FakeBackend()])])
-    server = build_mcp_server(client, name="cam")
-    media_name = client.list_media()[0]  # e.g. "cam.watch"
-    snapshot = f"{media_name.split('.', 1)[0]}.snapshot"  # becomes "cam.snapshot"
+    server = build_mcp_server(client, name="cam", tool_mode="flat")
+    media_name = client.list_media()[0]  # e.g. "cam__watch"
+    from thingctx.thing import TOOL_SEP, _tool_slug
+
+    snapshot = f"{_tool_slug(media_name)}{TOOL_SEP}snapshot"
 
     async with connect(server) as s:
         await s.initialize()
@@ -348,6 +557,53 @@ async def test_media_td_becomes_snapshot_image_tool():
         assert res.content[0].type == "image"
         assert res.content[0].mimeType == "image/jpeg"
         assert res.content[0].data  # base64 jpeg
+
+
+@pytest.mark.asyncio
+async def test_gateway_snapshot_verb_captures_media_and_hides_per_thing_tool():
+    """In gateway mode media is the single `snapshot` VERB (one surface shape for
+    every affordance), not a per-Thing <slug>__snapshot tool. describe flags the
+    affordance as media so the model uses snapshot, not subscribe_event."""
+    pytest.importorskip("mcp")
+    pytest.importorskip("PIL")
+    import json as _json
+    import threading
+
+    import numpy as np
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.bindings.builtin.media import Frame, MediaBinding
+    from thingctx.integrations.mcp import build_mcp_server
+
+    class _FakeBackend:
+        def can_open(self, url, hint):
+            return True
+
+        def read(self, url, *, options, stop: threading.Event):
+            yield Frame(data=np.zeros((4, 4, 3), dtype=np.uint8), kind="video", pts=None)
+
+        def write(self, *a, **k):
+            raise NotImplementedError
+
+    client = ThingClient(tds=[CAMERA_TD], bindings=[MediaBinding(backends=[_FakeBackend()])])
+    server = build_mcp_server(client, name="cam", tool_mode="gateway")
+    async with connect(server) as s:
+        await s.initialize()
+        names = {t.name for t in (await s.list_tools()).tools}
+        assert "snapshot" in names  # the media verb
+        assert not any(n.endswith("__snapshot") for n in names)  # no per-Thing tool
+        # describe steers the model: watch is media, use snapshot not subscribe
+        d = _json.loads(
+            (await s.call_tool("describe", {"thing_id": "cam", "affordance": "watch"}))
+            .content[0]
+            .text
+        )
+        assert d.get("media") is True
+        assert "snapshot" in d.get("how_to_read", "")
+        # the verb returns an image
+        res = await s.call_tool("snapshot", {"thing_id": "cam", "affordance": "watch"})
+        assert res.content[0].type == "image"
+        assert res.content[0].mimeType == "image/jpeg"
 
 
 @pytest.mark.asyncio
@@ -379,8 +635,10 @@ async def test_media_snapshot_can_return_a_clip():
     # bursty finite backend can't shed frames before they're sampled.
     media = MediaBinding(backends=[_ClipBackend()], backpressure="all")
     client = ThingClient(tds=[CAMERA_TD], bindings=[media])
-    server = build_mcp_server(client, name="cam")
-    snapshot = f"{client.list_media()[0].split('.', 1)[0]}.snapshot"
+    server = build_mcp_server(client, name="cam", tool_mode="flat")
+    from thingctx.thing import TOOL_SEP, _tool_slug
+
+    snapshot = f"{_tool_slug(client.list_media()[0])}{TOOL_SEP}snapshot"
 
     async with connect(server) as s:
         await s.initialize()
@@ -390,3 +648,71 @@ async def test_media_snapshot_can_return_a_clip():
         images = [c for c in res.content if c.type == "image"]
         assert len(images) == 3
         assert all(c.mimeType == "image/jpeg" and c.data for c in images)
+
+
+# A media form whose href carries uriVariables (the registry pattern, e.g.
+# rtsp://{+host}:8554/{+path}) must have them filled from the snapshot tool's
+# arguments before the stream opens; otherwise the backend gets a literal
+# "{+host}" and fails.
+_MEDIA_URIVAR_TD = {
+    "@context": "https://www.w3.org/2022/wot/td/v1.1",
+    "id": "urn:demo:cam:vars",
+    "title": "Camera with vars",
+    "events": {
+        "watch": {
+            "data": {"type": "string", "contentMediaType": "video/x-thingctx-media"},
+            "uriVariables": {
+                "host": {"type": "string"},
+                "path": {"type": "string"},
+            },
+            "forms": [
+                {
+                    "href": "rtsp://{+host}:8554/{+path}",
+                    "op": "subscribeevent",
+                    "contentType": "video/x-thingctx-media",
+                }
+            ],
+        }
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_media_snapshot_fills_href_urivariables_from_args():
+    pytest.importorskip("mcp")
+    pytest.importorskip("PIL")
+    import threading
+
+    import numpy as np
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.bindings.builtin.media import Frame, MediaBinding
+    from thingctx.integrations.mcp import build_mcp_server
+
+    seen: dict = {}
+
+    class _RecordingBackend:
+        def can_open(self, url, hint):
+            return True
+
+        def read(self, url, *, options, stop: threading.Event):
+            seen["url"] = url
+            yield Frame(data=np.zeros((4, 4, 3), dtype=np.uint8), kind="video", pts=None)
+
+        def write(self, *a, **k):
+            raise NotImplementedError
+
+    client = ThingClient(
+        tds=[_MEDIA_URIVAR_TD], bindings=[MediaBinding(backends=[_RecordingBackend()])]
+    )
+    server = build_mcp_server(client, name="cam", tool_mode="flat")
+    from thingctx.thing import TOOL_SEP, _tool_slug
+
+    snapshot = f"{_tool_slug(client.list_media()[0])}{TOOL_SEP}snapshot"
+
+    async with connect(server) as s:
+        await s.initialize()
+        res = await s.call_tool(snapshot, {"host": "10.0.0.5", "path": "front"})
+        assert res.content[0].type == "image"
+    # the uriVariables reached the backend filled, not as literal "{+host}"
+    assert seen["url"] == "rtsp://10.0.0.5:8554/front"

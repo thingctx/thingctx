@@ -36,6 +36,7 @@ from thingctx.gateways.engine import (
     Gateway,
     ServeRequest,
 )
+from thingctx.thing import TOOL_SEP, thing_slug
 
 DEFAULT_PREFIX = "tc"
 
@@ -44,9 +45,7 @@ _KIND_FOR_OP = {INVOKE: "actions", READ: "props", WRITE: "props", SUBSCRIBE: "ev
 
 
 def _slug(thing: Any) -> str:
-    from thingctx.thing import _tool_name
-
-    return _tool_name(thing.id, "x").rsplit(".", 1)[0]
+    return thing_slug(thing.id)
 
 
 class MqttGatewayBinding:
@@ -312,7 +311,7 @@ class MqttGatewayBinding:
     def _start_mirror(self, slug: str, name: str) -> None:
         async def _mirror() -> None:
             try:
-                stream = await self._gateway.client.subscribe(f"{slug}.{name}")
+                stream = await self._gateway.client.subscribe(f"{slug}{TOOL_SEP}{name}")
                 async for payload in stream:
                     await self.mirror_event(slug, name, payload)
             except asyncio.CancelledError:
@@ -335,7 +334,7 @@ class MqttGatewayBinding:
 
         async def _mirror() -> None:
             try:
-                stream = await client.subscribe(f"{slug}.{name}")
+                stream = await client.subscribe(f"{slug}{TOOL_SEP}{name}")
                 async for payload in stream:
                     self._publish(stream_topic, payload)
             except asyncio.CancelledError:

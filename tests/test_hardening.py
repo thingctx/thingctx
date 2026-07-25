@@ -94,7 +94,7 @@ async def test_chain_refuses_file_scheme_next_url():
     http = _mock_client(handler, credentials={"dl": "TOK"})
     client = ThingClient(tds=[_chain_td({"op": "GET"})], bindings=[http])
     with pytest.raises(PolicyError, match="scheme"):
-        await client.invoke("dl.fetch", {})
+        await client.invoke("dl__fetch", {})
 
 
 async def test_chain_download_size_cap(monkeypatch):
@@ -122,7 +122,7 @@ async def test_chain_download_size_cap(monkeypatch):
     td = _chain_td({"transport": "ranged-get", "chunkSize": 4})
     client = ThingClient(tds=[td], bindings=[http])
     with pytest.raises(ChainError, match="exceeds"):
-        await client.invoke("dl.fetch", {})
+        await client.invoke("dl__fetch", {})
 
 
 # --- multi-Thing slug collision ---------------------------------------------

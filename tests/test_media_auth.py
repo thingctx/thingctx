@@ -161,7 +161,7 @@ def test_media_errors_redact_credentials_end_to_end():
     )
 
     async def run():
-        return [f async for f in await client.frames("cam1.watch")]
+        return [f async for f in await client.frames("cam1__watch")]
 
     with pytest.raises(MediaError) as ei:
         asyncio.run(run())
@@ -224,7 +224,7 @@ def test_basic_security_resolves_into_options_auth_plan():
         tds=[_secured_td("rtsp://cam/stream")],
         bindings=[MediaBinding(backends=[backend], credentials={"cam1": ("alice", "s3cr3t")})],
     )
-    _drain(client, "cam1.watch")
+    _drain(client, "cam1__watch")
     plan = backend.seen["options"]["auth"]
     assert isinstance(plan, MediaAuthPlan)
     assert plan.username == "alice"
@@ -239,7 +239,7 @@ def test_declared_basic_without_secret_attaches_no_plan():
         tds=[_secured_td("rtsp://cam/stream")],
         bindings=[MediaBinding(backends=[backend])],  # no credentials supplied
     )
-    _drain(client, "cam1.watch")
+    _drain(client, "cam1__watch")
     assert "auth" not in backend.seen["options"]
 
 
@@ -252,7 +252,7 @@ def test_no_declared_security_attaches_no_plan():
         "actions": {"watch": {"forms": [{"href": "rtsp://cam/stream"}]}},
     }
     client = ThingClient(tds=[td], bindings=[MediaBinding(backends=[backend])])
-    _drain(client, "cam1.watch")
+    _drain(client, "cam1__watch")
     assert "auth" not in backend.seen["options"]
 
 
@@ -313,7 +313,7 @@ def test_extractor_login_for_parameterized_page_source():
         tds=[td],
         bindings=[MediaBinding(backends=[backend], credentials={"pages": ("me", "pw")})],
     )
-    _drain(client, "pages.watch", {"url": "https://www.youtube.com/watch?v=private"})
+    _drain(client, "pages__watch", {"url": "https://www.youtube.com/watch?v=private"})
     plan = backend.seen["options"]["auth"]
     assert ytdlp_auth_options(plan) == {"username": "me", "password": "pw"}
     assert backend.seen["url"] == "https://www.youtube.com/watch?v=private"

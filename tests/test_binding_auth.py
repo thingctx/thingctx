@@ -43,8 +43,8 @@ async def test_bearer_resolves_distinct_secret_per_thing():
         tds=[_td("alpha", {"scheme": "bearer"}), _td("beta", {"scheme": "bearer"})],
         bindings=[http],
     )
-    ha, _ = await _headers_for(http, client, "alpha.ping")
-    hb, _ = await _headers_for(http, client, "beta.ping")
+    ha, _ = await _headers_for(http, client, "alpha__ping")
+    hb, _ = await _headers_for(http, client, "beta__ping")
     assert ha["Authorization"] == "Bearer AAA"
     assert hb["Authorization"] == "Bearer BBB"
 
@@ -58,8 +58,8 @@ async def test_apikey_query_and_header():
         ],
         bindings=[http],
     )
-    hq, pq = await _headers_for(http, client, "mapsvc.ping")
-    hh, ph = await _headers_for(http, client, "searchsvc.ping")
+    hq, pq = await _headers_for(http, client, "mapsvc__ping")
+    hh, ph = await _headers_for(http, client, "searchsvc__ping")
     assert pq["key"] == "GKEY" and "Authorization" not in hq
     assert hh["X-Token"] == "BKEY" and ph == {}
 
@@ -67,21 +67,21 @@ async def test_apikey_query_and_header():
 async def test_basic_is_base64_encoded():
     http = HttpBinding(credentials={"acct": "user:pass"})
     client = ThingClient(tds=[_td("acct", {"scheme": "basic"})], bindings=[http])
-    h, _ = await _headers_for(http, client, "acct.ping")
+    h, _ = await _headers_for(http, client, "acct__ping")
     assert h["Authorization"] == "Basic " + base64.b64encode(b"user:pass").decode()
 
 
 async def test_nosec_thing_gets_no_auth():
     http = HttpBinding(credentials={"openthing": "ignored"})
     client = ThingClient(tds=[_td("openthing", {"scheme": "nosec"})], bindings=[http])
-    h, p = await _headers_for(http, client, "openthing.ping")
+    h, p = await _headers_for(http, client, "openthing__ping")
     assert "Authorization" not in h and p == {}
 
 
 async def test_missing_credential_sends_no_header():
     http = HttpBinding(credentials={})
     client = ThingClient(tds=[_td("alpha", {"scheme": "bearer"})], bindings=[http])
-    h, _ = await _headers_for(http, client, "alpha.ping")
+    h, _ = await _headers_for(http, client, "alpha__ping")
     assert "Authorization" not in h
 
 
@@ -89,7 +89,7 @@ async def test_legacy_scheme_name_keying_still_works():
     # Single-Thing adopters key credentials by scheme name, not Thing slug.
     http = HttpBinding(credentials={"sc": "LEGACY"})
     client = ThingClient(tds=[_td("alpha", {"scheme": "bearer"})], bindings=[http])
-    h, _ = await _headers_for(http, client, "alpha.ping")
+    h, _ = await _headers_for(http, client, "alpha__ping")
     assert h["Authorization"] == "Bearer LEGACY"
 
 
@@ -100,8 +100,8 @@ async def test_one_thing_secret_does_not_leak_to_another():
         tds=[_td("alpha", {"scheme": "bearer"}), _td("beta", {"scheme": "bearer"})],
         bindings=[http],
     )
-    ha, _ = await _headers_for(http, client, "alpha.ping")
-    hb, _ = await _headers_for(http, client, "beta.ping")
+    ha, _ = await _headers_for(http, client, "alpha__ping")
+    hb, _ = await _headers_for(http, client, "beta__ping")
     assert ha["Authorization"] == "Bearer AAA"
     assert "Authorization" not in hb
 
@@ -154,8 +154,8 @@ async def test_form_level_security_overrides_thing_security():
     }
     http = HttpBinding(credentials={"bearer_sc": "TKN", "basic_sc": "user:pass"})
     client = ThingClient(tds=[td], bindings=[http])
-    ping = client.action_for("dev.ping")
-    admin = client.action_for("dev.admin")
+    ping = client.action_for("dev__ping")
+    admin = client.action_for("dev__admin")
     ph, _, _, _ = await http._prepare(ping.thing_id, ping.forms[0])
     ah, _, _, _ = await http._prepare(admin.thing_id, admin.forms[0])
     assert ph["Authorization"] == "Bearer TKN"  # inherited the Thing's scheme

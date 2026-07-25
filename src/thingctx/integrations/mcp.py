@@ -42,6 +42,7 @@ import sys
 from typing import Any
 
 from thingctx.runtime import ThingClient, to_text
+from thingctx.thing import TOOL_SEP, _tool_slug
 
 logger = logging.getLogger("thingctx.mcp")
 
@@ -70,17 +71,47 @@ def _credentials_from_env() -> dict[str, str]:
     return creds
 
 
+class _NeedsManualApproval(Exception):
+    """Raised by the approver when the connected client cannot show an
+    elicitation dialog. The bridge catches it and returns a pending-approval
+    envelope with a token; the user then approves by calling the ``approve``
+    tool (a chat-native human-in-the-loop that works on ANY client, not only
+    elicitation-capable ones). Without this, a gated call on a non-eliciting
+    client (e.g. Claude Desktop) would hang or silently deny."""
+
+
+def _client_can_elicit(session) -> bool:
+    """True if the connected client declared the elicitation capability at
+    initialize. A client that did not cannot answer session.elicit(), so asking
+    would hang; the bridge routes to the approve-tool path instead."""
+    import mcp.types as types
+
+    check = getattr(session, "check_client_capability", None)
+    if check is None:
+        return False
+    try:
+        return bool(check(types.ClientCapabilities(elicitation={})))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _elicit_approver(server):
-    """An approver that asks the connected MCP client (Claude/Copilot CLI) to
-    confirm a gated call, via MCP elicitation. Denies if the client cannot
-    elicit or there is no live session , a gate with nobody to open it stays
-    shut. This is the human-in-the-loop for the CLI integrations."""
+    """An approver that asks the connected MCP client to confirm a gated call.
+
+    If the client supports MCP elicitation, ask via a dialog and honor the
+    answer. If it does NOT (many GUI clients today), raise _NeedsManualApproval
+    so the bridge falls back to the approve-tool flow, rather than hanging on an
+    elicit nobody answers or silently denying. Denies only when there is no live
+    session at all (a gate with nobody to open stays shut)."""
 
     async def approve(req) -> bool:
         try:
             session = server.request_context.session
         except Exception:  # noqa: BLE001  (no active request/session)
             return False
+        if not _client_can_elicit(session):
+            # No dialog channel: hand off to the approve tool via the bridge.
+            raise _NeedsManualApproval()
         # Show the argument names, not their values: an argument can carry a
         # secret or PII, and the elicitation message is shown to the user and may
         # be logged by the client.
@@ -93,8 +124,8 @@ def _elicit_approver(server):
             result = await session.elicit(
                 message=message, requestedSchema={"type": "object", "properties": {}}
             )
-        except Exception:  # noqa: BLE001  (client has no elicitation capability)
-            return False
+        except Exception:  # noqa: BLE001  (elicit unexpectedly unavailable at call time)
+            raise _NeedsManualApproval() from None
         return getattr(result, "action", None) == "accept"
 
     return approve
@@ -107,6 +138,7 @@ def build_mcp_server(
     approve: Any = "elicit",
     approve_when: str | None = None,
     event_history: int = 16,
+    tool_mode: str | None = None,
 ):
     """Build an mcp Server that bridges `client` to MCP. Needs the `mcp`
     package.
@@ -124,11 +156,220 @@ def build_mcp_server(
     collapsed to the latest (see the event resource read).
     """
     import collections
+    import os
 
     import mcp.types as types
     from mcp.server.lowlevel import Server
 
-    server: Server = Server(name)
+    # Tool projection mode. The flat surface (one tool per action) is correct for
+    # a handful of Things but grows with the fleet, both the tool count and the
+    # context they cost every turn. The gateway surface is a constant set of
+    # generic verbs (search_things / describe / invoke_action / read_property /
+    # write_property) that reach the fleet through arguments, so the count never
+    # grows. Events are read only through the start/read/stop background trio (a
+    # tool cannot hold a live stream), which forwards a parameterized event's
+    # uriVariables (e.g. mqtt broker/topic).
+    #
+    # DEFAULT IS "auto": flat for a small fleet, gateway once the flat surface
+    # would exceed FLAT_MAX tools. Rationale: flat's per-Thing names (mqtt__publish)
+    # match user intent, so they WIN tool selection against a client's own code
+    # sandbox (an agent asked to "publish to mqtt" reaches mqtt__publish, not a
+    # mosquitto_pub script); the gateway's generic invoke_action does not, so it is
+    # bypass-prone in an open agent. A large registry, though, sprawls under flat,
+    # so it flips to the constant gateway surface. Auto picks the right one by size
+    # without the user thinking about modes. Force either with THINGCTX_TOOL_MODE.
+    #
+    # FLAT_MAX is calibrated to keep the COMMON case flat (a hand-curated set of
+    # Things is tens of tools — the demo set is ~31 — where flat's intent-matching
+    # names win selection and cost little context) while a large directory (the
+    # full registry is ~215 tools) flips to gateway. 60 sits cleanly between: it is
+    # not the context-cost ceiling (modern models handle far more) but the point
+    # past which a flat list stops being worth its selection-accuracy cost.
+    FLAT_MAX = 60
+    tool_mode = (tool_mode or os.environ.get("THINGCTX_TOOL_MODE") or "auto").strip().lower()
+    if tool_mode not in ("gateway", "flat", "auto"):
+        tool_mode = "auto"
+    if tool_mode == "auto":
+        # The flat surface size is the tool-spec count (one per action, plus the
+        # property setters/cancels the flat route adds); compare to FLAT_MAX.
+        _flat_n = len(client.tool_specs)
+        tool_mode = "flat" if _flat_n <= FLAT_MAX else "gateway"
+        try:
+            print(
+                f"thingctx-mcp: tool mode = {tool_mode} (auto: {_flat_n} actions "
+                f"{'<=' if tool_mode == 'flat' else '>'} {FLAT_MAX})",
+                file=sys.stderr,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Instructions the client puts in the model's system context at initialize.
+    # This is the strongest steer thingctx has against the agent bypassing a Thing
+    # to write raw code/shell for the same service: the tools are the sanctioned
+    # path (the agent never holds credentials; each operation is policy-gated), so
+    # reaching the service any other way loses that guarantee. Selection is still
+    # the client's call — thingctx cannot force it — but this moves the default.
+    _how_to = (
+        "use search_things to find one, describe to read its schema, then "
+        "invoke_action / read_property / write_property"
+        if tool_mode == "gateway"
+        else "call the matching tool directly"
+    )
+    _instructions = (
+        "These tools drive real devices and services described as W3C Web of Things "
+        "Things (an MQTT broker, a camera, a filesystem, an API, and so on). When a "
+        "request maps to one of these Things, USE THESE TOOLS to do it — "
+        f"{_how_to}. Do NOT write code, shell commands, or use a separate client "
+        "(e.g. mosquitto_pub, curl, a paho script) to reach the same service directly. "
+        "The tools are the sanctioned path: the agent never handles the credentials, "
+        "and every operation is checked against the configured policy, so a gated or "
+        "risky action is refused or asks for your approval. Reaching the service by "
+        "raw code bypasses that protection. If a tool reports needs_approval, ask the "
+        "user, and only on an explicit yes call approve with the token."
+    )
+    server: Server = Server(name, instructions=_instructions)
+    from thingctx.gateway import GATEWAY_TOOL_NAMES, GATEWAY_TOOLS
+
+    gateway = client.gateway() if tool_mode == "gateway" else None
+    # The gateway's own ``subscribe_event`` returns a live stream, which a direct
+    # Python caller can iterate but MCP cannot carry. So over MCP there is ONE
+    # event-read model: the background-subscription trio (start/read/stop). It
+    # covers both the persistent case and the quick "listen a moment" case (start,
+    # read after a beat, stop), so a separate collect verb would be redundant
+    # surface. subscribe_event is therefore dropped from the MCP gateway surface.
+    # Background-subscription verbs: receive an event's messages BETWEEN prompts,
+    # not only during a call. Available in both tool modes.
+    _BG_SUB_TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "start_subscription",
+                "description": (
+                    "Start a background subscription to an event: its messages buffer as "
+                    "they arrive, even between your turns. Returns a subscription_id. Call "
+                    "read_subscription later to drain what accumulated, stop_subscription to "
+                    "end it. For a parameterized event (e.g. mqtt) pass broker/topic in arguments."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "thing_id": {"type": "string"},
+                        "event": {"type": "string"},
+                        "arguments": {
+                            "type": "object",
+                            "description": "the event's uriVariables (e.g. broker, topic)",
+                        },
+                    },
+                    "required": ["thing_id", "event"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_subscription",
+                "description": (
+                    "Drain the messages a background subscription has buffered since your last "
+                    "read. Returns messages, a dropped count (how many were shed if the buffer "
+                    "overflowed), and ended (whether the source has closed)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"subscription_id": {"type": "string"}},
+                    "required": ["subscription_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "stop_subscription",
+                "description": "End a background subscription started with start_subscription.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"subscription_id": {"type": "string"}},
+                    "required": ["subscription_id"],
+                },
+            },
+        },
+    ]
+    _BG_SUB_NAMES = {t["function"]["name"] for t in _BG_SUB_TOOLS}
+    # A media (RTSP/video) affordance is not a discrete-message event; it is
+    # captured as an image. In gateway mode it gets its own verb so the surface
+    # stays consistent (one shape for every affordance), instead of a per-Thing
+    # <slug>__snapshot tool the model must cross over to.
+    _SNAPSHOT_VERB = {
+        "type": "function",
+        "function": {
+            "name": "snapshot",
+            "description": (
+                "Capture a still image (or a short clip) from a Thing's media stream "
+                "(a video/RTSP affordance, shown as media in describe). Pass the media "
+                "affordance's uriVariables in arguments (e.g. host, path). frames > 1 "
+                "returns a short clip sampled over time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "thing_id": {"type": "string"},
+                    "affordance": {
+                        "type": "string",
+                        "description": "the media affordance (from describe)",
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "description": "its uriVariables (e.g. host, path)",
+                    },
+                    "seconds": {"type": "number"},
+                    "frames": {"type": "integer", "minimum": 1},
+                    "every": {"type": "number"},
+                },
+                "required": ["thing_id", "affordance"],
+            },
+        },
+    }
+    _has_media = bool(client.list_media())
+    # The approve tool: the chat-native half of the human-in-the-loop. When a gated
+    # action can't be confirmed by an elicitation dialog, the bridge parks it and
+    # returns a token; the user says "yes" and the agent calls approve(token) to
+    # run it. Present unless the approval gate is off (approve_when="never").
+    _APPROVE_TOOL = {
+        "type": "function",
+        "function": {
+            "name": "approve",
+            "description": (
+                "Approve and run an action that was parked awaiting your confirmation. "
+                "Pass the approval_token from the needs_approval result. Only call this "
+                "after the user has explicitly confirmed they want the action to proceed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"approval_token": {"type": "string"}},
+                "required": ["approval_token"],
+            },
+        },
+    }
+    # The effective approval policy: the explicit param wins, else whatever the
+    # client was built with (the env-driven THINGCTX_APPROVE_WHEN flows onto the
+    # client, not this param). "never" means no gate, so no approve tool.
+    _effective_approve_when = (
+        approve_when if approve_when is not None else getattr(client, "_approve_when", "declared")
+    )
+    _approvals_on = (_effective_approve_when or "").strip().lower() != "never"
+    _gateway_specs = (
+        # Drop the projection's streaming subscribe_event (MCP can't carry a stream);
+        # the trio below is the single event-read model over MCP.
+        [t for t in GATEWAY_TOOLS if t["function"]["name"] != "subscribe_event"]
+        + _BG_SUB_TOOLS
+        + ([_SNAPSHOT_VERB] if _has_media else [])
+        + ([_APPROVE_TOOL] if _approvals_on else [])
+    )
+    _gateway_names = (
+        (GATEWAY_TOOL_NAMES - {"subscribe_event"})
+        | _BG_SUB_NAMES
+        | ({"snapshot"} if _has_media else set())
+        | ({"approve"} if _approvals_on else set())
+    )
     if callable(approve):
         client.set_approval(approve, approve_when=approve_when)
     elif approve == "elicit" and client._approve is None:
@@ -142,10 +383,10 @@ def build_mcp_server(
     # tool name, disambiguating the rare Thing with several media streams.
     media_tools: dict[str, str] = {}  # mcp tool name -> media affordance name
     for media_name in client.list_media():
-        slug = media_name.split(".", 1)[0]
-        tool_name = f"{slug}.snapshot"
+        slug = _tool_slug(media_name)
+        tool_name = f"{slug}{TOOL_SEP}snapshot"
         if tool_name in media_tools:
-            tool_name = f"{media_name}.snapshot"
+            tool_name = f"{media_name}{TOOL_SEP}snapshot"
         media_tools[tool_name] = media_name
 
     # Events and observable properties are push streams. MCP carries push via
@@ -202,6 +443,28 @@ def build_mcp_server(
     async def list_tools():
         out = []
         valid = set(types.ToolAnnotations.model_fields)
+        if gateway is not None:
+            # Gateway mode: a constant verb surface, not one tool per action.
+            read_only = {"search_things", "describe", "read_property", "read_subscription"}
+            for spec in _gateway_specs:
+                fn = spec["function"]
+                nm = fn["name"]
+                out.append(
+                    types.Tool(
+                        name=nm,
+                        description=fn["description"],
+                        inputSchema=fn["parameters"],
+                        annotations=types.ToolAnnotations(
+                            readOnlyHint=nm in read_only,
+                            destructiveHint=False,
+                            idempotentHint=nm in read_only,
+                        ),
+                    )
+                )
+            # In gateway mode media is the `snapshot` VERB (added to _gateway_specs
+            # above), not per-Thing <slug>__snapshot tools, so the surface keeps one
+            # shape for every affordance. Nothing more to append here.
+            return out
         for entry in client.tool_surface():
             if entry["kind"] == "property.get":
                 continue
@@ -303,6 +566,39 @@ def build_mcp_server(
                     ),
                 )
             )
+        # Background-subscription verbs (flat mode): only when the registry has an
+        # event to subscribe to, so a registry with no events shows no noise.
+        if event_names:
+            bg_read_only = {"read_subscription"}
+            for spec in _BG_SUB_TOOLS:
+                fn = spec["function"]
+                nm = fn["name"]
+                out.append(
+                    types.Tool(
+                        name=nm,
+                        description=fn["description"],
+                        inputSchema=fn["parameters"],
+                        annotations=types.ToolAnnotations(
+                            readOnlyHint=nm in bg_read_only,
+                            destructiveHint=False,
+                            idempotentHint=nm in bg_read_only,
+                        ),
+                    )
+                )
+        # The approve tool (flat mode): the chat-native confirmation for a gated
+        # action when the client can't show an elicitation dialog.
+        if _approvals_on:
+            fn = _APPROVE_TOOL["function"]
+            out.append(
+                types.Tool(
+                    name=fn["name"],
+                    description=fn["description"],
+                    inputSchema=fn["parameters"],
+                    annotations=types.ToolAnnotations(
+                        readOnlyHint=False, idempotentHint=False, destructiveHint=False
+                    ),
+                )
+            )
         return out
 
     async def _snapshot(name: str, args: dict):
@@ -324,7 +620,7 @@ def build_mcp_server(
 
         if count == 1:
             frame = None
-            async for fr in await client.frames(name, track="video"):
+            async for fr in await client.frames(name, args, track="video"):
                 # ``seconds`` is best-effort: a source whose frames carry no pts
                 # (some live streams) would otherwise loop forever waiting for a
                 # timestamp that never arrives, so the first frame ends it.
@@ -338,7 +634,7 @@ def build_mcp_server(
         else:
             # Skip ahead to ``seconds`` first, then sample ``count`` frames.
             async def _from(start: float):
-                async for fr in await client.frames(name, track="video"):
+                async for fr in await client.frames(name, args, track="video"):
                     if not start or (fr.pts is not None and fr.pts >= start):
                         yield fr
 
@@ -358,6 +654,131 @@ def build_mcp_server(
             for fr in picked
         ]
 
+    # Background subscriptions: a start/read/stop trio so an event's messages
+    # accumulate BETWEEN tool calls (a plain collect would only capture during its own
+    # in-flight window). A start spawns a background task that fills the event's
+    # form (broker/topic) once, subscribes, and buffers into a bounded ring as
+    # messages arrive; read drains what accumulated since the last read; stop
+    # cancels. Bounded ring so a firehose can't exhaust memory; a dropped counter
+    # makes a fallen-behind reader visible rather than silently lossy. In-session
+    # only (the ring lives in this process); durable cross-restart buffering is a
+    # store's job, not the client's.
+    _subs: dict[str, dict] = {}
+    _sub_counter = [0]
+    _SUB_RING = 200
+
+    # Pending approvals: when a gated call can't be confirmed by an elicitation
+    # dialog (the client has none), it is parked here under a token, and the user
+    # completes it by calling the approve tool. This makes the human-in-the-loop
+    # work on any client, not only elicitation-capable ones.
+    _pending: dict[str, dict] = {}
+    _pending_counter = [0]
+
+    async def _sub_pump(sub_id: str, tool: str, sub_args: dict) -> None:
+        state = _subs[sub_id]
+        try:
+            stream = await client.subscribe(tool, sub_args)
+            state["stream"] = stream
+            async for value in stream:
+                ring: collections.deque = state["ring"]
+                if len(ring) == ring.maxlen:
+                    state["dropped"] += 1  # this append evicts an unread message
+                state["seq"] += 1
+                ring.append((state["seq"], value))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 (a dead stream ends the pump; read() reports it)
+            state["ended"] = True
+            logger.warning("background subscription %s stopped", sub_id, exc_info=True)
+
+    async def _start_subscription(args: dict) -> Any:
+        from thingctx.thing import _tool_name, thing_slug
+
+        thing_id = str(args.get("thing_id") or "")
+        event = str(args.get("event") or "")
+        sub_args = dict(args.get("arguments") or {})
+        thing = next((t for t in client.things if thing_slug(t.id) == thing_id), None)
+        if thing is None:
+            return {"error": f"no Thing {thing_id!r}"}
+        if event not in thing.events:
+            return {"error": f"no event {event!r} on {thing_id!r}", "events": sorted(thing.events)}
+        _sub_counter[0] += 1
+        sub_id = f"{thing_id}:{event}:{_sub_counter[0]}"
+        _subs[sub_id] = {
+            "ring": collections.deque(maxlen=_SUB_RING),
+            "dropped": 0,
+            "seq": 0,
+            "ended": False,
+            "stream": None,
+            "thing_id": thing_id,
+            "event": event,
+        }
+        tool = _tool_name(thing.id, event)
+        _subs[sub_id]["task"] = asyncio.create_task(_sub_pump(sub_id, tool, sub_args))
+        return {
+            "subscription_id": sub_id,
+            "thing_id": thing_id,
+            "event": event,
+            "note": (
+                "buffering in the background; call read_subscription to drain, "
+                "stop_subscription to end"
+            ),
+        }
+
+    async def _read_subscription(args: dict) -> Any:
+        sub_id = str(args.get("subscription_id") or "")
+        state = _subs.get(sub_id)
+        if state is None:
+            return {"error": f"no subscription {sub_id!r}", "active": sorted(_subs)}
+        ring: collections.deque = state["ring"]
+        batch = list(ring)
+        ring.clear()
+        dropped = state["dropped"]
+        state["dropped"] = 0
+        return {
+            "subscription_id": sub_id,
+            "messages": [v for _, v in batch],
+            "count": len(batch),
+            "dropped": dropped,  # messages shed since last read (ring overflow)
+            "seq": batch[-1][0] if batch else state["seq"],
+            "ended": state["ended"],  # the source stream closed; no more will arrive
+        }
+
+    async def _stop_subscription(args: dict) -> Any:
+        sub_id = str(args.get("subscription_id") or "")
+        state = _subs.pop(sub_id, None)
+        if state is None:
+            return {"error": f"no subscription {sub_id!r}"}
+        task = state.get("task")
+        if task is not None:
+            task.cancel()
+        stream = state.get("stream")
+        aclose = getattr(stream, "aclose", None) if stream is not None else None
+        if aclose is not None:
+            try:
+                await aclose()
+            except Exception:  # noqa: BLE001
+                pass
+        return {"subscription_id": sub_id, "stopped": True, "remaining": len(state["ring"])}
+
+    def _gateway_connect_target(verb: str, args: dict) -> str | None:
+        """The flat tool name a gateway verb ultimately drives, for the on-demand
+        connect check. ``invoke_action``/``read_property``/``write_property`` name
+        their target Thing and affordance in the arguments; map them to the same
+        ``<slug>__<name>`` the flat route would use so a Thing needing sign in is
+        recognized. Returns None when the target can't be resolved (the verb then
+        runs and the projection returns a clear not-found error)."""
+        from thingctx.thing import _tool_name, thing_slug
+
+        thing_id = str(args.get("thing_id") or "")
+        affordance = str(args.get("action") or args.get("property") or args.get("event") or "")
+        if not thing_id or not affordance:
+            return None
+        for t in client.things:
+            if thing_slug(t.id) == thing_id:
+                return _tool_name(t.id, affordance)
+        return None
+
     def _tool_result(payload: Any):
         """Wrap a runtime result as an MCP tool result: text for any client,
         structured content for those that use it, and ``isError`` when the
@@ -370,6 +791,55 @@ def build_mcp_server(
             structuredContent=structured,
             isError=is_error,
         )
+
+    async def _run_gated_call(tool: str, args: dict, *, bypass_approval: bool = False):
+        """Run a tool through the gateway or the flat client, catching the
+        can't-elicit approval signal. On that signal the call is parked under a
+        token and a needs_approval envelope is returned, so the user can confirm
+        via the approve tool (works on clients with no elicitation dialog).
+
+        ``bypass_approval`` runs the call with the approval gate temporarily off,
+        used only to replay a call the user already approved via the approve tool.
+        The policy/authorization gate is NOT bypassed; only the human confirm is."""
+        prior = None
+        if bypass_approval:
+            # Swap in an always-yes approver for this one call, then restore. The
+            # PDP (policy) still runs; only the human-confirm step is satisfied.
+            prior = client._approve
+
+            async def _yes(_req):
+                return True
+
+            client.set_approval(_yes)
+        try:
+            if gateway is not None and tool in _gateway_names:
+                return _tool_result(await gateway.call_tool(tool, args))
+            return _tool_result(await client.call_tool(tool, args))
+        except _NeedsManualApproval:
+            if not _approvals_on:
+                # Shouldn't happen (gate off => no approver raises), but fail safe.
+                return _tool_result({"error": "approval required but the gate is off"})
+            _pending_counter[0] += 1
+            token = f"approval-{_pending_counter[0]}"
+            _pending[token] = {"tool": tool, "args": args}
+            summary = tool
+            if isinstance(args, dict) and args.get("thing_id") and args.get("action"):
+                summary = f"{args['action']} on {args['thing_id']}"
+            return _tool_result(
+                {
+                    "needs_approval": True,
+                    "approval_token": token,
+                    "action": summary,
+                    "message": (
+                        "This action changes external state and needs your confirmation. "
+                        "If the user approves, call approve with this approval_token; "
+                        "otherwise do not."
+                    ),
+                }
+            )
+        finally:
+            if bypass_approval:
+                client.set_approval(prior)
 
     @server.call_tool()
     async def call_tool(tool: str, args: dict):
@@ -385,16 +855,64 @@ def build_mcp_server(
             return _tool_result(await connect_tool(client, args, session))
         # Connect a user-authorized Thing on demand: if this tool needs a sign in
         # the store does not have yet, confirm and run the one-time browser consent
-        # locally, so the agent never handles the token.
-        connect_err = await ensure_connected(client, tool, session)
+        # locally, so the agent never handles the token. In gateway mode the verb
+        # is generic (invoke_action/read_property/write_property) and the target
+        # Thing lives in the arguments, so resolve the underlying flat tool name
+        # first, else the connect check cannot find the Thing that needs auth.
+        connect_target = tool
+        if gateway is not None and tool in _gateway_names and tool not in _BG_SUB_NAMES:
+            connect_target = _gateway_connect_target(tool, args) or tool
+        connect_err = await ensure_connected(client, connect_target, session)
         if connect_err is not None:
             return _tool_result({"error": connect_err})
         if tool in media_tools:
             return await _snapshot(media_tools[tool], args)
-        # client.call_tool dispatches actions (a long-running action blocks to
-        # completion here), <property>.set writes, and <action>.cancel stops an
-        # in-flight run; the trust gate is enforced on the same path.
-        return _tool_result(await client.call_tool(tool, args))
+        # Gateway snapshot verb: resolve thing_id + affordance to the media name,
+        # then reuse the same _snapshot path the per-Thing tool uses.
+        if tool == "snapshot" and gateway is not None:
+            from thingctx.thing import _tool_name, thing_slug
+
+            thing_id = str(args.get("thing_id") or "")
+            affordance = str(args.get("affordance") or "")
+            thing = next((t for t in client.things if thing_slug(t.id) == thing_id), None)
+            if thing is None:
+                return _tool_result({"error": f"no Thing {thing_id!r}"})
+            media_name = _tool_name(thing.id, affordance)
+            if media_name not in set(client.list_media()):
+                return _tool_result(
+                    {
+                        "error": f"{affordance!r} on {thing_id!r} is not a media stream",
+                        "media": [m for m in client.list_media() if m.startswith(thing_id + "__")],
+                    }
+                )
+            # _snapshot reads uriVariables from its args dict; pass arguments merged
+            # with the frame controls (seconds/frames/every).
+            snap_args = dict(args.get("arguments") or {})
+            for k in ("seconds", "frames", "every"):
+                if k in args:
+                    snap_args[k] = args[k]
+            return await _snapshot(media_name, snap_args)
+        # Background-subscription verbs, available in both modes: buffer an event's
+        # messages between calls, drain on demand.
+        if tool == "start_subscription":
+            return _tool_result(await _start_subscription(args))
+        if tool == "read_subscription":
+            return _tool_result(await _read_subscription(args))
+        if tool == "stop_subscription":
+            return _tool_result(await _stop_subscription(args))
+        # The approve tool: run a call the user just confirmed, with the gate
+        # bypassed for THIS call only (the human already said yes).
+        if tool == "approve" and _approvals_on:
+            token = str(args.get("approval_token") or "")
+            parked = _pending.pop(token, None)
+            if parked is None:
+                return _tool_result(
+                    {"error": f"no pending approval {token!r} (it may have expired or already run)"}
+                )
+            return await _run_gated_call(parked["tool"], parked["args"], bypass_approval=True)
+        # Every other tool runs through the gated dispatcher, which turns a
+        # can't-elicit approval into a pending-approval envelope + token.
+        return await _run_gated_call(tool, args)
 
     # Properties -> readable resources; events -> resources draining the recent
     # pushed payloads. Observable properties and events are also subscribable.
@@ -592,27 +1110,55 @@ def client_from_registry(
     try:
         from thingctx.bindings.builtin.media import MediaBinding
 
-        bindings.append(MediaBinding())
+        bindings.append(MediaBinding(credentials=credentials or {}))
     except Exception:  # noqa: BLE001
         pass
-    # THINGCTX_POLICY picks a coarse per-operation posture with no identity: read-only,
-    # no-writes, or full. When set, wire a PDP so a denied op is refused before the
-    # service is touched. Unset means no PDP (the previous behavior, unchanged). Build
-    # the PDP's closed vocabulary from these TDs up front; a caller's construction-time
-    # vocabulary is authoritative (the client does not rebuild it at construction).
+    # THINGCTX_POLICY picks a coarse per-operation posture: read-only or
+    # full. THINGCTX_IDENTITY (optional) gives the agent a named principal so the
+    # decision, the audit, and any AuthZEN subject carry WHO acted, not just WHAT was
+    # allowed. When either is set, wire a PDP so a denied op is refused before the
+    # service is touched; unset means no PDP (previous behavior, unchanged). Build the
+    # PDP's closed vocabulary from these TDs up front (the client does not rebuild it at
+    # construction).
     pdp = None
+    identity = None
     policy = os.environ.get("THINGCTX_POLICY")
-    if policy:
-        from thingctx.authz.pdp import PolicyDecisionPoint, StaticGrantSource
+    agent_identity = os.environ.get("THINGCTX_IDENTITY")
+    if policy or agent_identity:
+        from thingctx.authz.pdp import (
+            LocalPolicyGrantSource,
+            PolicyDecisionPoint,
+            StaticGrantSource,
+        )
         from thingctx.authz.vocabulary import build_vocabulary
         from thingctx.thing import parse_thing
 
         things = [parse_thing(td) for td in tds if isinstance(td, dict)]
-        grants = StaticGrantSource(policy, thing_ids=[t.id for t in things])
+        # An identity-free posture (policy only) grants the preset wildcard; an
+        # identity binds the SAME preset grant to a named role, so the principal
+        # appears in the decision and the audit. Default an identity-only run to
+        # read-only (a named agent with no stated posture reads, never writes).
+        preset = policy or "read-only"
+        # Build the preset grant ONCE (safe-action aware for read-only) via
+        # StaticGrantSource, then either serve it directly (no identity) or bind it to a
+        # named role (identity). Passing ``things`` lets read-only permit safe actions.
+        static = StaticGrantSource(preset, things=things)
+        if agent_identity:
+            # The identity IS a claims dict: its name is the subject and its role, so
+            # a role -> grant map keys the fine grant off the coarse preset. Standard:
+            # this maps cleanly to an AuthZEN subject (sub + roles claim).
+            identity = {"sub": agent_identity, "roles": [agent_identity]}
+            grants = LocalPolicyGrantSource({agent_identity: static.grants})
+        else:
+            grants = static
         pdp = PolicyDecisionPoint(build_vocabulary(things), grants)
         if verbose:
-            print(f"thingctx-mcp: operation policy = {policy}", file=sys.stderr)
-    return ThingClient(tds=tds, bindings=bindings, approve_when=approve_when, pdp=pdp)
+            print(f"thingctx-mcp: operation policy = {preset}", file=sys.stderr)
+            if agent_identity:
+                print(f"thingctx-mcp: agent identity = {agent_identity}", file=sys.stderr)
+    return ThingClient(
+        tds=tds, bindings=bindings, approve_when=approve_when, pdp=pdp, identity=identity
+    )
 
 
 def _build_server(registry):
@@ -636,6 +1182,8 @@ def _build_server(registry):
             file=sys.stderr,
         )
     print(f"thingctx-mcp: approval policy = {approve_when}", file=sys.stderr)
+    # build_mcp_server resolves and prints the effective tool mode (auto -> flat/gateway
+    # by fleet size), so no mode line here to avoid a stale/duplicate report.
     n = len(client.things)
     name = client.things[0].title if n == 1 else f"things ({n})"
     return build_mcp_server(client, name=name or "things")

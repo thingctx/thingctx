@@ -125,6 +125,28 @@ async def test_invoke_round_trip(local_binding):
 
 
 @pytest.mark.asyncio
+async def test_flat_and_gateway_reach_identical_results(local_binding):
+    """Parity: the gateway is a projection, not a second execution path. The same
+    action driven the flat way (its per-action tool) and the gateway way
+    (invoke_action) must return the same result, because both dispatch onto the
+    same ThingClient.call_tool underneath."""
+    from thingctx.thing import _tool_name
+
+    client = ThingClient(tds=[_local_td("pump", "Pump", "x")], bindings=[local_binding])
+    flat = client.projection("flat")
+    gw = client.projection("gateway")
+
+    for arguments in ({"verbose": True}, {"verbose": False}, {}):
+        flat_tool = _tool_name("urn:demo:pump:v1", "status")
+        flat_result = await flat.call_tool(flat_tool, arguments)
+        gw_result = await gw.call_tool(
+            "invoke_action",
+            {"thing_id": "pump", "action": "status", "arguments": arguments},
+        )
+        assert flat_result == gw_result, f"divergence for {arguments}"
+
+
+@pytest.mark.asyncio
 async def test_full_flow_search_then_describe_then_invoke(local_binding):
     tds = [_local_td("pump", "Water Pump", "coolant"), _local_td("boiler", "Boiler", "heat")]
     client = ThingClient(tds=tds, bindings=[local_binding])

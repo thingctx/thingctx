@@ -128,7 +128,7 @@ async def test_client_routes_through_an_injected_registry():
 
     reg = BindingRegistry([LocalShim()])
     client = ThingClient(tds=[TD], bindings=reg)
-    out = await client.invoke("pump.set_speed", {"rpm": 7})
+    out = await client.invoke("pump__set_speed", {"rpm": 7})
     assert out == {"ok": True}
     assert seen["args"] == {"rpm": 7}
 
@@ -142,7 +142,7 @@ async def test_bindings_kwarg_still_works():
             return "legacy"
 
     client = ThingClient(tds=[TD], bindings=[LocalShim()])
-    assert await client.invoke("pump.set_speed", {"rpm": 1}) == "legacy"
+    assert await client.invoke("pump__set_speed", {"rpm": 1}) == "legacy"
 
 
 def test_unknown_builtin_name_raises():

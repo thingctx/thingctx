@@ -269,7 +269,7 @@ async def test_token_reaches_http_binding_through_thingclient(monkeypatch):
 
     binding = HttpBinding(extra_auth=[entra])  # register our provider on the binding
     client = ThingClient(tds=[td], bindings=[binding])
-    result = await client.invoke("entra-demo.ping", {})
+    result = await client.invoke("entra-demo__ping", {})
     await client.aclose()
 
     assert result == {"ok": True}
