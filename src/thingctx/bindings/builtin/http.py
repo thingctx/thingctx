@@ -19,15 +19,70 @@ from thingctx.auth import AuthRegistry, AuthStrategy, apply_http
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
 from thingctx.lifecycle import ActionStatus, status_from_body
-from thingctx.netpolicy import check_url, confine_path
+from thingctx.netpolicy import check_url, confine_path, resolve_and_pin
 from thingctx.reliability import IDEMPOTENT_METHODS, RetryPolicy, TransportError, _retry_after
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    import httpcore
     import httpx
 
     from thingctx.thing import WoTAction, WoTForm, WoTProperty
+
+
+_UNSET: Any = object()  # sentinel: "no timeout override", distinct from None
+
+
+def _make_pinning_backend(delegate: Any) -> Any:
+    """Wrap an httpcore network backend so it dials a pre-validated IP instead of
+    re-resolving the hostname at connect time.
+
+    This is the socket-level half of the DNS-rebinding fix: the binding resolves
+    and validates a host once (:func:`~thingctx.netpolicy.resolve_and_pin`),
+    records ``{hostname: validated_ip}`` on the backend, and every ``connect_tcp``
+    for a pinned host substitutes the validated IP. The URL keeps the hostname, so
+    the Host header, TLS SNI, and certificate verification all still run against
+    the hostname; only the address the OS dials is pinned. An unpinned host
+    (``block_private`` off, or a host with no recorded pin) connects normally."""
+    # optional dep, kept local so the core imports without the extra
+    import httpcore  # noqa: PLC0415
+
+    class _PinningBackend(httpcore.AsyncNetworkBackend):
+        def __init__(self, inner: httpcore.AsyncNetworkBackend) -> None:
+            self._inner = inner
+            self._pins: dict[str, str] = {}
+
+        def pin(self, host: str, ip: str) -> None:
+            self._pins[host] = ip
+
+        async def connect_tcp(
+            self,
+            host: str,
+            port: int,
+            timeout: float | None = None,
+            local_address: str | None = None,
+            socket_options: Any = None,
+        ) -> httpcore.AsyncNetworkStream:
+            return await self._inner.connect_tcp(
+                self._pins.get(host, host),
+                port,
+                timeout=timeout,
+                local_address=local_address,
+                socket_options=socket_options,
+            )
+
+        async def connect_unix_socket(
+            self, path: str, timeout: float | None = None, socket_options: Any = None
+        ) -> httpcore.AsyncNetworkStream:
+            return await self._inner.connect_unix_socket(
+                path, timeout=timeout, socket_options=socket_options
+            )
+
+        async def sleep(self, seconds: float) -> None:
+            await self._inner.sleep(seconds)
+
+    return _PinningBackend(delegate)
 
 
 def _decode(resp: httpx.Response, empty: Any = None) -> Any:
@@ -326,14 +381,53 @@ class HttpBinding(AuthMixin):
             if inspect.isawaitable(result):
                 await result
 
-    def _pool(self) -> httpx.AsyncClient:
-        """The lazily-created, reused client (created inside the running loop so
-        it binds to the right event loop; recreated if closed)."""
+    def _new_client(self, *, timeout: Any = _UNSET, **kwargs: Any) -> httpx.AsyncClient:
+        """Build an ``AsyncClient``. When ``block_private`` is on, its network
+        backend is swapped for one that dials pre-validated IPs, so a later
+        :meth:`_pin` call binds the socket to the address that was checked."""
         # optional dep, kept local so the core imports without the extra
         import httpx  # noqa: PLC0415
 
+        client = httpx.AsyncClient(
+            timeout=self._timeout if timeout is _UNSET else timeout, **kwargs
+        )
+        if self._block_private:
+            pool = getattr(getattr(client, "_transport", None), "_pool", None)
+            # Only a real AsyncHTTPTransport carries a connection pool with a
+            # network backend to swap. A test/custom transport (MockTransport) has
+            # no socket layer, so there is nothing to pin; _pin falls back to a
+            # resolve-time check there.
+            if pool is not None and hasattr(pool, "_network_backend"):
+                pool._network_backend = _make_pinning_backend(pool._network_backend)
+        return client
+
+    def _pin(self, client: httpx.AsyncClient, url: str, *, what: str = "request URL") -> str | None:
+        """Resolve+validate the URL host once and pin the connection to that IP.
+
+        Returns the hostname to use as the TLS SNI / cert name (so verification
+        runs against the hostname, not the pinned IP). When the client's transport
+        has no pinning backend (a mock or custom transport with no real socket),
+        there is nothing to pin, so this falls back to a resolve-time private-host
+        check: the host is still refused if it resolves private, and no SNI is
+        returned. Gated by the caller on ``block_private``."""
+        host = urlsplit(url).hostname or ""
+        backend: Any = getattr(
+            getattr(getattr(client, "_transport", None), "_pool", None), "_network_backend", None
+        )
+        if not hasattr(backend, "pin"):
+            # No socket to rebind (mock/custom transport): keep the private-host
+            # refusal via a resolve-check, but do not claim a pin was set.
+            check_url(url, block_private=True, resolve=True, what=what)
+            return None
+        ip = resolve_and_pin(host, what=what)
+        backend.pin(host, ip)
+        return host
+
+    def _pool(self) -> httpx.AsyncClient:
+        """The lazily-created, reused client (created inside the running loop so
+        it binds to the right event loop; recreated if closed)."""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=self._timeout)
+            self._client = self._new_client()
         return self._client
 
     async def aclose(self) -> None:
@@ -382,16 +476,22 @@ class HttpBinding(AuthMixin):
             url = new_url
             kwargs["params"] = merged
 
-        if self._block_private:
-            check_url(url, block_private=True, what="request URL")
+        # Always enforce the scheme allowlist. When block_private is on, resolve
+        # and validate the host once, then pin the connection to that exact IP so
+        # the address that was checked is the address dialed (the DNS-rebinding
+        # fix; check_url alone re-resolves at connect time).
+        check_url(url, block_private=False, what="request URL")
 
         retryable = retry and (method.upper() in IDEMPOTENT_METHODS or self._retry_non_idempotent)
         max_retries = self._policy.retries if retryable else 0
         pooled = cert is None
-        client = self._pool() if pooled else httpx.AsyncClient(timeout=self._timeout, cert=cert)
+        client = self._pool() if pooled else self._new_client(cert=cert)
+        sni = self._pin(client, url) if self._block_private else None
         try:
             for attempt in range(max_retries + 1):
                 req = client.build_request(method, url, **kwargs)
+                if sni is not None:
+                    req.extensions["sni_hostname"] = sni
                 await self._sign_request(signers, req)
                 try:
                     resp = await client.send(req)
@@ -591,8 +691,7 @@ class HttpBinding(AuthMixin):
         if args:
             params = {**params, **args}
         url, merged_params = _merge_href_query(form.href, params)
-        if self._block_private:
-            check_url(url, block_private=True, what="SSE URL")
+        check_url(url, block_private=False, what="SSE URL")
 
         # An SSE stream is long-lived, so there is no overall read timeout, but
         # connection setup (and writes) stay bounded so a peer cannot wedge the
@@ -600,8 +699,13 @@ class HttpBinding(AuthMixin):
         sse_timeout = httpx.Timeout(self._timeout, read=None)
 
         async def _stream() -> AsyncIterator[Any]:
-            async with httpx.AsyncClient(timeout=sse_timeout, cert=cert) as client:
+            async with self._new_client(timeout=sse_timeout, cert=cert) as client:
+                # Same DNS-rebinding pin as _send: resolve+validate once, dial that
+                # IP, verify TLS against the hostname.
+                sni = self._pin(client, url, what="SSE URL") if self._block_private else None
                 req = client.build_request("GET", url, headers=headers, params=merged_params)
+                if sni is not None:
+                    req.extensions["sni_hostname"] = sni
                 await self._sign_request(signers, req)
                 resp = await client.send(req, stream=True)
                 # Fail loud on a denied or failed subscription (401/403/5xx):
