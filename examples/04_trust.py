@@ -1,20 +1,20 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""04, trust: the safety layer that protects against a wrong decision , by a
-human, by an LLM, or by an MCP client (Claude / Copilot CLI).
+"""04, trust: the safety layer that protects against a wrong decision, whether by
+a human, an LLM, or an MCP client (Claude / Copilot CLI).
 
 Same pump as 02/03. The new thing is a trust gate on the client:
 
-  - approval , a risky call (here, any non-idempotent action under the
+  - approval: a risky call (here, any non-idempotent action under the
     "destructive" policy) is routed to an approver, which may deny it. A
     denied call never reaches the device.
-  - grounding , verify() reads the TD against the live pump and reports whether
+  - grounding: verify() reads the TD against the live pump and reports whether
     it still matches (declared types vs. real values).
 
 The same gate sits on ``ThingClient.invoke``, so it protects:
   * a hand-written loop (Part A),
   * an LLM driving the Thing (Part B), and
-  * an MCP client over the bridge (Part C note) , Claude/Copilot CLI calls go
+  * an MCP client over the bridge (Part C note): Claude/Copilot CLI calls go
     through the same invoke path, and the bridge asks them to confirm a gated
     call via MCP elicitation.
 

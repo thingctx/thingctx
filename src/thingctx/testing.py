@@ -19,9 +19,6 @@ honours the contract the runtime drives it through:
 * :func:`assert_registry_contract` for a :class:`~thingctx.registry.Registry`: a
   discovery source that yields Thing Descriptions from a synchronous ``fetch``.
 
-An adopter writing an extension uses these to gain confidence the runtime will
-drive it the same way it drives the built-ins.
-
     from thingctx.testing import assert_binding_contract
     assert_binding_contract(MyBinding())
 """

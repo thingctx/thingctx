@@ -2,16 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Output quality: a reserved slot for a capability's verdict on its own output.
 
-An action can return a 2xx with schema-valid output that the *capability* knows
-is untrustworthy but the *caller* cannot tell apart: ASR repeating one line on
-music or silence, OCR emitting the same row when a scan stalls, a scrape
-returning N identical rows when a selector breaks, an LLM in a repeat loop. The
-text is valid; it is also garbage.
+An action can return a 2xx with schema-valid output the capability knows is
+untrustworthy but the caller cannot tell apart: ASR repeating one line over music
+or silence, OCR emitting the same row when a scan stalls, a scrape returning N
+identical rows when a selector breaks, an LLM in a repeat loop.
 
 thingctx reserves one output key, ``tc:quality``, for the capability to report
-that verdict, the same move it already made for security (standardize WHERE
-credentials go) and trust (standardize HOW approval is gated): it names the slot
-and its shape, it does not invent the value.
+that verdict: it names the slot and its shape, it does not invent the value.
 
 thingctx does NOT compute the score. The judgment is irreducibly the
 capability's: a generic "repetition is bad" rule would false-positive on
@@ -89,7 +86,6 @@ def quality_of(output: Any) -> Quality | None:
 
 def is_suspect(output: Any) -> bool:
     """True when the output carries a ``tc:quality`` verdict of ``suspect`` or
-    ``bad`` , the signal a consumer should stop on, surface the reason, and ask
-    before continuing or publishing."""
+    ``bad``: a consumer should stop and surface the reason before publishing."""
     q = quality_of(output)
     return q is not None and q.get("verdict") in SUSPECT_VERDICTS

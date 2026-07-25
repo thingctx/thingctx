@@ -113,8 +113,7 @@ def default_sources() -> list[str]:
     """The sources the default registry resolves, so a caller can drive Things
     with no explicit source:
 
-    - ``$THINGCTX_REGISTRY`` if set (``os.pathsep``-separated, so several
-      sources can be threaded through cron/CI), else
+    - ``$THINGCTX_REGISTRY`` if set (``os.pathsep``-separated), else
     - the default registry directory (its ``*.td.json`` / ``*.json`` files) plus
       any non-comment lines in its ``sources.txt`` (URLs / ``tdd:`` directories
       that cannot be stored as files).
