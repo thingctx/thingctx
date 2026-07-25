@@ -110,6 +110,10 @@ thingctx = ["data/*.json", "py.typed", "skill/SKILL.md"]
 markers = ["network: hits the network; deselect with -m 'not network'"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# An xfail here records a gap we expect to close, so the day it starts passing is
+# news. Without strict, that arrives as a quiet XPASS on a green run and the test
+# never gets converted to the real assertion its reason promises.
+xfail_strict = true
 # Coverage is not in addopts on purpose: a bare `pytest` (or a single-file run
 # while iterating) stays fast and instrumentation-free. CI and the pre-push hook
 # opt in with `--cov=thingctx --cov-branch`; the floor and exclusions below apply
