@@ -189,7 +189,7 @@ def test_client_save_routes_to_backend_copy(tmp_path):
     client = _client_with(backend)
     out = tmp_path / "saved.mp4"
 
-    asyncio.run(client.save("cam1.watch", str(out)))
+    asyncio.run(client.save("cam1__watch", str(out)))
 
     assert out.read_text() == "copied"
     assert backend.seen["url"] == "https://example.com/clip.mp4"
@@ -202,7 +202,7 @@ def test_client_save_track_passes_through(tmp_path):
     client = _client_with(backend)
     out = tmp_path / "saved.mp4"
 
-    asyncio.run(client.save("cam1.watch", str(out), track="audio"))
+    asyncio.run(client.save("cam1__watch", str(out), track="audio"))
 
     assert backend.seen["options"]["track"] == "audio"
 
@@ -211,7 +211,7 @@ def test_client_save_unknown_affordance_raises():
     backend = _FakeCopyBackend()
     client = _client_with(backend)
     with pytest.raises(KeyError, match="unknown media affordance"):
-        asyncio.run(client.save("cam1.nope", "x.mp4"))
+        asyncio.run(client.save("cam1__nope", "x.mp4"))
 
 
 # ---- page (yt-dlp) affordance: resolve first, never feed the selector to av.open ----

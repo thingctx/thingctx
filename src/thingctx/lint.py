@@ -24,9 +24,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-# The tool-name charset the OpenAI/Anthropic function-calling APIs accept.
-# ``_tool_name`` in thing.py keeps ``. _ -`` in the slug; a name outside this
-# set is silently rejected by a provider at call time, so flag it here.
+# The tool-name charset the OpenAI/Anthropic function-calling APIs accept. A name
+# outside this set is silently rejected by a provider at call time, so flag it
+# here. Projection emits ``_ -`` only; ``.`` is permitted for a hand-authored
+# name targeting a provider that accepts it, but the strictest known client
+# (Claude Desktop) rejects ``.``, so projected names avoid it.
 _TOOL_NAME_OK = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 # The shape ``from_openapi`` emits when an operation has no ``operationId``:

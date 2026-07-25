@@ -17,6 +17,7 @@ from thingctx.bindings import BindingRegistry, ProtocolBinding, default_bindings
 from thingctx.bindings.builtin.media import is_media_form
 from thingctx.thing import (
     SCALAR_INPUT_KEY,
+    TOOL_SEP,
     WoTAction,
     WoTEvent,
     WoTProperty,
@@ -163,17 +164,34 @@ class ThingClient:
                 inv.with_security(self._things[0])
 
         # Media affordances are continuous streams, not request/response: they
-        # are consumed via frames(), never invoke(). Split them out of the
-        # invoke route and the LLM tool specs so a tool-calling loop never tries
-        # to invoke() one; expose them through list_media()/frames() instead.
-        # In-flight long-running invocations, keyed by action name, so a
-        # concurrent "<action>.cancel" tool can target the running job.
+        # are consumed via frames(), never invoke(). Expose them through
+        # list_media()/frames() instead.
+        #
+        # A continuous feed is, per WoT, most faithfully an EVENT (an async data
+        # stream you subscribe to) or an observable PROPERTY (state you observe),
+        # not an Action (a discrete function call). We recognize a media form on
+        # any of the three and remember the WoT op it is authorized as, so the PDP
+        # gates a camera ``watch`` as ``subscribeevent`` / ``observeproperty`` (a
+        # read) rather than ``invokeaction``. That is what lets a read-only posture
+        # permit watching while still denying a ``move`` action, with no special
+        # policy: the op the standard already assigns does the separating.
+        #
+        # ``self._media`` maps name -> (affordance, op). Actions carrying a media
+        # form stay supported as ``invokeaction`` for back-compat.
         self._inflight: dict[str, Any] = {}
-        self._media: dict[str, WoTAction] = {}
+        self._media: dict[str, tuple[Any, str]] = {}
         for name, action in list(self._route.items()):
             if any(is_media_form(f) for f in action.forms):
-                self._media[name] = action
+                self._media[name] = (action, "invokeaction")
                 del self._route[name]
+        for name, event in list(self._events.items()):
+            if any(is_media_form(f) for f in event.forms):
+                self._media[name] = (event, "subscribeevent")
+                del self._events[name]
+        for name, prop in list(self._props.items()):
+            if any(is_media_form(f) for f in prop.forms):
+                self._media[name] = (prop, "observeproperty")
+                del self._props[name]
         if self._media:
             self._tool_specs = [
                 s for s in self._tool_specs if s.get("function", {}).get("name") not in self._media
@@ -304,7 +322,7 @@ class ThingClient:
             if action is not None and self._is_async(action):
                 surface.append(
                     {
-                        "name": f"{fn['name']}.cancel",
+                        "name": f"{fn['name']}{TOOL_SEP}cancel",
                         "description": f"Cancel an in-flight {fn['name']} (long-running action).",
                         "input_schema": {"type": "object", "properties": {}},
                         "output_schema": None,
@@ -317,7 +335,7 @@ class ThingClient:
             if getattr(prop, "readable", True) and not is_binary:
                 surface.append(
                     {
-                        "name": f"{pname}.get",
+                        "name": f"{pname}{TOOL_SEP}get",
                         "description": f"Read the {pname} property.",
                         "input_schema": {"type": "object", "properties": {}},
                         "output_schema": schema or None,
@@ -327,7 +345,7 @@ class ThingClient:
             if getattr(prop, "writable", False):
                 surface.append(
                     {
-                        "name": f"{pname}.set",
+                        "name": f"{pname}{TOOL_SEP}set",
                         "description": f"Write the {pname} property.",
                         "input_schema": {
                             "type": "object",
@@ -355,15 +373,15 @@ class ThingClient:
         long-running action blocks to completion (its terminal status as a
         dict); an ``<action>.cancel`` stops the most recent in-flight run."""
         args = args or {}
-        if name.endswith(".cancel") and (name[:-7] in self._route):
-            handle = self._inflight.get(name[:-7])
+        if name.endswith(f"{TOOL_SEP}cancel") and (name[: -(len(TOOL_SEP) + 6)] in self._route):
+            handle = self._inflight.get(name[: -(len(TOOL_SEP) + 6)])
             if handle is None:
-                return {"error": f"no in-flight {name[:-7]} to cancel"}
+                return {"error": f"no in-flight {name[:-(len(TOOL_SEP)+6)]} to cancel"}
             return (await self.cancel_action(handle)).as_dict()
-        if name.endswith(".set") and (name[:-4] in self._props):
-            return await self.write_property(name[:-4], args.get("value"))
-        if name.endswith(".get") and (name[:-4] in self._props):
-            return await self.read_property(name[:-4])
+        if name.endswith(f"{TOOL_SEP}set") and (name[: -(len(TOOL_SEP) + 3)] in self._props):
+            return await self.write_property(name[: -(len(TOOL_SEP) + 3)], args.get("value"))
+        if name.endswith(f"{TOOL_SEP}get") and (name[: -(len(TOOL_SEP) + 3)] in self._props):
+            return await self.read_property(name[: -(len(TOOL_SEP) + 3)])
         if name == "properties.read_all":
             return await self.read_all_properties()
         action = self._route.get(name)
@@ -690,10 +708,11 @@ class ThingClient:
     def media_form(self, name: str):
         """The media form backing a media affordance, or None. Lets callers read
         the form's media hint (e.g. a snapshot default) without reaching in."""
-        action = self._media.get(name)
-        if action is None:
+        entry = self._media.get(name)
+        if entry is None:
             return None
-        return next((f for f in action.forms if is_media_form(f)), None)
+        affordance, _op = entry
+        return next((f for f in affordance.forms if is_media_form(f)), None)
 
     async def read_property(self, name: str) -> Any:
         """Read a property's current value."""
@@ -855,7 +874,13 @@ class ThingClient:
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "subscribe"):
             return _empty_aiter(f"no subscribable transport for {name}")
-        stream = await binding.subscribe(target, form, args or {})
+        import dataclasses
+
+        # Same uriVariable fill as invoke/frames: broker/topic (or filters) leave
+        # the template before the transport sees the form.
+        href, rest = form.fill(args or {})
+        filled = dataclasses.replace(form, href=href) if href != form.href else form
+        stream = await binding.subscribe(target, filled, rest)
         # 2. per-delivery filter: the token can expire while the stream lives,
         # so re-authorize before each value and stop the stream on lapse.
         if self._pdp is not None:
@@ -879,17 +904,21 @@ class ThingClient:
             async for frame in await client.frames("cam-1.watch"):
                 ...
         """
-        action = self._media.get(name)
-        if action is None:
+        entry = self._media.get(name)
+        if entry is None:
             return _empty_aiter(f"unknown media affordance: {name}")
-        # A media affordance is a WoT action, so it is authorized as
-        # invokeaction (the op its form declares), gated before the device
-        # stream opens and re-checked per frame.
+        # A media affordance is authorized as the op its affordance TYPE implies:
+        # an event stream as ``subscribeevent``, an observable property as
+        # ``observeproperty``, an action as ``invokeaction``. Watching a feed is a
+        # read, so a read-only posture permits it while still denying write/action
+        # affordances. Gated before the device stream opens and re-checked per
+        # frame.
+        affordance, op = entry
         if self._pdp is not None:
-            denied = await self._authorize(action, "invokeaction")
+            denied = await self._authorize(affordance, op)
             if denied is not None:
                 return _single_denial_aiter(denied)
-        form = next((f for f in action.forms if is_media_form(f)), None)
+        form = next((f for f in affordance.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "frames"):
             return _empty_aiter(f"no media transport for {name}; register MediaBinding")
@@ -897,12 +926,12 @@ class ThingClient:
 
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
-        stream = binding.frames(action, filled, rest, track=track)
+        stream = binding.frames(affordance, filled, rest, track=track)
         if self._pdp is not None:
             from thingctx.authz.pdp import _authorized_stream
 
             return _authorized_stream(
-                stream, self._pdp, self._identity, self._authz_request(action, "invokeaction")
+                stream, self._pdp, self._identity, self._authz_request(affordance, op)
             )
         return stream
 
@@ -925,16 +954,18 @@ class ThingClient:
                 "studio.broadcast", video, audio=await client.frames("cam.watch", track="audio")
             )
         """
-        action = self._media.get(name)
-        if action is None:
+        entry = self._media.get(name)
+        if entry is None:
             raise KeyError(f"unknown media affordance: {name}")
-        # Publish reaches the device (a write of a live signal). Media is a WoT
-        # action, so authorize invokeaction before selecting a transport.
+        affordance, _op = entry
+        # Publish reaches the device (a write of a live signal outbound), so it is
+        # authorized as invokeaction regardless of how the source affordance is
+        # typed for consumption: pushing a stream to a device is an action.
         if self._pdp is not None:
-            denied = await self._authorize(action, "invokeaction")
+            denied = await self._authorize(affordance, "invokeaction")
             if denied is not None:
                 return denied
-        form = next((f for f in action.forms if is_media_form(f)), None)
+        form = next((f for f in affordance.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "publish"):
             raise RuntimeError(f"no media transport for {name}; register MediaBinding")
@@ -942,7 +973,7 @@ class ThingClient:
 
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
-        await binding.publish(action, filled, frames, rest, track=track, audio=audio)
+        await binding.publish(affordance, filled, frames, rest, track=track, audio=audio)
         return None
 
     async def save(
@@ -961,10 +992,11 @@ class ThingClient:
 
             await client.save("cam.watch", "clip.mp4")
         """
-        action = self._media.get(name)
-        if action is None:
+        entry = self._media.get(name)
+        if entry is None:
             raise KeyError(f"unknown media affordance: {name}")
-        form = next((f for f in action.forms if is_media_form(f)), None)
+        affordance, _op = entry
+        form = next((f for f in affordance.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "save"):
             raise RuntimeError(f"no media transport for {name}; register MediaBinding")
@@ -972,7 +1004,7 @@ class ThingClient:
 
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
-        await binding.save(action, filled, target, rest, track=track)
+        await binding.save(affordance, filled, target, rest, track=track)
 
     async def verify(self, thing_id: str | None = None) -> list[VerifyReport]:
         """Ground each Thing's TD against the live endpoint: read every

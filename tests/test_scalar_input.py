@@ -73,7 +73,7 @@ async def test_round_trip_delivers_the_bare_scalar():
     cap = CaptureBinding()
     client = ThingClient(tds=[_scalar_td()], bindings=[cap])
     # the model calls with the wrapped key, as the projected schema dictates
-    await client.invoke("calc.negate", {SCALAR_INPUT_KEY: 7})
+    await client.invoke("calc__negate", {SCALAR_INPUT_KEY: 7})
     # the transport must receive the bare value, not the envelope
     assert cap.body == 7
 
@@ -95,5 +95,62 @@ async def test_object_input_is_unaffected():
         },
     }
     client = ThingClient(tds=[td], bindings=[cap])
-    await client.invoke("obj.set", {"v": 3})
+    await client.invoke("obj__set", {"v": 3})
     assert cap.body == {"v": 3}  # object body passes through as-is
+
+
+def test_flat_tool_advertises_its_uri_variables():
+    """Regression: a flat tool's parameters must include the uriVariables its form
+    needs (action-level AND the Thing-level ones its href references), else a model
+    reading only the schema can't supply them. The bare input schema omits them, so
+    e.g. mqtt__publish over mqtt://{+broker}/{+topic} must expose broker + topic, not
+    only the payload's value/retain."""
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:thingctx:mqtt",
+        "title": "mqtt",
+        "securityDefinitions": {"n": {"scheme": "nosec"}},
+        "security": ["n"],
+        "uriVariables": {"broker": {"type": "string"}},  # Thing-level
+        "actions": {
+            "publish": {
+                "uriVariables": {"topic": {"type": "string"}},  # action-level
+                "input": {
+                    "type": "object",
+                    "properties": {"value": {}, "retain": {"type": "boolean"}},
+                },
+                "forms": [{"href": "mqtt://{+broker}/{+topic}", "op": "invokeaction"}],
+            }
+        },
+    }
+    client = ThingClient(tds=[td], bindings=[])
+    spec = next(s for s in client.list_actions() if s["function"]["name"] == "mqtt__publish")
+    params = spec["function"]["parameters"]
+    props = params["properties"]
+    # the payload fields AND both uriVariables are advertised
+    assert set(props) >= {"value", "retain", "broker", "topic"}
+    # a uriVariable the href needs is required so the model reliably supplies it
+    assert "broker" in params["required"]
+    assert "topic" in params["required"]
+
+
+def test_flat_tool_without_uri_variables_is_unchanged():
+    """An action whose form references no uriVariable keeps its plain input schema
+    (no spurious required fields injected)."""
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:demo:plain",
+        "title": "plain",
+        "securityDefinitions": {"n": {"scheme": "nosec"}},
+        "security": ["n"],
+        "actions": {
+            "go": {
+                "input": {"type": "object", "properties": {"x": {"type": "integer"}}},
+                "forms": [{"href": "https://h/go", "op": "invokeaction"}],
+            }
+        },
+    }
+    client = ThingClient(tds=[td], bindings=[])
+    spec = next(s for s in client.list_actions() if s["function"]["name"] == "plain__go")
+    props = spec["function"]["parameters"]["properties"]
+    assert set(props) == {"x"}  # nothing injected

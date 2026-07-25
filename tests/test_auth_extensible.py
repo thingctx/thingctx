@@ -54,7 +54,7 @@ class _DemoHeaderAuth(BaseAuth):
 async def test_custom_scheme_via_extra_auth():
     http = HttpBinding(credentials={"thingy": "SEKRET"}, extra_auth=[_DemoHeaderAuth()])
     client = ThingClient(tds=[_td("thingy", {"scheme": "x-demo"})], bindings=[http])
-    action = client.action_for("thingy.ping")
+    action = client.action_for("thingy__ping")
     headers, params, signers, _cert = await http._prepare(action.thing_id)
     assert headers["X-Demo-Key"] == "demo SEKRET"
     assert not signers
@@ -75,7 +75,7 @@ class _OverrideBearerAuth(BaseAuth):
 async def test_user_strategy_overrides_builtin():
     http = HttpBinding(credentials={"thingy": "TKN"}, extra_auth=[_OverrideBearerAuth()])
     client = ThingClient(tds=[_td("thingy", {"scheme": "bearer"})], bindings=[http])
-    action = client.action_for("thingy.ping")
+    action = client.action_for("thingy__ping")
     headers, _params, _signers, _cert = await http._prepare(action.thing_id)
     # The override wins: custom header set, default Authorization not.
     assert headers["X-Auth-Token"] == "TKN"
@@ -103,7 +103,7 @@ class _StampSigner(BaseAuth):
 async def test_custom_request_signer_is_invoked():
     http = HttpBinding(credentials={"thingy": "S"}, extra_auth=[_StampSigner()])
     client = ThingClient(tds=[_td("thingy", {"scheme": "x-stamp"})], bindings=[http])
-    action = client.action_for("thingy.ping")
+    action = client.action_for("thingy__ping")
     headers, params, signers, _cert = await http._prepare(action.thing_id)
     assert len(signers) == 1  # scheduled as a signer, not a header-attacher
     with httpx.Client() as c:

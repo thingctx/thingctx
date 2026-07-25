@@ -75,7 +75,9 @@ def thing_for_tool(client: Any, tool: str):
     action = client.action_for(tool) if hasattr(client, "action_for") else None
     tid = getattr(action, "thing_id", None)
     if tid is None:
-        slug = tool.split(".", 1)[0]
+        from thingctx.thing import _tool_slug
+
+        slug = _tool_slug(tool)
         from thingctx.thing import thing_slug
 
         for t in client.things:

@@ -49,13 +49,13 @@ def client():
 def test_tools_are_listed(client):
     c, _ = client
     names = [s["function"]["name"] for s in c.list_actions()]
-    assert "pump.set_speed" in names
+    assert "pump__set_speed" in names
 
 
 @pytest.mark.asyncio
 async def test_invoke_routes_to_the_device(client):
     c, p = client
-    out = await c.invoke("pump.set_speed", {"rpm": 1200})
+    out = await c.invoke("pump__set_speed", {"rpm": 1200})
     assert out == {"ok": True, "rpm": 1200}
     assert p._rpm == 1200
 
@@ -64,13 +64,13 @@ async def test_invoke_routes_to_the_device(client):
 async def test_read_property(client):
     c, p = client
     p._rpm = 900
-    assert await c.read_property("pump.rpm") == 900
+    assert await c.read_property("pump__rpm") == 900
 
 
 @pytest.mark.asyncio
 async def test_write_property(client):
     c, p = client
-    await c.write_property("pump.target_rpm", 1500)
+    await c.write_property("pump__target_rpm", 1500)
     assert p.target_rpm == 1500
 
 
@@ -80,5 +80,5 @@ def test_td_validates():
 
 async def test_unknown_action_errors(client):
     c, _ = client
-    r = await c.invoke("pump.nope")
+    r = await c.invoke("pump__nope")
     assert "unknown action" in r["error"]

@@ -150,7 +150,7 @@ AWS_SCHEME = {"scheme": "auto", "x-thingctx-auth": "aws-sigv4", "service": "sts"
 
 
 def test_canonical_aws_td_is_w3c_valid():
-    validate_td = pytest.importorskip("thingctx.validate").validate_td
+    validate_td = pytest.importorskip("thingctx__validate").validate_td
     assert validate_td(_aws_td("sts.amazonaws.com", AWS_SCHEME)) == []
 
 
@@ -169,7 +169,7 @@ async def test_binding_signs_request_end_to_end():
         tds=[_aws_td("sts.amazonaws.com", AWS_SCHEME)],
         bindings=[http],
     )
-    action = client.action_for("awsthing.list")
+    action = client.action_for("awsthing__list")
     headers, params, signers, _cert = await http._prepare(action.thing_id)
     assert signers, "expected an AWS SigV4 signer to be scheduled"
     with httpx.Client() as c:

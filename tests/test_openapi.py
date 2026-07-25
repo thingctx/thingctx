@@ -124,7 +124,7 @@ def test_per_operation_security_override_on_form():
     # An operation that inherits the Thing-level security carries no override.
     assert "security" not in td["actions"]["deleteWidget"]["forms"][0]
     assert "nosec_sc" in td["securityDefinitions"]
-    validate_td = pytest.importorskip("thingctx.validate").validate_td
+    validate_td = pytest.importorskip("thingctx__validate").validate_td
     assert validate_td(td) == []
 
 
@@ -167,7 +167,7 @@ def test_parse_yaml_requires_yaml_or_falls_back():
 
 
 def test_generated_td_is_w3c_valid():
-    validate_td = pytest.importorskip("thingctx.validate").validate_td
+    validate_td = pytest.importorskip("thingctx__validate").validate_td
     # oauth2 + apikey + body/query/path params (the full SPEC).
     assert validate_td(from_openapi(SPEC)) == []
     # a no-security spec falls back to nosec, which must also validate.
@@ -175,7 +175,7 @@ def test_generated_td_is_w3c_valid():
 
 
 def test_generated_apikey_td_is_w3c_valid():
-    validate_td = pytest.importorskip("thingctx.validate").validate_td
+    validate_td = pytest.importorskip("thingctx__validate").validate_td
     spec = {
         "info": {"title": "Keyed API"},
         "servers": [{"url": "https://api.example.com"}],

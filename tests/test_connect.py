@@ -146,7 +146,7 @@ async def test_ensure_connected_runs_on_a_call_that_needs_a_token(env):
 
     client = _client()
     # the auto-connect path: a tool call whose Thing is not yet connected
-    err = await ensure_connected(client, "calendar.list_events", _AcceptSession())
+    err = await ensure_connected(client, "calendar__list_events", _AcceptSession())
     assert err is None
     assert connect_status(client)[0]["connected"] is True
 

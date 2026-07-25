@@ -81,7 +81,7 @@ def test_part_content_coerces_str_path_bytes(tmp_path):
     # A str with no matching file is inline text; a real path / file:// URL is
     # read; bytes and a file-like object pass through.
     assert _part_content("<srt text>") == b"<srt text>"
-    p = tmp_path / "c.srt"
+    p = tmp_path / "c__srt"
     p.write_bytes(b"SRTDATA")
     assert _part_content(str(p)) == b"SRTDATA"
     assert _part_content(p) == b"SRTDATA"
@@ -94,14 +94,14 @@ def test_part_content_coerces_str_path_bytes(tmp_path):
 def test_file_part_list_inline_and_path(tmp_path):
     # A [filename, content, content-type?] part from JSON arrives as a list; its
     # content element must be coerced to bytes for httpx files=.
-    name, content, ctype = _file_part(["c.srt", "<srt>", "application/octet-stream"])
-    assert (name, content, ctype) == ("c.srt", b"<srt>", "application/octet-stream")
+    name, content, ctype = _file_part(["c__srt", "<srt>", "application/octet-stream"])
+    assert (name, content, ctype) == ("c__srt", b"<srt>", "application/octet-stream")
     p = tmp_path / "s.srt"
     p.write_bytes(b"FILE")
-    _, content, _ = _file_part(["c.srt", str(p), "application/octet-stream"])
+    _, content, _ = _file_part(["c__srt", str(p), "application/octet-stream"])
     assert content == b"FILE"
-    name, content = _file_part(["c.srt", "hi"])  # two-element part, no content type
-    assert (name, content) == ("c.srt", b"hi")
+    name, content = _file_part(["c__srt", "hi"])  # two-element part, no content type
+    assert (name, content) == ("c__srt", b"hi")
 
 
 def test_body_raw_octet_from_bytes_and_sets_header():
@@ -182,12 +182,12 @@ async def test_invoke_multipart_list_part_from_json(routed):
     action, form = _af(content_type="multipart/form-data")
     async with HttpBinding() as b:
         out = await b.invoke(
-            action, form, {"caption": ["c.srt", "<srt text>", "application/octet-stream"]}
+            action, form, {"caption": ["c__srt", "<srt text>", "application/octet-stream"]}
         )
     assert out == {"ok": True}
     req = routed["requests"][0]
     assert req.headers["content-type"].startswith("multipart/form-data")
-    assert b'filename="c.srt"' in req.content
+    assert b'filename="c__srt"' in req.content
     assert b"<srt text>" in req.content
 
 
@@ -198,7 +198,7 @@ async def test_invoke_multipart_list_part_path_from_json(routed, tmp_path):
     routed["responses"] = [httpx.Response(200, json={"ok": True})]
     action, form = _af(content_type="multipart/form-data")
     async with HttpBinding() as b:
-        await b.invoke(action, form, {"caption": ["c.srt", str(p), "application/octet-stream"]})
+        await b.invoke(action, form, {"caption": ["c__srt", str(p), "application/octet-stream"]})
     req = routed["requests"][0]
     assert b"CAPTIONBYTES" in req.content
     assert str(p).encode() not in req.content  # the path was read, not sent literally

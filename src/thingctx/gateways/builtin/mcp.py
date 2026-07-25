@@ -53,6 +53,7 @@ from thingctx.gateways.engine import (
     Gateway,
     ServeRequest,
 )
+from thingctx.thing import TOOL_SEP, thing_slug
 
 # The MCP surface each neutral op maps to. SUBSCRIBE has no MCP surface today (no
 # live event push), so it gets no form and the projected TD stays honest.
@@ -60,9 +61,7 @@ _KIND_FOR_OP = {INVOKE: "tools", READ: "resources", WRITE: "resources"}
 
 
 def _slug(thing: Any) -> str:
-    from thingctx.thing import _tool_name
-
-    return _tool_name(thing.id, "x").rsplit(".", 1)[0]
+    return thing_slug(thing.id)
 
 
 class McpGatewayBinding:
@@ -110,7 +109,7 @@ class McpGatewayBinding:
         if kind is None:
             return []  # an op MCP does not carry (e.g. subscribeevent) -> honest omit
         slug = _slug(thing)
-        name = f"{slug}.{affordance}"
+        name = f"{slug}{TOOL_SEP}{affordance}"
         href = f"mcp://{self._server_name}/{kind}/{name}"
         form: dict[str, Any] = {"href": href, "op": [op]}
         # Protocol-specific vocabulary, namespaced. A consumer reads its own; the

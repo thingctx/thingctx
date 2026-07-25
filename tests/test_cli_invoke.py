@@ -108,7 +108,7 @@ def test_build_args_rejects_bad_json_and_bad_arg():
 
 
 class _Req:
-    tool_name = "youtube.videosDelete"
+    tool_name = "youtube__videosDelete"
     reason = "TD-declared"
 
 
@@ -135,28 +135,28 @@ def test_approver_tty_prompts(monkeypatch):
 
 def test_invoke_prints_json_and_exits_zero(cli, capsys):
     cli["make"](result={"id": "v1", "ok": True})
-    rc = main(["invoke", "./reg", "youtube.videosInsert", "--arg", "title=clip"])
+    rc = main(["invoke", "./reg", "youtube__videosInsert", "--arg", "title=clip"])
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out == {"id": "v1", "ok": True}
     # The CLI built one registry from the source and dispatched the slug name.
     assert cli["registry"] == ("REG", ("./reg",))
-    assert cli["client"].calls == [("youtube.videosInsert", {"title": "clip"})]
+    assert cli["client"].calls == [("youtube__videosInsert", {"title": "clip"})]
 
 
 def test_invoke_default_registry_when_no_source(cli):
     fc = cli["make"](result={"ok": True})
-    rc = main(["invoke", "youtube.videosInsert", "--arg", "title=clip"])
+    rc = main(["invoke", "youtube__videosInsert", "--arg", "title=clip"])
     assert rc == 0
     assert cli["registry"] == ("DEFAULT_REG",)
-    assert fc.calls == [("youtube.videosInsert", {"title": "clip"})]
+    assert fc.calls == [("youtube__videosInsert", {"title": "clip"})]
 
 
 def test_invoke_two_positionals_is_source_then_action(cli):
     cli["make"](result={})
-    main(["invoke", "./reg", "x.y"])
+    main(["invoke", "./reg", "x__y"])
     assert cli["registry"] == ("REG", ("./reg",))
-    assert cli["client"].calls[0][0] == "x.y"
+    assert cli["client"].calls[0][0] == "x__y"
 
 
 def test_invoke_three_positionals_errors():
@@ -167,16 +167,16 @@ def test_invoke_three_positionals_errors():
 def test_invoke_quiet_by_default_and_verbose_flag(cli, monkeypatch):
     monkeypatch.delenv("THINGCTX_VERBOSE", raising=False)
     cli["make"](result={})
-    main(["invoke", "x.y"])
+    main(["invoke", "x__y"])
     assert cli["verbose"] is False
-    main(["invoke", "x.y", "--verbose"])
+    main(["invoke", "x__y", "--verbose"])
     assert cli["verbose"] is True
 
 
 def test_invoke_verbose_from_env(cli, monkeypatch):
     monkeypatch.setenv("THINGCTX_VERBOSE", "1")
     cli["make"](result={})
-    main(["invoke", "x.y"])
+    main(["invoke", "x__y"])
     assert cli["verbose"] is True
 
 
@@ -189,14 +189,14 @@ def test_list_quiet_by_default(cli, monkeypatch):
 
 def test_invoke_string_result_passes_through(cli, capsys):
     cli["make"](result="WEBVTT\n\nsub")
-    rc = main(["invoke", "./reg", "captions.translate", "--arg", "source=http://x"])
+    rc = main(["invoke", "./reg", "captions__translate", "--arg", "source=http://x"])
     assert rc == 0
     assert capsys.readouterr().out == "WEBVTT\n\nsub\n"
 
 
 def test_invoke_error_envelope_exits_one(cli, capsys):
     cli["make"](result={"error": "boom"})
-    rc = main(["invoke", "./reg", "x.y"])
+    rc = main(["invoke", "./reg", "x__y"])
     assert rc == 1
     cap = capsys.readouterr()
     assert cap.out == ""  # stdout stays clean for capture/pipes
@@ -208,7 +208,7 @@ def test_invoke_raised_exception_becomes_clean_error(cli, capsys):
         raise RuntimeError("transport down")
 
     cli["make"](result=boom)
-    rc = main(["invoke", "./reg", "x.y"])
+    rc = main(["invoke", "./reg", "x__y"])
     assert rc == 1
     cap = capsys.readouterr()
     assert cap.out == ""
@@ -218,14 +218,14 @@ def test_invoke_raised_exception_becomes_clean_error(cli, capsys):
 
 def test_invoke_json_body_merged_with_arg(cli, capsys):
     cli["make"](result={})
-    main(["invoke", "./reg", "x.y", "--json", '{"a":1,"b":2}', "--arg", "b=9"])
+    main(["invoke", "./reg", "x__y", "--json", '{"a":1,"b":2}', "--arg", "b=9"])
     assert cli["client"].calls[0][1] == {"a": 1, "b": 9}
 
 
 def test_invoke_writes_out_file(cli, tmp_path, capsys):
     cli["make"](result={"id": "v1"})
     dest = tmp_path / "result.json"
-    rc = main(["invoke", "./reg", "x.y", "--out", str(dest)])
+    rc = main(["invoke", "./reg", "x__y", "--out", str(dest)])
     assert rc == 0
     assert json.loads(dest.read_text()) == {"id": "v1"}
     assert "wrote" in capsys.readouterr().err  # nothing on stdout, note on stderr
@@ -233,16 +233,16 @@ def test_invoke_writes_out_file(cli, tmp_path, capsys):
 
 def test_invoke_approve_when_default_and_override(cli):
     fc = cli["make"](result={})
-    main(["invoke", "./reg", "x.y"])
+    main(["invoke", "./reg", "x__y"])
     assert cli["approve_when"] == "declared"
     assert fc.approval[1] == "declared"
-    main(["invoke", "./reg", "x.y", "--approve-when", "all"])
+    main(["invoke", "./reg", "x__y", "--approve-when", "all"])
     assert cli["approve_when"] == "all"
 
 
 def test_invoke_yes_flag_wires_allowing_approver(cli):
     fc = cli["make"](result={})
-    main(["invoke", "./reg", "x.y", "--yes"])
+    main(["invoke", "./reg", "x__y", "--yes"])
     approver = fc.approval[0]
     assert approver(_Req()) is True  # --yes approves unattended
 
@@ -254,20 +254,20 @@ def test_list_prints_surface_and_media(cli, capsys):
     cli["make"](
         surface=[
             {
-                "name": "youtube.videosInsert",
+                "name": "youtube__videosInsert",
                 "kind": "action",
                 "description": "upload",
                 "input_schema": {"type": "object"},
             }
         ],
-        media=["cam.stream"],
+        media=["cam__stream"],
     )
     rc = main(["list", "./reg"])
     assert rc == 0
     listing = json.loads(capsys.readouterr().out)
     names = {e["name"] for e in listing}
-    assert names == {"youtube.videosInsert", "cam.stream"}
-    media = next(e for e in listing if e["name"] == "cam.stream")
+    assert names == {"youtube__videosInsert", "cam__stream"}
+    media = next(e for e in listing if e["name"] == "cam__stream")
     assert media["kind"] == "media"
 
 
