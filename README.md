@@ -236,7 +236,7 @@ See [docs/BINDINGS.md](docs/BINDINGS.md).
 Then you pick one of two things, and both are fully supported.
 
 **Keep the binding.** Pass it to the client. It stays in your own repository, on
-your release schedule, under your licence, and thingctx never needs to know.
+your release schedule, under your license, and thingctx never needs to know.
 
 ```python
 client = thingctx.ThingClient(tds=[...], bindings=[CoapBinding()])
