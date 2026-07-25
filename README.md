@@ -1,16 +1,18 @@
 # thingctx
 
-**One description, and your model reads from and acts on a real device,
-sensor, tool, or service, directly. No per-integration server.**
+**The integration is a document, not a server you run: point thingctx at a
+W3C Thing Description (a JSON file) and your agent calls that system over the
+system's own transport, HTTP, MQTT, or local. No server per integration.**
 
 [**thingctx.com**](https://thingctx.com): browse real services (GitHub, Stripe,
 Slack, and more) as ready-to-use Thing Descriptions.
 
 thingctx uses the [W3C Web of Things](https://www.w3.org/WoT/) standard as a
-uniform interface between an AI app and the systems it reaches. Point it at a
-Thing Description and it drives the actual Thing the description names, over
-that Thing's own transport. The integration is a document, not a server you
-run.
+uniform interface between an AI app and the systems it reaches: SaaS APIs, and
+equally the brownfield of devices and industrial systems that already speak
+HTTP or MQTT on a plant, building, or lab network. Point it at a Thing
+Description and it drives the actual Thing the description names, over that
+Thing's own transport.
 
 A "Thing" is anything with a callable interface, not just hardware: a sensor
 or a robot, but equally a REST API, a database, a SaaS product, an internal
@@ -163,20 +165,20 @@ await client.invoke("pump__estop")     # asks approve() first; if denied, never 
 
 `approve_when` is `declared` (default, only TD-marked risky actions),
 `destructive` (the above plus any non-idempotent action and every property
-write), `all`, or `never`. A gated call with no approver is **denied** , a gate
+write), `all`, or `never`. A gated call with no approver is **denied**: a gate
 with nobody to open it stays shut. The check sits in `ThingClient.invoke`, so it
 applies to the LLM loop and to direct callers alike.
 
 **Grounding** checks a description against the *live* Thing before you trust it.
 `verify()` reads every readable property and confirms it answers and matches its
-declared type. It is read-only and safe , actions are never invoked.
+declared type. It is read-only and safe; actions are never invoked.
 
 ```python
 for report in await client.verify():
     assert report.ok, report.as_dict()
 ```
 
-The gate is on `ThingClient.invoke`, so it holds for any caller , a hand loop,
+The gate is on `ThingClient.invoke`, so it holds for any caller: a hand loop,
 the LLM host, or an MCP client (Claude/Copilot CLI; see
 [Reach a closed agent](#reach-a-closed-agent-the-mcp-bridge) below).
 
@@ -270,11 +272,13 @@ Claude Desktop:
 That runs with only [uv](https://docs.astral.sh/uv/) on the machine; no prior install,
 no PATH setup. If you have already `pip install 'thingctx[mcp]'`, set `"command"` to
 `thingctx-mcp` (no `uvx`, no `--from` args). The URL is the hosted catalog; point at
-a folder of TD files or any TD Directory URL instead to serve your own.
+a folder of TD files or any TD Directory URL instead to serve your own. (`uvx`
+pulls thingctx from PyPI, so catalog index URLs resolve once 0.2.0 is
+published; a local folder works with any version.)
 
 Risky tools are gated here too (see [Safe by default](#safe-by-default-approval--grounding)
 above): the bridge sends MCP destructive hints and asks the client to confirm a
-gated call (elicitation); decline , or a client that can't ask , means denied.
+gated call (elicitation); declining, or a client that cannot ask, means denied.
 Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
 `destructive` / `all` / `never`):
 
@@ -359,6 +363,9 @@ caller, and no one holds the raw credentials. Run it in a container:
 docker run -p 8080:8080 -v $PWD/things:/things ghcr.io/thingctx/thingctx:0.2.0
 ```
 
+(The `0.2.0` image tag resolves once that release is published; until then use
+the latest published tag.)
+
 A Kubernetes example (stateless Deployment + Service, credentials from a mounted
 Secret) is in [`packaging/k8s/`](packaging/k8s/).
 
@@ -383,6 +390,18 @@ A messy device (binary protocol, a session dance) gets one thin connector that
 exposes a clean WoT face; the TD describes *that*. The connector is consumed
 the same way by an LLM, an MCP client, or anything else.
 
+A fair split:
+
+- **Use thingctx when** the system already has a callable interface (a REST
+  API, an MQTT device, a fleet of either) and you want the integration to be a
+  document you check in, not a process you operate. It is strongest in
+  brownfield IoT, industrial, and building systems, where the devices already
+  speak HTTP or MQTT and nobody wants a server per machine.
+- **MCP is fine when** the tool is genuinely custom code with its own logic
+  (not a mapping onto existing endpoints), when the vendor already maintains a
+  good MCP server for the service, or when your platform only takes MCP and
+  running a server is no burden.
+
 The table below measures one axis: what you build and operate per integration, not
 what each approach can do. thingctx wins on operational weight and cold-start; it
 says nothing about auth depth, policy, or ecosystem, which are their own questions.
@@ -404,7 +423,7 @@ one, and the transport sets the cost: stdio spawns it per session (the first
 call pays process startup, 540 ms), streamable-HTTP is a server you keep running
 and connect to (13 ms, warm). Once connected, per-call latency is small for all
 three; the difference is the server you build and run to get there. The Thing
-Description is data, about 145 lines of JSON, written once and read by every
+Description is data, about 240 lines of JSON, written once and read by every
 consumer. Reproduce with `python examples/_measure.py`.
 
 ## Interoperability
