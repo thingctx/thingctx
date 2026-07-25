@@ -11,7 +11,9 @@ A concrete provider (Entra, Cloudflare Access) supplies the accepted ``issuers``
 the signing keys (a ``jwks_url`` to fetch and cache, or a static ``jwks``), and
 the authorization ``grants``. Validation then fetches the JWKS, picks the key by
 the token's ``kid``, verifies the RS256 signature (never disabled) plus ``iss`` /
-``aud`` / ``exp`` / ``nbf``, and enforces the grants.
+``aud`` / ``exp`` / ``iat`` / ``nbf``, and enforces the grants. ``iat`` is
+required and rejected when it is in the future beyond the clock-skew leeway; a
+token minted "in the future" is not honored early.
 
 Any failure raises :class:`AuthorizationError` with a reason for the gateway's
 logs. The reason is not returned to the caller unless the gateway chooses to.
@@ -248,7 +250,9 @@ class JwtGatewayGuard:
 
         # jwt.decode verifies signature (mandatory), aud, exp, nbf, iat and raises
         # a specific InvalidTokenError subclass on failure. verify_signature stays
-        # on; we never disable it.
+        # on; we never disable it. iat is required and verified: a token whose iat
+        # is in the future (beyond the leeway) is rejected, so a token minted "in
+        # the future" is not honored early, and a token carrying no iat is refused.
         try:
             claims = jwt.decode(
                 token,
@@ -263,13 +267,17 @@ class JwtGatewayGuard:
                     "verify_iss": True,
                     "verify_exp": True,
                     "verify_nbf": True,
-                    "require": ["exp", "iss", "aud"],
+                    "verify_iat": True,
+                    "require": ["exp", "iss", "aud", "iat"],
                 },
             )
         except jwt.ExpiredSignatureError as exc:
             raise AuthorizationError("token has expired") from exc
         except jwt.ImmatureSignatureError as exc:
-            raise AuthorizationError("token is not yet valid (nbf)") from exc
+            # pyjwt raises this for both a future nbf and a future iat; the message
+            # carries "(iat)" only for the latter, so the reason stays honest.
+            claim = "iat" if "iat" in str(exc) else "nbf"
+            raise AuthorizationError(f"token is not yet valid ({claim})") from exc
         except jwt.InvalidAudienceError as exc:
             raise AuthorizationError(f"token audience does not match {self.audience!r}") from exc
         except jwt.InvalidIssuerError as exc:
