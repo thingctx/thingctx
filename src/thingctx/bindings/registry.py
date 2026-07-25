@@ -3,7 +3,7 @@
 """The binding registry: how the built-in bindings are assembled and how an
 adopter replaces one or adds a new protocol.
 
-http, mqtt, media, and local are the built-in bindings; each is only an
+http, mqtt, media, local, and exec are the built-in bindings; each is only an
 implementation of the :class:`~thingctx.bindings.base.ProtocolBinding` contract.
 
     reg = BindingRegistry.default()   # http + local, the safe default
