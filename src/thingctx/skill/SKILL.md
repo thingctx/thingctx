@@ -1,6 +1,6 @@
 ---
 name: thingctx-driver
-description: Drive any registered W3C WoT Thing from the shell with the thingctx CLI. Use whenever a task needs to call a real device or service action (read a sensor, send a command, upload or fetch data, run a tool) that is described by a Thing Description and reachable through `thingctx`. Discover actions with `thingctx list`, read each action's input schema, and run it with `thingctx invoke`, capturing the JSON result. Use this for any "do X with my <device/service>" request where the capability is a registered Thing, even when the user does not name thingctx; it is the generic driver, not a fixed recipe.
+description: Call a real device or service (read a sensor, send a command, fetch data) registered as a W3C WoT Thing. Use thingctx list then thingctx invoke.
 ---
 
 # Drive any Thing with the thingctx CLI
