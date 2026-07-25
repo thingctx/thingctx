@@ -164,6 +164,10 @@ def resolve_and_pin(host: str, *, what: str = "URL") -> str:
         addrs = _resolved_addrs(host)
     except OSError as exc:
         raise PolicyError(f"{what} host {host!r} could not be resolved") from exc
+    except PolicyError as exc:
+        # Re-raise with the caller's context, so every refusal from this function
+        # names what was being resolved, not just the host.
+        raise PolicyError(f"{what} host {host!r} resolved to an unreadable address") from exc
     if not addrs:
         raise PolicyError(f"{what} host {host!r} resolved to no address")
     # Every resolved address must be public: a name that answers both a public and

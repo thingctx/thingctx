@@ -537,5 +537,5 @@ def test_resolve_and_pin_refuses_an_unreadable_address_entry(monkeypatch):
         ]
 
     monkeypatch.setattr(_socket, "getaddrinfo", _mixed)
-    with pytest.raises(PolicyError, match="unreadable address entry"):
+    with pytest.raises(PolicyError, match="URL host .* unreadable address"):
         resolve_and_pin("mixed.example")
