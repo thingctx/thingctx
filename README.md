@@ -199,7 +199,7 @@ thingctx-mcp ./examples/registry/        # a folder, a URL, or a TD Directory
 ```json
 { "mcpServers": { "things": {
   "command": "uvx",
-  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "./examples/registry/"] } } }
+  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "https://td.thingctx.com/v0/"] } } }
 ```
 
 That runs with only [uv](https://docs.astral.sh/uv/) on the machine; no prior install,
@@ -215,8 +215,8 @@ Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
 ```json
 { "mcpServers": { "things": {
   "command": "uvx",
-  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "./examples/registry/"],
-  "env": { "THINGCTX_APPROVE_WHEN": "destructive" } } } }
+  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "https://td.thingctx.com/v0/"],
+  "env": { "THINGCTX_POLICY": "no-writes", "THINGCTX_APPROVE_WHEN": "destructive" } } } }
 ```
 
 MCP is just one way to deliver the description, for agents where direct tool

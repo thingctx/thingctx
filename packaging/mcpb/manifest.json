@@ -19,7 +19,8 @@
       "command": "uvx",
       "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "${user_config.tds}"],
       "env": {
-        "THINGCTX_APPROVE_WHEN": "${user_config.approve_when}"
+        "THINGCTX_APPROVE_WHEN": "${user_config.approve_when}",
+        "THINGCTX_POLICY": "${user_config.policy}"
       }
     }
   },
@@ -27,9 +28,16 @@
     "tds": {
       "type": "string",
       "title": "Things to serve",
-      "description": "A folder of Thing Descriptions, a TD file, or a TD Directory URL.",
-      "default": "./examples/registry/",
+      "description": "A TD Directory URL, a folder of Thing Descriptions, or a TD file. Defaults to the curated thingctx registry.",
+      "default": "https://td.thingctx.com/v0/",
       "required": true
+    },
+    "policy": {
+      "type": "string",
+      "title": "What can the agent do?",
+      "description": "read-only = reads and subscriptions, no changes; no-writes = also run actions, but never write a property; full = everything the Things allow.",
+      "default": "no-writes",
+      "required": false
     },
     "approve_when": {
       "type": "string",

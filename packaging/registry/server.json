@@ -22,12 +22,18 @@
         {
           "type": "positional",
           "valueHint": "tds",
-          "description": "A folder of Thing Descriptions, a TD file, or a TD Directory URL.",
+          "description": "A TD Directory URL, a folder of Thing Descriptions, or a TD file. Defaults to the curated thingctx registry.",
           "isRequired": true,
-          "default": "./examples/registry/"
+          "default": "https://td.thingctx.com/v0/"
         }
       ],
       "environmentVariables": [
+        {
+          "name": "THINGCTX_POLICY",
+          "description": "What the agent may do: read-only | no-writes | full.",
+          "default": "no-writes",
+          "isRequired": false
+        },
         {
           "name": "THINGCTX_APPROVE_WHEN",
           "description": "When the agent asks before acting: declared | destructive | all | never.",
