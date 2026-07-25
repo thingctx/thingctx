@@ -80,6 +80,26 @@ def test_confine_path_base_escape(tmp_path):
     assert str(inside).startswith(str(base.resolve()))
 
 
+def test_confine_path_no_base_refuses_relative_traversal(monkeypatch, tmp_path):
+    # GAP 3 fix (invariant NET-12): with no configured root, the fail-safe default
+    # refuses a relative path that climbs out of the working directory with "..",
+    # rather than silently resolving to ../../secret.
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(PolicyError, match="working directory"):
+        confine_path("../../etc/passwd")
+    # a bare relative filename with no traversal still works (download-here case)
+    ok = confine_path("out.bin")
+    assert str(ok).startswith(str(tmp_path.resolve()))
+
+
+def test_confine_path_no_base_allows_absolute_trusted_path(tmp_path):
+    # GAP 3 scope (invariant NET-12): an absolute path with no root is the
+    # operator's own local target (a trusted-machine file:// ingest), so it is
+    # permitted; the traversal block is for attacker-derived relative input.
+    target = tmp_path / "clip.mp4"
+    assert confine_path(target) == target
+
+
 # --- chain: next-URL scheme + download cap ----------------------------------
 
 

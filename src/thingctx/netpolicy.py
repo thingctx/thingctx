@@ -183,23 +183,46 @@ def check_url(
 
 
 def confine_path(dest: str | PathLike[str], *, base: str | PathLike[str] | None = None) -> Path:
-    """Validate a write destination and return it as a :class:`Path`.
+    """Validate a read/write destination and return it as a :class:`Path`.
 
-    Refuses writing through a symlink (a swap could redirect the write). When
-    ``base`` is given, the destination must resolve inside it: a relative ``dest``
-    is taken under ``base``; an absolute or traversing ``dest`` that escapes is
-    refused."""
+    Refuses acting through a symlink (a swap could redirect the read or write).
+    When ``base`` is given, the destination must resolve inside it: a relative
+    ``dest`` is taken under ``base``; an absolute or traversing ``dest`` that
+    escapes is refused.
+
+    With no ``base`` there is no configured root to bound the path to, so the
+    fail-safe default (Saltzer and Schroeder) refuses the traversal vector: a
+    relative ``dest`` that climbs out of the working directory with ``..`` is
+    refused, rather than silently resolving to ``../../secret``. An absolute
+    ``dest`` is still permitted here: with no root it is the operator's own local
+    path (a trusted-machine ``file://`` ingest / download), not attacker-derived,
+    and the callers that take untrusted, potentially-relative input (an upload
+    ``file://``, a chained download destination) pass a root when they mean to
+    confine, or run with one set. Configure a root (``THINGCTX_FS_ROOT`` /
+    ``THINGCTX_DOWNLOAD_DIR``) to bound absolute paths too."""
     p = Path(dest)
     if p.is_symlink():
-        raise PolicyError(f"refusing to write through a symlink: {str(dest)!r}")
-    if base is not None:
-        base_r = Path(base).resolve()
-        target = (p if p.is_absolute() else base_r / p).resolve()
+        raise PolicyError(f"refusing to act through a symlink: {str(dest)!r}")
+    if base is None:
+        # No root to confine to. Block a relative traversal out of the working
+        # directory; leave an absolute path (a trusted local target) as given.
+        if p.is_absolute():
+            return p
+        resolved = (Path.cwd() / p).resolve()
         try:
-            target.relative_to(base_r)
+            resolved.relative_to(Path.cwd())
         except ValueError:
             raise PolicyError(
-                f"destination {str(dest)!r} escapes the allowed directory {str(base)!r}"
+                f"destination {str(dest)!r} escapes the working directory; "
+                "set THINGCTX_FS_ROOT / THINGCTX_DOWNLOAD_DIR to allow a path outside it"
             ) from None
-        return target
-    return p
+        return resolved
+    base_r = Path(base).resolve()
+    target = (p if p.is_absolute() else base_r / p).resolve()
+    try:
+        target.relative_to(base_r)
+    except ValueError:
+        raise PolicyError(
+            f"destination {str(dest)!r} escapes the allowed directory {str(base)!r}"
+        ) from None
+    return target
