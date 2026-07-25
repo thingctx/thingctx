@@ -65,8 +65,7 @@ class WoTVersion:
 
 @dataclass
 class WoTForm:
-    """A form: the transport binding (href) for an interaction, plus the
-    operations it serves and how its payloads are encoded and protected."""
+    """A form: the transport binding (href) for an interaction."""
 
     href: str
     op: tuple[str, ...] = ()
@@ -167,8 +166,7 @@ class WoTAction:
 
     @property
     def read_only(self) -> bool:
-        """Safe to issue without side effects (TD ``safe`` or ``idempotent``).
-        Drives GET selection and read-only hints."""
+        """Safe to issue without side effects (TD ``safe`` or ``idempotent``)."""
         return self.safe or self.idempotent
 
     def supports_query(self) -> bool:
@@ -203,8 +201,7 @@ class WoTAction:
 
 @dataclass
 class WoTProperty:
-    """A property: typed Thing state. readable, writable, and/or
-    observable per its ops."""
+    """A property: typed Thing state."""
 
     name: str
     thing_id: str
@@ -229,7 +226,7 @@ class WoTProperty:
 
 @dataclass
 class WoTEvent:
-    """An event the Thing emits. Subscribe to receive pushed payloads."""
+    """An event the Thing emits."""
 
     name: str
     thing_id: str
@@ -582,9 +579,8 @@ SCALAR_INPUT_KEY = "value"
 
 
 def _project_input(input_schema: dict[str, Any]) -> dict[str, Any]:
-    """The OpenAI-format ``parameters`` for an action's input schema. An object
-    schema passes through; a scalar or array schema is wrapped under
-    ``SCALAR_INPUT_KEY`` so the tool is callable."""
+    """The OpenAI-format ``parameters`` for an action's input schema. A non-object
+    schema is wrapped under ``SCALAR_INPUT_KEY`` so the tool is callable."""
     schema = input_schema or {"type": "object"}
     if schema.get("type") == "object" or "properties" in schema:
         return schema
