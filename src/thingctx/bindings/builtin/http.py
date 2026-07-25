@@ -187,7 +187,13 @@ def _http_body(
     so the caller can disable retries for that send."""
     ct = _norm_ct(content_type)
     if ct in ("", "application/json") or ct.endswith("+json"):
-        return {"json": arguments}, {}, False
+        # A ``+json`` structured suffix (RFC 6839) is JSON-encoded like plain
+        # json, but its media type is significant to the server (a PATCH with
+        # ``application/merge-patch+json`` vs ``application/json`` is a
+        # different operation), so the declared type must reach the wire; httpx
+        # would otherwise stamp ``application/json`` from the ``json=`` kwarg.
+        extra = {"Content-Type": content_type} if ct.endswith("+json") else {}
+        return {"json": arguments}, extra, False
     if ct == "application/x-www-form-urlencoded":
         return {"data": arguments}, {}, False
     if ct == "multipart/form-data":

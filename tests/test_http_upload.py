@@ -59,10 +59,19 @@ def routed(monkeypatch):
 def test_body_json_default_and_explicit():
     kw, hdr, stream = _http_body(None, {"a": 1})
     assert kw == {"json": {"a": 1}} and hdr == {} and stream is False
-    kw, _, _ = _http_body("application/json", {"a": 1})
+    kw, hdr, _ = _http_body("application/json", {"a": 1})
+    assert kw == {"json": {"a": 1}} and hdr == {}
+
+
+def test_body_json_suffix_preserves_declared_media_type():
+    # A ``+json`` suffix type is json-encoded but carries its declared media
+    # type on the wire, not a hardcoded ``application/json``.
+    kw, hdr, _ = _http_body("application/merge-patch+json", {"a": 1})
     assert kw == {"json": {"a": 1}}
-    kw, _, _ = _http_body("application/merge-patch+json", {"a": 1})
-    assert kw == {"json": {"a": 1}}
+    assert hdr == {"Content-Type": "application/merge-patch+json"}
+    kw, hdr, _ = _http_body("application/json-patch+json", [{"op": "remove", "path": "/a"}])
+    assert kw == {"json": [{"op": "remove", "path": "/a"}]}
+    assert hdr == {"Content-Type": "application/json-patch+json"}
 
 
 def test_body_form_urlencoded():
@@ -224,6 +233,20 @@ async def test_invoke_json_still_default(routed):
     req = routed["requests"][0]
     assert req.headers["content-type"] == "application/json"
     assert req.content == b'{"a":1}' or req.content == b'{"a": 1}'
+
+
+@pytest.mark.asyncio
+async def test_invoke_json_suffix_sends_declared_content_type(routed):
+    # A PATCH form declaring a ``+json`` suffix type sends the json body but the
+    # exact declared media type, which a strict server requires (a plain
+    # application/json body is rejected 415 for a merge-patch endpoint).
+    routed["responses"] = [httpx.Response(200, json={"ok": True})]
+    action, form = _af(method="PATCH", content_type="application/merge-patch+json")
+    async with HttpBinding() as b:
+        await b.invoke(action, form, {"spec": {"replicas": 3}})
+    req = routed["requests"][0]
+    assert req.headers["content-type"] == "application/merge-patch+json"
+    assert req.content == b'{"spec":{"replicas":3}}' or req.content == b'{"spec": {"replicas": 3}}'
 
 
 @pytest.mark.asyncio
