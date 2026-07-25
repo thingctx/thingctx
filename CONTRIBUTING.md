@@ -1,7 +1,7 @@
 # Contributing to thingctx
 
 thingctx is small on purpose, and built so you can add real value in one
-focused pull request. The contribution that matters most:
+focused pull request. The contribution that matters most is this one:
 
 ## Add a transport (a binding)
 

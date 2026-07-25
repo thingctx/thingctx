@@ -207,45 +207,46 @@ async for evt in await client.subscribe("pump__overheat"):  # e.g. an MQTT topic
 So thingctx is useful with no agent in sight: a declarative way to drive your
 APIs and devices from a versioned file, with one policy gate on every call.
 
-## Adding a Thing changes nothing here
+## You do not need to change thingctx to use it
 
-A valid Thing Description is the whole integration. Point the runtime at it and
-it drives your system. thingctx never learns your device's name, you never fork
-it, and you never open a pull request to use it. That is why a thousand
-descriptions cost the same to operate as one.
+Write a description for your system and point the runtime at it. That is the
+whole integration. thingctx does not need to know your device exists, so you
+never fork it and never wait for a pull request. A thousand descriptions run the
+same way one does.
 
-The single reason to touch the library is a transport it cannot speak yet. A
-binding is one class: the scheme it serves, and a method per operation that
-scheme supports.
+There is one exception: a transport thingctx cannot speak yet. Then you write a
+binding, which is a single class. It names the scheme it handles and implements
+the operations that scheme supports.
 
 ```python
 class CoapBinding:
     scheme = "coap"
     schemes = ("coap", "coaps")   # optional, when one class serves several
 
-    async def invoke(self, action, form, arguments): ...   # the contract
+    async def invoke(self, action, form, arguments): ...   # required
     async def read(self, prop, form): ...                  # add what it supports
 ```
 
-Only `scheme` and `invoke` are required. Read, write, subscribe and the media
-methods are each opted into by adding them, and the runtime asks before it calls
-one, so a pub/sub transport that cannot answer a read simply does not implement
-it. See [docs/BINDINGS.md](docs/BINDINGS.md).
+`scheme` and `invoke` are the only required parts. Add `read`, `write`,
+`subscribe` or the media methods if your transport supports them, and leave out
+the ones it does not. The runtime checks which methods exist before it calls
+them, so a pub/sub transport with no way to do a read simply does not have one.
+See [docs/BINDINGS.md](docs/BINDINGS.md).
 
-From there you have two doors, and neither is the consolation prize.
+Then you pick one of two things, and both are fully supported.
 
-**Keep it.** Pass it to the client and it stays in your repository, on your
-release schedule, under your licence. Nothing here needs to know it exists.
+**Keep the binding.** Pass it to the client. It stays in your own repository, on
+your release schedule, under your licence, and thingctx never needs to know.
 
 ```python
 client = thingctx.ThingClient(tds=[...], bindings=[CoapBinding()])
 ```
 
-**Or send it.** If it is a transport other people also need, a pull request puts
-it among the built-ins so nobody writes it twice.
+**Or contribute it.** If other people need the same transport, send a pull
+request and it joins the built-ins, so nobody writes it twice.
 
-A private binding is not a workaround for an unmerged one. It is how the library
-is meant to be extended, and the same seam serves both.
+Keeping a binding private is not a workaround for one we have not merged. It is
+a normal way to use thingctx, and it uses the same seam a built-in does.
 
 ## Safe by default: approval + grounding
 
@@ -550,12 +551,12 @@ thingctx.HttpBinding(credentials={"weather": "secret"})  # by Thing id/slug, or 
 ## Contributing
 
 Driving your own device needs nothing from this repository. You write a
-description, thingctx reads it, and neither of us has to know about the other.
+description, thingctx reads it, and neither side has to know about the other.
 
-What the project does need is transports it cannot yet speak. Each is one self
-contained class. Start at the issues labeled
+What the project does need is transports it cannot speak yet. Each one is a
+single class. Start at the issues labeled
 [`good first issue`](https://github.com/thingctx/thingctx/labels/good%20first%20issue),
-and see [CONTRIBUTING.md](CONTRIBUTING.md) for how a binding is put together.
+and see [CONTRIBUTING.md](CONTRIBUTING.md) for how a binding fits together.
 
 Questions do not need an issue.
 [Discussions](https://github.com/thingctx/thingctx/discussions) is for "does this
