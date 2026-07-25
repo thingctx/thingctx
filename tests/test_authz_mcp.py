@@ -11,12 +11,19 @@ This file pins BOTH sides of the honest claim:
 
 * PROVEN today: the gate fires over the bridge. Deny blocks the device; allow
   lets it through. Authorization is not bypassable by going through MCP.
-* The LIMIT, made explicit: MCP's transport carries the CLIENT's session, not a
-  per-tool-call caller identity. So the identity the gate authorizes against is
-  the one the bridged client was built with (a server-level identity), NOT a
-  fresh end-caller claim delivered by MCP per call. The final test marks that
-  gap with xfail: it will flip to a real assertion the day an MCP identity-
-  propagation extension delivers per-call caller claims to the bridge.
+* The LIMIT, made explicit, and it has two halves. MCP defines no caller identity
+  in the protocol itself: no subject, actor, or on-behalf-of field on a tool call.
+  Over HTTP an OAuth token does ride on every request, so a bridge served that way
+  can read a per-call caller. Over stdio and the in-memory transport these tests
+  use, there is no identity channel at all. Either way the gate here authorizes
+  against the identity the bridged client was built with, a server-level identity.
+  The final test marks that with xfail; it flips to a real assertion when the
+  bridge takes a caller from the request instead.
+
+What no transport supplies, and what the per-operation gate actually wants, is a
+claim separating the human principal from the agent acting for them. MCP has no
+such claim, and no per-operation authorization primitive: once a client is
+authenticated it reaches every tool the server exposes.
 """
 
 from __future__ import annotations
@@ -120,24 +127,27 @@ async def test_mcp_bridge_authz_uses_server_level_identity_not_per_call():
 
 
 @pytest.mark.xfail(
-    reason="MCP does not yet propagate a per-call caller identity to the bridge; "
-    "this flips to a real assertion when an MCP identity-propagation extension ships",
+    reason="MCP carries no caller identity in the protocol itself, only an OAuth token on "
+    "each HTTP request, and this test drives the in-memory transport where there is no "
+    "request to read one from; it flips to a real assertion when the bridge takes a "
+    "per-call caller from the request",
     strict=True,
 )
 @pytest.mark.asyncio
 async def test_mcp_per_call_caller_identity_reaches_the_gate():
-    """FUTURE: when MCP carries a per-call caller identity, a granted caller and an
-    ungranted caller hitting the SAME bridged server must get different decisions.
-    Today MCP has no such channel, so this is xfail(strict): it will fail (and this
-    test start passing) the moment the capability exists, surfacing the change."""
+    """FUTURE: a granted caller and an ungranted caller hitting the SAME bridged
+    server must get different decisions. That needs a caller per call, which this
+    transport cannot supply, so this is xfail(strict): it starts passing the moment
+    the bridge resolves an identity per call, surfacing the change."""
     pytest.importorskip("mcp")
     from thingctx.integrations.mcp import build_mcp_server
 
-    # One server, one bridged client. Today there is no way to hand it two
-    # different validated caller identities per call, so we cannot make a granted
-    # caller succeed while an ungranted caller is denied on the SAME server.
+    # The identity is fixed when the server is built, and the in-memory transport
+    # carries no request to override it from, so both callers get the same answer.
+    # Served over HTTP the bridge could read the request's token instead, which is
+    # the change this test is waiting for.
     server = build_mcp_server(_guarded_client(roles=["guest"]), approve=None)
-    # If MCP propagated a per-call identity, we would present an 'operator' caller
-    # here and expect success despite the server default being 'guest'.
+    # With a per-call caller we would present 'operator' here and expect success
+    # despite the server default being 'guest'.
     out = await _call(server, "pump__read_speed")
     assert "1200" in out  # only reachable once per-call identity propagation exists
