@@ -186,10 +186,11 @@ class JwtGatewayGuard:
         # from inside _signing_key, past this guard's fail-closed boundary, which
         # surfaces as a 500 rather than the 401 it promises. Both levels matter,
         # because a str "keys" iterates into characters before it fails.
-        if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
-            raise AuthorizationError(
-                "the signing key endpoint did not return a JWKS object with a key list"
-            )
+        if not isinstance(jwks, dict):
+            raise AuthorizationError("the signing key endpoint did not return a JWKS object")
+        keys = jwks.get("keys")
+        if not isinstance(keys, list) or not all(isinstance(k, dict) for k in keys):
+            raise AuthorizationError("the signing key endpoint returned no usable key list")
         self._jwks_cache = jwks
         self._jwks_fetched_at = time.time()
         return jwks
