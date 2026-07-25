@@ -61,9 +61,9 @@ def env(tmp_path, monkeypatch):
         default_token_store().set(key, {"refresh_token": "rt", "client_id": kw["client_id"]})
         return {"refresh_token": "rt"}
 
-    import thingctx.auth.oauth_consent as oc
+    from thingctx.integrations import connect
 
-    monkeypatch.setattr(oc, "login", fake_login)
+    monkeypatch.setattr(connect, "login", fake_login)
     yield tmp_path
     store._DEFAULT_STORE = None
 
