@@ -164,7 +164,8 @@ def _await_redirect(
     port = server.server_address[1]
     redirect_uri = f"http://127.0.0.1:{port}/"
     url = authorization_url.replace("__REDIRECT__", urllib.parse.quote(redirect_uri, safe=""))
-    print(f"thingctx: open this URL to authorize:\n  {url}\n")
+    # the user-facing prompt: the URL they must open to grant consent
+    print(f"thingctx: open this URL to authorize:\n  {url}\n")  # noqa: T201
     if open_browser:
         webbrowser.open(url)
     deadline = time.monotonic() + timeout

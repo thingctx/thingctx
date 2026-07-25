@@ -331,13 +331,18 @@ def from_openapi(
     base = (base_url or _server_url(spec)).rstrip("/")
     thing_id = id or f"urn:thingctx:{_slugify(title)}"
 
+    keep: Callable[[str, str, str], bool]
     if isinstance(include, list):
         wanted = set(include)
-        keep = lambda n, m, p: n in wanted  # noqa: E731
+
+        def keep(n: str, m: str, p: str, /) -> bool:
+            return n in wanted
     elif callable(include):
         keep = include
     else:
-        keep = lambda n, m, p: True  # noqa: E731
+
+        def keep(n: str, m: str, p: str, /) -> bool:
+            return True
 
     if security is not None:
         defs, active = dict(security.get("definitions", {})), list(security.get("active", []))
