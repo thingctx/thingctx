@@ -5,9 +5,11 @@
 # are heavy compiled libs; a separate -all tag can add them). Installs the SAME PyPI
 # artifact everything else resolves to, so image trust inherits the signed/attested
 # PyPI release. Pin the base by DIGEST before shipping (placeholder below).
-FROM python:3.12-slim AS build
-# TODO before release: pin by digest, e.g.
-# FROM python@sha256:<digest> AS build
+# One arg for both stages: pinning the digest in two places invites pinning only
+# one, and a runtime base that does not match what the venv was built against.
+# TODO before release: pin by digest, e.g. python@sha256:<digest>
+ARG PYTHON_IMAGE=python:3.12-slim
+FROM ${PYTHON_IMAGE} AS build
 WORKDIR /app
 RUN python -m venv /venv
 ENV PATH="/venv/bin:$PATH"
@@ -16,8 +18,7 @@ ENV PATH="/venv/bin:$PATH"
 ARG THINGCTX_VERSION=0.2.0
 RUN pip install --no-cache-dir "thingctx[mcp-http,http,mqtt,filesystem,validate,authz]==${THINGCTX_VERSION}"
 
-FROM python:3.12-slim
-# TODO: pin by digest to match the build stage.
+FROM ${PYTHON_IMAGE}
 # Run as a non-root user; the gateway needs no privileges.
 RUN useradd --system --uid 10001 --home /home/thingctx thingctx
 COPY --from=build /venv /venv
