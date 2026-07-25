@@ -11,16 +11,28 @@
   "homepage": "https://thingctx.com",
   "documentation": "https://github.com/thingctx/thingctx",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "web-of-things", "thing-description", "agent-tools", "wot"],
+  "keywords": [
+    "mcp",
+    "web-of-things",
+    "thing-description",
+    "agent-tools",
+    "wot"
+  ],
   "server": {
     "type": "uv",
     "entry_point": "thingctx.integrations.mcp",
     "mcp_config": {
       "command": "uvx",
-      "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "${user_config.tds}"],
+      "args": [
+        "--from",
+        "thingctx[mcp,http,mqtt,media,filesystem,authz]",
+        "thingctx-mcp",
+        "${user_config.tds}"
+      ],
       "env": {
         "THINGCTX_APPROVE_WHEN": "${user_config.approve_when}",
-        "THINGCTX_POLICY": "${user_config.policy}"
+        "THINGCTX_POLICY": "${user_config.policy}",
+        "THINGCTX_FS_ROOT": "${user_config.fs_root}"
       }
     }
   },
@@ -35,8 +47,8 @@
     "policy": {
       "type": "string",
       "title": "What can the agent do?",
-      "description": "read-only = reads and subscriptions, no changes; no-writes = also run actions, but never write a property; full = everything the Things allow.",
-      "default": "no-writes",
+      "description": "read-only = reads, subscriptions, and safe (no-change) actions; full = everything the Things allow. Denied operations are refused before any request leaves.",
+      "default": "read-only",
       "required": false
     },
     "approve_when": {
@@ -44,6 +56,13 @@
       "title": "When should the agent ask you before acting?",
       "description": "declared = only actions marked risky; destructive = any write or non-idempotent action; all = everything; never = do not ask.",
       "default": "destructive",
+      "required": false
+    },
+    "fs_root": {
+      "type": "string",
+      "title": "Filesystem sandbox (optional)",
+      "description": "Directory the filesystem Thing may touch. Leave empty to refuse all filesystem calls. For Google OAuth (Gmail/YouTube), drop your Desktop client JSON at ~/.config/thingctx/oauth-clients/oauth2.googleapis.com.json once.",
+      "default": "",
       "required": false
     }
   }
