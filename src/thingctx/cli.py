@@ -17,13 +17,13 @@ reports whether an agent can use it; it exits 1 on any error-severity finding.
 (authorization-code) scheme and stores the refresh token so later runs refresh
 silently.
 
-``list`` and ``invoke`` are the shell half of the MCP bridge: ``<source>`` is
-the same TD registry the ``thingctx-mcp`` binary takes (a dir of ``*.td.json``,
-a file, an http(s) URL, or a ``tdd:`` directory), ``<action>`` is a
-slug-qualified tool name (``youtube.videosInsert``), and the call runs through
-the same client (local handlers, http/media bindings, stored auth, trust gate)
-the bridge uses , just driven from argv with the result as JSON on stdout. With
-no ``<source>`` they read the per-user default registry (``thingctx registry``).
+``list`` and ``invoke`` drive from the shell what the MCP bridge drives from a
+client. ``<source>`` is the same TD registry the ``thingctx-mcp`` binary takes (a
+dir of ``*.td.json``, a file, an http(s) URL, or a ``tdd:`` directory);
+``<action>`` is a slug-qualified tool name (``youtube.videosInsert``). The call
+runs through the same client the bridge uses (local handlers, bindings, stored
+auth, trust gate), with the result as JSON on stdout. With no ``<source>`` they
+read the per-user default registry (``thingctx registry``).
 
 ``skill`` ships an app-agnostic agent skill that teaches an agent to drive any
 registered Thing through these commands; ``skill install`` copies it under
@@ -176,10 +176,9 @@ def _cmd_auth_login(args: argparse.Namespace) -> int:
 
 
 def _coerce_arg(value: str) -> Any:
-    """A ``--arg`` value that parses as JSON (number, bool, null, array, object)
-    becomes that type; anything else stays a string. A file path is not valid
-    JSON, so it is passed through unchanged , the media ``{media}`` path and the
-    bindings accept a path or ``file://`` URL as is."""
+    """A ``--arg`` value that parses as JSON becomes that type; anything else
+    stays a string. A file path is not valid JSON, so it passes through unchanged;
+    the media path and the bindings accept a path or ``file://`` URL as is."""
     try:
         return json.loads(value)
     except (json.JSONDecodeError, ValueError):
@@ -227,8 +226,7 @@ def _cli_approver(assume_yes: bool) -> Callable[[Any], bool]:
 
 def _emit(result: Any, out: str | None) -> None:
     """Serialize an invoke result to ``--out`` (a path), or stdout when ``out``
-    is missing or ``-``. Bytes are written raw; a str is written as is; anything
-    else is pretty JSON."""
+    is missing or ``-``. Bytes go out raw, a str as is, anything else as JSON."""
     dest: Path | None = None
     if out and out != "-":
         # loaded per subcommand so the CLI starts fast
@@ -415,7 +413,7 @@ def _cmd_registry_path(args: argparse.Namespace) -> int:
 
 
 def _skill_text() -> str:
-    """The packaged app-agnostic driver skill (shipped as package data)."""
+    """The driver skill text, shipped as package data."""
 
     return (files("thingctx") / "skill" / "SKILL.md").read_text(encoding="utf-8")
 

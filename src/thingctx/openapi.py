@@ -2,16 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Compile an OpenAPI 3.x spec into a W3C WoT Thing Description.
 
-Every OpenAPI operation becomes a TD action carrying a real HTTP form (method
-and URL), so the resulting Thing is drivable directly by a ``ThingClient`` with
-no server in the middle. Security schemes map across too (bearer, basic, apikey,
-oauth2), so the generated TD authenticates the same way the API does.
+Every OpenAPI operation becomes a TD action carrying a real HTTP form (method and
+URL), so a ``ThingClient`` drives the Thing with no server in between. Security
+schemes map across (bearer, basic, apikey, oauth2), so the TD authenticates the
+same way the API does.
 
     td = from_openapi(spec)                      # dict, a WoT TD 1.1
     td = from_openapi(load_spec("api.yaml"))     # from a file or URL
 
-The mapping is mechanical: it mirrors the spec rather than curating it. Pass
-``include`` to keep only the operations an agent should see.
+The mapping mirrors the spec rather than curating it. Pass ``include`` to keep
+only the operations an agent should see.
 """
 
 from __future__ import annotations
@@ -66,8 +66,8 @@ def _deref(spec: dict, node: Any) -> Any:
 
 
 def _slim(spec: dict, schema: Any, depth: int = 0) -> dict:
-    """Reduce a vendor schema to a lean, self-contained JSON Schema: resolve
-    ``$ref``, keep only the keys an agent needs, recurse two levels."""
+    """Reduce a vendor schema to a self-contained JSON Schema: resolve ``$ref``,
+    keep only the keys an agent needs, recurse two levels."""
     schema = _deref(spec, schema)
     if not isinstance(schema, dict):
         return {"type": "string"}
