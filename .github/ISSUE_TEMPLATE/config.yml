@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Looking for something to work on
+    url: https://github.com/thingctx/thingctx/contribute
+    about: Issues tagged good first issue, each with the files to touch and what done looks like.
+  - name: Adding a transport binding
+    url: https://github.com/thingctx/thingctx/blob/main/docs/BINDINGS.md
+    about: The contract a binding implements, and how to register one from your own package.
+  - name: Security issue
+    url: https://github.com/thingctx/thingctx/security/advisories/new
+    about: Report privately here rather than in a public issue.

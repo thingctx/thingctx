@@ -1,0 +1,49 @@
+name: Bug report
+description: Something does not work the way it says it does
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+      placeholder: |
+        I called `client.invoke("pump__set_speed", {"rpm": 1500})` against the TD below
+        and got a TransportError, but the same request works with curl.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >
+        The smallest thing that shows it. A Thing Description and a few lines of Python
+        beats a description of the problem. Redact any secrets; a TD should never carry
+        one anyway.
+      render: python
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: thingctx version
+      description: "`pip show thingctx`, or the commit if you are on a checkout."
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version and OS
+      placeholder: "3.12 on macOS 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extras
+    attributes:
+      label: Which extras are installed
+      description: "The base install has no dependencies, so this often matters."
+      placeholder: "thingctx[http,mcp,validate]"
