@@ -1,49 +1,38 @@
-name: Bug report
-description: Something does not work the way it says it does
+name: Something is broken
+description: It does not work the way the docs say it does
 labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Only the first box matters. Fill in what you know and skip the rest, we can
+        work the details out in the comments.
+
   - type: textarea
     id: what
     attributes:
       label: What happened
-      description: What you did, what you expected, and what you got instead.
+      description: What you tried, and what happened instead.
       placeholder: |
-        I called `client.invoke("pump__set_speed", {"rpm": 1500})` against the TD below
-        and got a TransportError, but the same request works with curl.
+        Reading a property returned nothing. I expected the temperature value.
     validations:
       required: true
 
   - type: textarea
-    id: repro
+    id: detail
     attributes:
-      label: How to reproduce
+      label: Anything that helps us see it
       description: >
-        The smallest thing that shows it. A Thing Description and a few lines of Python
-        beats a description of the problem. Redact any secrets; a TD should never carry
-        one anyway.
-      render: python
+        Optional. A few lines of code, the Thing Description, an error message. Whatever
+        you have. Leave out anything secret.
     validations:
-      required: true
-
-  - type: input
-    id: version
-    attributes:
-      label: thingctx version
-      description: "`pip show thingctx`, or the commit if you are on a checkout."
-    validations:
-      required: true
-
-  - type: input
-    id: python
-    attributes:
-      label: Python version and OS
-      placeholder: "3.12 on macOS 15"
-    validations:
-      required: true
+      required: false
 
   - type: textarea
-    id: extras
+    id: setup
     attributes:
-      label: Which extras are installed
-      description: "The base install has no dependencies, so this often matters."
-      placeholder: "thingctx[http,mcp,validate]"
+      label: Your setup
+      description: Optional. Roughly what you are running.
+      placeholder: "thingctx 0.2.0, Python 3.12, macOS, installed with [http,mcp]"
+    validations:
+      required: false
