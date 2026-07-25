@@ -1,0 +1,46 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
+# Stateless gateway Deployment. Scales horizontally; no sticky state.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thingctx-gateway
+  labels: { app: thingctx-gateway }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: thingctx-gateway } }
+  template:
+    metadata:
+      labels: { app: thingctx-gateway }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: gateway
+          # Pin by DIGEST in production (ghcr.io/thingctx/thingctx@sha256:...).
+          image: ghcr.io/thingctx/thingctx:0.2.0
+          # Serve streamable-http so callers (and cloud agent runtimes) reach it by URL.
+          args: ["--http", "--host", "0.0.0.0", "--port", "8080", "/things/"]
+          ports:
+            - { name: mcp, containerPort: 8080 }
+          env:
+            - name: THINGCTX_APPROVE_WHEN
+              value: "destructive"
+          envFrom:
+            # Credentials come from the Secret, never the image.
+            - secretRef: { name: thingctx-credentials }
+          volumeMounts:
+            - { name: things, mountPath: /things, readOnly: true }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+      volumes:
+        # Your fleet's Thing Descriptions (a ConfigMap, a PVC, or an initContainer clone).
+        - name: things
+          configMap: { name: thingctx-tds }
