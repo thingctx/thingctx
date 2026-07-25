@@ -111,7 +111,7 @@
     "fs_root": {
       "type": "string",
       "title": "Filesystem sandbox (optional)",
-      "description": "Directory the filesystem Thing may touch. Leave empty to refuse all filesystem calls. For Google OAuth (Gmail/YouTube), drop your Desktop client JSON at ~/.config/thingctx/oauth-clients/oauth2.googleapis.com.json once.",
+      "description": "Directory the filesystem Thing may touch. Leave empty to refuse all filesystem calls.",
       "default": "",
       "required": false
     }
