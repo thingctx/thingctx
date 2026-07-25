@@ -7,6 +7,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Nightly so the schema-drift check has somewhere to run. It compares the
+  # bundled W3C schema against the live one, so it fails when W3C publishes, not
+  # when a pull request changes something; gating merges on it would block us on
+  # a third party's uptime.
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -243,10 +250,63 @@ jobs:
 
   # Single stable gate to require in branch protection, so the matrix can
   # change without touching the protected-branch config.
+  # The live-broker half of the suite. `pytest -m "not network"` deselects these,
+  # so without this job they never run anywhere and the reconnect/resubscribe
+  # behaviour is asserted only against the fake broker. Mosquitto 2 refuses
+  # anonymous remote clients under its default config, hence the explicit one.
+  mqtt-live:
+    name: mqtt-live
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Start a broker
+        run: |
+          printf 'listener 1883 0.0.0.0\nallow_anonymous true\n' > /tmp/mosquitto.conf
+          docker run -d --name mosquitto -p 1883:1883 \
+            -v /tmp/mosquitto.conf:/mosquitto/config/mosquitto.conf \
+            eclipse-mosquitto:2
+          for _ in $(seq 30); do
+            python -c "import socket,sys; s=socket.create_connection(('127.0.0.1',1883),1); s.close()" 2>/dev/null && exit 0
+            sleep 1
+          done
+          echo "broker never came up"; docker logs mosquitto; exit 1
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Test (live broker)
+        env:
+          THINGCTX_MQTT_BROKER: 127.0.0.1:1883
+        run: pytest tests/test_mqtt_live_reliability.py -m network -q
+
+  # Drift only appears when W3C republishes, so this runs on the schedule and on
+  # demand, and is deliberately absent from ci-ok: a w3.org outage must not block
+  # a merge.
+  schema-drift:
+    name: schema-drift
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Bundled schema still matches the published one
+        run: pytest tests/test_schema_current.py -m network -q
+
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [dco, lint, types, dead-code, security-lint, reuse-guard, deps-audit, architecture, test, coverage, dep-free-base]
+    needs: [dco, lint, types, dead-code, security-lint, reuse-guard, deps-audit, architecture, test, coverage, dep-free-base, mqtt-live]
     runs-on: ubuntu-latest
     steps:
       - name: Check upstream jobs
@@ -257,7 +317,7 @@ jobs:
             echo "dco=${{ needs.dco.result }}"
             exit 1
           fi
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.security-lint.result }}" != "success" ] || [ "${{ needs.reuse-guard.result }}" != "success" ] || [ "${{ needs.deps-audit.result }}" != "success" ] || [ "${{ needs.architecture.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.coverage.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
-            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} security-lint=${{ needs.security-lint.result }} reuse-guard=${{ needs.reuse-guard.result }} deps-audit=${{ needs.deps-audit.result }} architecture=${{ needs.architecture.result }} test=${{ needs.test.result }} coverage=${{ needs.coverage.result }} dep-free-base=${{ needs.dep-free-base.result }}"
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.security-lint.result }}" != "success" ] || [ "${{ needs.reuse-guard.result }}" != "success" ] || [ "${{ needs.deps-audit.result }}" != "success" ] || [ "${{ needs.architecture.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.coverage.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ] || [ "${{ needs.mqtt-live.result }}" != "success" ]; then
+            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} security-lint=${{ needs.security-lint.result }} reuse-guard=${{ needs.reuse-guard.result }} deps-audit=${{ needs.deps-audit.result }} architecture=${{ needs.architecture.result }} test=${{ needs.test.result }} coverage=${{ needs.coverage.result }} dep-free-base=${{ needs.dep-free-base.result }} mqtt-live=${{ needs.mqtt-live.result }}"
             exit 1
           fi
