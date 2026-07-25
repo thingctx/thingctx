@@ -267,9 +267,15 @@ class HttpBinding(AuthMixin):
         retries: int = 2,
         backoff: float = 0.2,
         retry_non_idempotent: bool = False,
+        block_private: bool = False,
     ) -> None:
         from thingctx.reliability import RetryPolicy
 
+        # Refuse requests whose host is, or resolves to, a private, loopback,
+        # or link-local address (see thingctx.netpolicy). Off by default: a WoT
+        # client legitimately drives LAN devices. A gateway processing
+        # untrusted TDs turns it on to close SSRF to metadata/internal hosts.
+        self._block_private = block_private
         self._headers = headers or {}
         self._init_auth(
             credentials=credentials,
@@ -366,6 +372,11 @@ class HttpBinding(AuthMixin):
         if new_url != url:
             url = new_url
             kwargs["params"] = merged
+
+        if self._block_private:
+            from thingctx.netpolicy import check_url
+
+            check_url(url, block_private=True, what="request URL")
 
         retryable = retry and (method.upper() in IDEMPOTENT_METHODS or self._retry_non_idempotent)
         max_retries = self._policy.retries if retryable else 0
@@ -562,6 +573,10 @@ class HttpBinding(AuthMixin):
         if args:
             params = {**params, **args}
         url, params = _merge_href_query(form.href, params)
+        if self._block_private:
+            from thingctx.netpolicy import check_url
+
+            check_url(url, block_private=True, what="SSE URL")
 
         # An SSE stream is long-lived, so there is no overall read timeout, but
         # connection setup (and writes) stay bounded so a peer cannot wedge the

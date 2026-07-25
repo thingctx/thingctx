@@ -1108,10 +1108,19 @@ def client_from_registry(
             file=sys.stderr,
         )
     bindings: list[Any] = [local]
+    # THINGCTX_BLOCK_PRIVATE=1 refuses outbound requests to private, loopback,
+    # and link-local hosts (cloud metadata included). Off by default: a laptop
+    # operator legitimately drives LAN devices; a server/gateway operator sets
+    # it to close SSRF from untrusted TDs or arguments.
+    block_private = (os.environ.get("THINGCTX_BLOCK_PRIVATE") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     try:
         from thingctx.bindings import HttpBinding
 
-        bindings.append(HttpBinding(credentials=credentials or {}))
+        bindings.append(HttpBinding(credentials=credentials or {}, block_private=block_private))
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -1123,7 +1132,7 @@ def client_from_registry(
     try:
         from thingctx.bindings.builtin.media import MediaBinding
 
-        bindings.append(MediaBinding(credentials=credentials or {}))
+        bindings.append(MediaBinding(credentials=credentials or {}, block_private=block_private))
     except Exception:  # noqa: BLE001
         pass
     # THINGCTX_POLICY picks a coarse per-operation posture: read-only or
