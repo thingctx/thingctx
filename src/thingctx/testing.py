@@ -31,7 +31,7 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from thingctx import CredentialProvider
+from thingctx.auth.providers import CredentialProvider
 from thingctx.bindings import (
     AsyncAction,
     BulkProperties,

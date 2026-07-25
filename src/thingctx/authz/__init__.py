@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """WoT-derived authorization for thingctx: the dependency-free seam.
 
 This subpackage is the enforcement seam, and nothing more. It derives an

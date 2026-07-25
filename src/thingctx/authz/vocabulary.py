@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """The grant vocabulary, derived from the TD.
 
 A grant is a set of ``(thing_id, affordance_name, op)`` tuples, and the universe
@@ -27,7 +29,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from thingctx import WoTThing
+from thingctx.thing import WoTThing
 
 # A single grantable coordinate. Interned as a plain tuple so it is hashable and
 # set membership is O(1): a grant "is valid" iff it is in the vocabulary set.

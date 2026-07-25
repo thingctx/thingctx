@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """AuthZEN interop: speak the OpenID Authorization API 1.0 Final shape.
 
 thingctx ships a lean, zero-dependency local PDP as its default (see
