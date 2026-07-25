@@ -222,6 +222,12 @@ hosted or shared service:
 THINGCTX_BLOCK_PRIVATE=1 thingctx-mcp ./tds/
 ```
 
+The streamable HTTP server turns this on for you on a non loopback bind, because
+a public bind is where SSRF bites and the laptop default (off, so LAN devices
+stay reachable) is wrong there. A trusted LAN gateway that must reach private
+hosts on a public bind sets `THINGCTX_BLOCK_PRIVATE=0` explicitly to keep it off;
+an explicit value is never overridden.
+
 The check resolves the host, validates every resolved address, then connects to
 that validated address, so a name that resolves to a public address on the first
 lookup and a private one at connect time (DNS rebinding) does not slip through.

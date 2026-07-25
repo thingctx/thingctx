@@ -1233,6 +1233,32 @@ async def serve(registry: Any) -> None:
         await server.run(read, write, server.create_initialization_options())
 
 
+def _is_loopback_host(host: str) -> bool:
+    return (host or "").strip().lower() in ("127.0.0.1", "localhost", "::1")
+
+
+def _default_block_private_when_exposed(host: str) -> None:
+    """On a non-loopback bind, default outbound private-address blocking on.
+
+    A hosted or exposed server drives untrusted TDs and arguments over this
+    process's network position, which is where SSRF bites. The laptop default
+    leaves ``THINGCTX_BLOCK_PRIVATE`` off so LAN devices stay reachable; that
+    default is wrong once the bind is public. Turn it on unless the operator
+    made an explicit choice either way (a trusted-LAN gateway can still set
+    ``THINGCTX_BLOCK_PRIVATE=0`` to override)."""
+    if _is_loopback_host(host):
+        return
+    if (os.environ.get("THINGCTX_BLOCK_PRIVATE") or "").strip() != "":
+        return  # operator chose explicitly; do not override
+    os.environ["THINGCTX_BLOCK_PRIVATE"] = "1"
+    print(  # noqa: T201  # CLI output
+        "thingctx-mcp: non-loopback bind; defaulting THINGCTX_BLOCK_PRIVATE=1 to "
+        "refuse outbound requests to private and metadata addresses. Set it to 0 "
+        "explicitly for a trusted-LAN gateway that must reach private hosts.",
+        file=sys.stderr,
+    )
+
+
 def _check_http_exposure(host: str) -> None:
     """Warn (or refuse) when the HTTP transport binds a non-loopback host.
 
@@ -1242,7 +1268,7 @@ def _check_http_exposure(host: str) -> None:
     keeps a deploy behind an authenticating reverse proxy working; setting
     ``THINGCTX_REQUIRE_AUTH=1`` turns the same condition into a startup error
     for operators who want the hard stop."""
-    if (host or "").strip().lower() in ("127.0.0.1", "localhost", "::1"):
+    if _is_loopback_host(host):
         return
     if (os.environ.get("THINGCTX_REQUIRE_AUTH") or "").strip().lower() in ("1", "true", "yes"):
         raise SystemExit(
@@ -1278,6 +1304,9 @@ def serve_http(registry: Any, *, host: str = "127.0.0.1", port: int = 8080) -> N
     from starlette.routing import Mount  # noqa: PLC0415
 
     _check_http_exposure(host)
+    # Set the block_private default from the bind posture before _build_server,
+    # which constructs the bindings that read THINGCTX_BLOCK_PRIVATE.
+    _default_block_private_when_exposed(host)
     server = _build_server(registry)
     manager = StreamableHTTPSessionManager(app=server)
 

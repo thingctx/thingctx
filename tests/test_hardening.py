@@ -6,6 +6,8 @@ token-store symlink handling, and credential redaction in transport errors."""
 
 from __future__ import annotations
 
+import os
+
 import httpx
 import pytest
 
@@ -463,3 +465,35 @@ async def test_dns_rebinding_connects_to_pinned_ip_not_the_rebound_private(monke
         await binding.aclose()
     finally:
         srv.shutdown()
+
+
+# --- block_private default follows the bind posture --------------------------
+
+
+def test_exposed_bind_defaults_block_private_on(monkeypatch):
+    # A public bind is where SSRF bites, so an operator who set nothing gets the
+    # safe posture without opting in.
+    from thingctx.integrations.mcp import _default_block_private_when_exposed
+
+    monkeypatch.delenv("THINGCTX_BLOCK_PRIVATE", raising=False)
+    _default_block_private_when_exposed("0.0.0.0")
+    assert os.environ["THINGCTX_BLOCK_PRIVATE"] == "1"
+
+
+def test_exposed_bind_honors_explicit_override(monkeypatch):
+    # A trusted-LAN gateway must be able to reach private hosts on a public bind,
+    # so an explicit 0 is a choice, not a default to overwrite.
+    from thingctx.integrations.mcp import _default_block_private_when_exposed
+
+    monkeypatch.setenv("THINGCTX_BLOCK_PRIVATE", "0")
+    _default_block_private_when_exposed("0.0.0.0")
+    assert os.environ["THINGCTX_BLOCK_PRIVATE"] == "0"
+
+
+def test_loopback_bind_leaves_block_private_unset(monkeypatch):
+    # The laptop default: loopback is not exposed, so LAN devices stay reachable.
+    from thingctx.integrations.mcp import _default_block_private_when_exposed
+
+    monkeypatch.delenv("THINGCTX_BLOCK_PRIVATE", raising=False)
+    _default_block_private_when_exposed("127.0.0.1")
+    assert "THINGCTX_BLOCK_PRIVATE" not in os.environ
