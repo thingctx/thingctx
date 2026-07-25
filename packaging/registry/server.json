@@ -42,7 +42,7 @@
         },
         {
           "name": "THINGCTX_FS_ROOT",
-          "description": "Sandbox directory for the filesystem Thing. Unset = refuse every filesystem call. Google OAuth: drop Desktop client JSON at ~/.config/thingctx/oauth-clients/oauth2.googleapis.com.json.",
+          "description": "Sandbox directory for the filesystem Thing. Unset = refuse every filesystem call.",
           "isRequired": false
         }
       ]
