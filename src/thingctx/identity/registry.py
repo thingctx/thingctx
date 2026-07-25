@@ -24,15 +24,17 @@ attribute and the gateway constructs it with its own config.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from thingctx.identity.providers.cloudflare import CloudflareAccessGuard
 from thingctx.identity.providers.entra import EntraGatewayGuard
 
 __all__ = [
+    "DEFAULT_GUARDS",
     "GUARD_ENTRY_POINT_GROUP",
     "GuardRegistry",
-    "DEFAULT_GUARDS",
-    "register_guard",
     "discover_guards",
+    "register_guard",
 ]
 
 # The entry-point group a third-party ``thingctx-<idp>`` package advertises its
@@ -79,7 +81,7 @@ class GuardRegistry:
     def __getitem__(self, name: str) -> type:
         return self._guards[name]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self._guards)
 
     def __len__(self) -> int:
@@ -136,8 +138,11 @@ def discover_guards(
 
     try:
         eps = entry_points(group=group)
-    except TypeError:  # older selection API
-        eps = entry_points().get(group, [])  # type: ignore[attr-defined]
+    except TypeError:  # older selection API (Python < 3.10): dict-style select
+        # On the old API entry_points() returns a dict whose .get takes a list
+        # default; typeshed models only the new EntryPoints.get, so it flags the
+        # list default. The runtime shim is correct on the version this runs on.
+        eps = entry_points().get(group, [])  # type: ignore[arg-type]
 
     for ep in eps:
         factory = ep.load()

@@ -18,4 +18,4 @@ from thingctx.bindings.builtin.local import LocalBinding
 from thingctx.bindings.builtin.media import MediaBinding
 from thingctx.bindings.builtin.mqtt import MqttBinding
 
-__all__ = ["HttpBinding", "LocalBinding", "MqttBinding", "MediaBinding", "ExecBinding"]
+__all__ = ["ExecBinding", "HttpBinding", "LocalBinding", "MediaBinding", "MqttBinding"]

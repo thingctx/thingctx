@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from thingctx.auth.providers import (
@@ -19,7 +20,7 @@ from thingctx.auth.providers import (
     StaticBearerAuth,
 )
 
-__all__ = ["AuthRegistry", "DEFAULT_AUTH", "discover_auth", "register_auth"]
+__all__ = ["DEFAULT_AUTH", "AuthRegistry", "discover_auth", "register_auth"]
 
 
 class AuthRegistry:
@@ -41,17 +42,19 @@ class AuthRegistry:
     def resolve(self, scheme: Any, credential: Any) -> AuthStrategy | None:
         """Find the provider that handles ``scheme`` (not the credential itself)."""
         for s in self._strategies:
+            # A third-party provider's matches() must not sink the whole lookup;
+            # isolate a broken plugin and try the next.
             try:
                 if s.matches(scheme, credential):
                     return s
-            except Exception:  # noqa: BLE001 - a misbehaving provider must not break others
+            except Exception:  # noqa: S112, PERF203 (deliberate per-provider isolation)
                 continue
         return None
 
     def clone(self) -> AuthRegistry:
         return AuthRegistry(list(self._strategies))
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[AuthStrategy]:
         return iter(self._strategies)
 
 
@@ -95,8 +98,11 @@ def discover_auth(*, group: str = "thingctx.auth", register: bool = False) -> li
 
     try:
         eps = entry_points(group=group)
-    except TypeError:  # older selection API
-        eps = entry_points().get(group, [])  # type: ignore[attr-defined]
+    except TypeError:  # older selection API (Python < 3.10): dict-style select
+        # On the old API entry_points() returns a dict whose .get takes a list
+        # default; typeshed models only the new EntryPoints.get, so it flags the
+        # list default. The runtime shim is correct on the version this runs on.
+        eps = entry_points().get(group, [])  # type: ignore[arg-type]
     providers = [ep.load()() for ep in eps]
     if register:
         for p in providers:

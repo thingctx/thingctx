@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from thingctx.bindings.builtin.media import Frame
@@ -85,19 +86,17 @@ class LLMHost:
     def _openai_tools(self) -> list[dict[str, Any]]:
         """The client's full tool surface in OpenAI function-tool shape: actions
         plus property get/set, bulk read, and long-running cancel tools."""
-        tools = []
-        for t in self._client.tool_surface():
-            tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": t["name"],
-                        "description": t["description"],
-                        "parameters": t["input_schema"],
-                    },
-                }
-            )
-        return tools
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["input_schema"],
+                },
+            }
+            for t in self._client.tool_surface()
+        ]
 
     async def chat(self, prompt: str) -> str:
         """Run the tool-calling loop for one prompt; return the final text
@@ -119,8 +118,9 @@ class LLMHost:
         """
         images = list(image) if isinstance(image, list | tuple) else [image]
         content: list[dict[str, Any]] = [{"type": "text", "text": instruction}]
-        for im in images:
-            content.append({"type": "image_url", "image_url": {"url": self._as_image_url(im)}})
+        content.extend(
+            {"type": "image_url", "image_url": {"url": self._as_image_url(im)}} for im in images
+        )
         return await self._run(content)
 
     async def see_video(self, video: Any, instruction: str) -> str:
@@ -137,7 +137,7 @@ class LLMHost:
 
             print(await host.see_video(url, "Summarize this clip."))
         """
-        content = [
+        content: list[dict[str, Any]] = [
             {"type": "text", "text": instruction},
             {"type": "video_url", "video_url": {"url": self._as_video_url(video)}},
         ]
@@ -146,7 +146,6 @@ class LLMHost:
     @staticmethod
     def _as_video_url(video: Any) -> str:
         import base64
-        import os
 
         if isinstance(video, bytes | bytearray):
             payload = base64.b64encode(bytes(video)).decode("ascii")
@@ -155,9 +154,8 @@ class LLMHost:
             # A URL (remote or data:) passes through; a local file is inlined.
             if "://" in video or video.startswith("data:"):
                 return video
-            if os.path.isfile(video):
-                with open(video, "rb") as fh:
-                    payload = base64.b64encode(fh.read()).decode("ascii")
+            if Path(video).is_file():
+                payload = base64.b64encode(Path(video).read_bytes()).decode("ascii")
                 return "data:video/mp4;base64," + payload
             return video
         raise TypeError("see_video() expects a URL, a file path, or video bytes")
@@ -176,7 +174,7 @@ class LLMHost:
             return frame_to_data_url(image)
         raise TypeError("see() expects a Frame, JPEG bytes, or an image URL")
 
-    async def _run(self, user_content) -> str:
+    async def _run(self, user_content: str | list[dict[str, Any]]) -> str:
         # user_content is a plain string or OpenAI multimodal content
         # (a list of text/image_url parts), so a VLM host can pass images.
         messages: list[dict[str, Any]] = []
@@ -236,7 +234,7 @@ class LLMHost:
         instruction: str,
         *,
         max_events: int = 10,
-        on_reaction=None,
+        on_reaction: Callable[[Any, str], Any] | None = None,
     ) -> list[str]:
         """Subscribe and run an LLM turn per pushed value, with the
         Thing's actions available. Returns per-event answers; stops after

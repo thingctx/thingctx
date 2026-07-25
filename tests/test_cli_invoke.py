@@ -53,12 +53,12 @@ def cli(monkeypatch):
     def make(result=None, surface=None, media=None):
         fc = FakeClient(result, surface, media)
         seen["client"] = fc
-        import thingctx.integrations.mcp as mcp
         import thingctx.registry as reg
+        from thingctx.integrations import mcp
 
         monkeypatch.setattr(reg, "from_args", lambda args: ("REG", tuple(args)))
         monkeypatch.setattr(reg, "default_registry", lambda: ("DEFAULT_REG",))
-        monkeypatch.setattr(mcp, "_credentials_from_env", lambda: {})
+        monkeypatch.setattr(mcp, "_credentials_from_env", dict)
 
         def cfr(registry, credentials=None, approve_when="declared", verbose=False):
             seen["registry"] = registry

@@ -24,9 +24,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from thingctx.auth.context import AuthContext
-from thingctx.auth.credentials import BearerToken, Credential
+from thingctx.auth.credentials import BearerToken, Credential, Secret
 
-__all__ = ["EntraAuth", "make_provider", "normalize_default_scope", "is_entra_scheme"]
+__all__ = ["EntraAuth", "is_entra_scheme", "make_provider", "normalize_default_scope"]
 
 # Entra's public cloud login host. (Sovereign clouds use a different host; the
 # provider claims those too when the raw marker says so, see is_entra_scheme.)
@@ -44,7 +44,7 @@ _DEFAULT = "/.default"
 def _host_of(url: str) -> str:
     try:
         return (urlparse(url).hostname or "").lower()
-    except Exception:  # noqa: BLE001 - a malformed URL simply is not an Entra host
+    except Exception:
         return ""
 
 
@@ -168,7 +168,7 @@ class EntraAuth:
 
             token, exp = hit
             if exp - 60 > time.time():  # 60s safety margin, like the built-ins
-                return BearerToken(token=token)
+                return BearerToken(token=Secret(token))
 
         credential = self._build_credential(tenant, cred)
         # azure-identity is sync; get_token blocks. Run it off the event loop so
@@ -183,7 +183,7 @@ class EntraAuth:
         expires_on = getattr(result, "expires_on", None)
         if expires_on:
             ctx.cache[cache_key] = (token, float(expires_on))
-        return BearerToken(token=token)
+        return BearerToken(token=Secret(token))
 
     # -- scope / tenant / credential construction ------------------------ #
 
@@ -200,7 +200,7 @@ class EntraAuth:
             # Entra's app-only flow takes exactly one .default scope; if several
             # are declared, take the first and default it (the rest are
             # delegated permissions that .default already covers).
-            return scopes[0]
+            return str(scopes[0])
         for k in ("resource", "scope"):
             if raw.get(k):
                 return str(raw[k])

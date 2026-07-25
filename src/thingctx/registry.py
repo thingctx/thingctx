@@ -19,15 +19,15 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 
 @runtime_checkable
 class Registry(Protocol):
     def fetch(self) -> list[dict]:
         """Return the current set of Thing Descriptions."""
-        pass
 
 
 class FileRegistry:
@@ -42,14 +42,11 @@ class FileRegistry:
         s = self.source
         if s.startswith(("http://", "https://")):
             return _tds_from_url(s, self.timeout)
-        if os.path.isdir(s):
-            files = [
-                os.path.join(s, f)
-                for f in sorted(os.listdir(s))
-                if f.endswith((".td.json", ".json"))
-            ]
-            return [_read_json_file(f) for f in files]
-        return [_read_json_file(s)]
+        path = Path(s)
+        if path.is_dir():
+            files = sorted(p for p in path.iterdir() if p.name.endswith((".td.json", ".json")))
+            return [_read_json_file(p) for p in files]
+        return [_read_json_file(path)]
 
 
 class TDDRegistry:
@@ -71,7 +68,7 @@ class TDDRegistry:
 
 
 class _Multi:
-    def __init__(self, registries):
+    def __init__(self, registries: list[Registry]) -> None:
         self.registries = registries
 
     def fetch(self) -> list[dict]:
@@ -105,7 +102,7 @@ def default_registry_dir() -> Path:
     """The per-user default registry directory,
     ``$XDG_CONFIG_HOME/thingctx/registry`` (``~/.config`` when unset), matching
     the token store's convention (see thingctx.auth.store)."""
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "thingctx" / "registry"
 
 
@@ -150,7 +147,7 @@ def _user_agent() -> str:
         from importlib.metadata import version
 
         return f"thingctx/{version('thingctx')}"
-    except Exception:  # noqa: BLE001
+    except Exception:
         return "thingctx"
 
 
@@ -170,21 +167,27 @@ def _max_td_bytes() -> int | None:
     return int(v)
 
 
-def _read_json_file(path: str):
+def _read_json_file(path: str | Path) -> dict:
+    path = Path(path)
     limit = _max_td_bytes()
-    size = os.path.getsize(path)
+    size = path.stat().st_size
     if limit is not None and size > limit:
-        raise ValueError(f"Thing Description file {path!r} is {size} bytes, over the {limit} limit")
-    with open(path, encoding="utf-8") as fh:
-        return json.loads(fh.read())
+        raise ValueError(
+            f"Thing Description file {str(path)!r} is {size} bytes, over the {limit} limit"
+        )
+    return cast("dict", json.loads(path.read_text(encoding="utf-8")))
 
 
-def _get_json(url: str, timeout: float):
+def _get_json(url: str, timeout: float) -> Any:
     import urllib.request
 
+    # Only http(s): a registry URL must not be able to read a local file or reach
+    # a custom scheme handler through urlopen.
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"registry URL must be http(s), got {url!r}")
     limit = _max_td_bytes()
-    req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})  # noqa: S310 (scheme checked above)
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 (scheme checked above)
         if limit is None:
             raw = r.read()
         else:
@@ -199,8 +202,7 @@ def _get_json(url: str, timeout: float):
         return json.loads(raw.decode())
     except ValueError as e:
         raise ValueError(
-            f"{url} did not return JSON ({ctype}); "
-            "expected a Thing Description or a catalog index"
+            f"{url} did not return JSON ({ctype}); expected a Thing Description or a catalog index"
         ) from e
 
 
@@ -212,7 +214,7 @@ def _tds_from_url(url: str, timeout: float) -> list[dict]:
     return _tds_from_payload(data, url, lambda u: _get_json(u, timeout))
 
 
-def _tds_from_payload(data, base_url: str, get) -> list[dict]:
+def _tds_from_payload(data: Any, base_url: str, get: Callable[[str], Any]) -> list[dict]:
     """TDs from one fetched JSON payload.
 
     Three shapes: a single TD (a dict; anything with an @context, or any
@@ -225,7 +227,9 @@ def _tds_from_payload(data, base_url: str, get) -> list[dict]:
     if isinstance(data, list):
         return [d for d in data if isinstance(d, dict)]
     if not isinstance(data, dict):
-        raise ValueError(f"{base_url} did not return a TD or a catalog index")
+        # ValueError, not TypeError: the fetched payload has the wrong SHAPE, this
+        # is not a caller passing a wrong-typed argument.
+        raise ValueError(f"{base_url} did not return a TD or a catalog index")  # noqa: TRY004
     if "@context" in data or not isinstance(data.get("things"), list):
         return [data]
     from urllib.parse import urljoin

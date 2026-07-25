@@ -39,7 +39,7 @@ class _FakeBackend:
                 return
             yield Frame(data=i, kind=kind, pts=float(i))
 
-    def write(self, frames, target, *, options, stop):  # noqa: ANN001
+    def write(self, frames, target, *, options, stop):
         raise NotImplementedError
 
 

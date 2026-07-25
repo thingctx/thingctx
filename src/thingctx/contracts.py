@@ -24,7 +24,8 @@ behaviour.
 
 from __future__ import annotations
 
-from typing import TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
 
 _T = TypeVar("_T", bound=type)
 
@@ -48,7 +49,7 @@ def _class_annotations(cls: type) -> set[str]:
     return names
 
 
-def implements(*protocols: type):
+def implements(*protocols: type) -> Callable[[_T], _T]:
     """Class decorator asserting the class provides every member of each given
     contract, raising ``TypeError`` at definition time if any are missing.
 
@@ -80,8 +81,8 @@ def implements(*protocols: type):
                 "(e.g. 'scheme: str') at class level."
             )
         # Only this class's own declarations (a base may carry its own marker).
-        prior = cls.__dict__.get("__thingctx_implements__", ())
-        cls.__thingctx_implements__ = (*prior, *protocols)
+        prior = cast("tuple[Any, ...]", cls.__dict__.get("__thingctx_implements__", ()))
+        cls.__thingctx_implements__ = (*prior, *protocols)  # type: ignore[attr-defined]  # dynamic marker attr set on the decorated class
         return cls
 
     return decorate

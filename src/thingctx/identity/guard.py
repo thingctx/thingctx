@@ -17,8 +17,8 @@ from thingctx.identity.jwt_guard import (
 from thingctx.identity.providers.entra import EntraGatewayGuard
 
 __all__ = [
-    "EntraGatewayGuard",
     "AuthorizationError",
-    "JwtGatewayGuard",
+    "EntraGatewayGuard",
     "Grant",
+    "JwtGatewayGuard",
 ]

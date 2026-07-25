@@ -42,6 +42,8 @@ from thingctx.trust import (
 from thingctx.validate import TDValidationError, validate_support
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Awaitable, Callable
+
     from thingctx.authz.pdp import AccessRequest, PolicyDecisionPoint
 
 
@@ -50,7 +52,13 @@ class ThingClient:
     agnostic; no LLM."""
 
     @classmethod
-    def from_registry(cls, registry, *, bindings=None, **kwargs) -> ThingClient:
+    def from_registry(
+        cls,
+        registry: Any,
+        *,
+        bindings: BindingRegistry | list[ProtocolBinding] | None = None,
+        **kwargs: Any,
+    ) -> ThingClient:
         """Build a client over every TD a registry yields. `registry` is
         anything with fetch() -> list[dict] (see thingctx.registry)."""
         return cls(tds=registry.fetch(), bindings=bindings, **kwargs)
@@ -271,7 +279,7 @@ class ThingClient:
     async def __aenter__(self) -> ThingClient:
         return self
 
-    async def __aexit__(self, *exc) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
 
     def list_actions(self) -> list[dict[str, Any]]:
@@ -279,7 +287,7 @@ class ThingClient:
         caller cannot mutate the client's internal tool definitions in place."""
         return list(self._tool_specs)
 
-    def as_tools(self):
+    def as_tools(self) -> tuple[list[dict[str, Any]], Callable[..., Awaitable[Any]]]:
         """Return (tool_specs, invoke) to drive the Thing from your own
         agent loop. invoke is the same coroutine as self.invoke."""
         return self._tool_specs, self.invoke
@@ -372,7 +380,7 @@ class ThingClient:
         if name.endswith(f"{TOOL_SEP}cancel") and (name[: -(len(TOOL_SEP) + 6)] in self._route):
             handle = self._inflight.get(name[: -(len(TOOL_SEP) + 6)])
             if handle is None:
-                return {"error": f"no in-flight {name[:-(len(TOOL_SEP)+6)]} to cancel"}
+                return {"error": f"no in-flight {name[: -(len(TOOL_SEP) + 6)]} to cancel"}
             return (await self.cancel_action(handle)).as_dict()
         if name.endswith(f"{TOOL_SEP}set") and (name[: -(len(TOOL_SEP) + 3)] in self._props):
             return await self.write_property(name[: -(len(TOOL_SEP) + 3)], args.get("value"))
@@ -403,13 +411,15 @@ class ThingClient:
     def things(self) -> list[WoTThing]:
         return self._things
 
-    def gateway(self):
+    def gateway(self) -> GatewayProjection:
         """A constant six-verb projection over this client, for fleets too large
         for a flat one-tool-per-action surface. See :mod:`thingctx.gateway`."""
 
         return GatewayProjection(self)
 
-    def projection(self, mode: str = "auto", *, flat_max: int = 24):
+    def projection(
+        self, mode: str = "auto", *, flat_max: int = 24
+    ) -> _FlatProjection | GatewayProjection:
         """Pick the projection the model should see by fleet size.
 
         - ``"flat"``: today's one tool per action (best for a short list).
@@ -440,7 +450,7 @@ class ThingClient:
         if approve_when is not None:
             self._approve_when = approve_when
 
-    def http_binding(self):
+    def http_binding(self) -> ProtocolBinding | None:
         """The binding that drives http(s) forms. Response chaining and the
         resumable upload helper use it to send follow-up requests and to resolve
         a Thing's declared auth the same way :meth:`invoke` does. Returns None
@@ -472,7 +482,7 @@ class ThingClient:
         clone._authz_raise = authz_raise
         return clone
 
-    async def _authorize(self, affordance: Any, op: str) -> Any:
+    async def _authorize(self, affordance: Any, op: str) -> dict[str, Any] | None:
         """Authorize ``op`` on a resolved affordance object. Returns None to
         proceed; raises :class:`AuthorizationDenied` (or, when
         ``authz_raise`` is False, returns an error envelope) on deny.
@@ -487,6 +497,10 @@ class ThingClient:
         """
         from thingctx.authz.pdp import AccessRequest, AuthorizationDenied
 
+        # Every caller gates this on `self._pdp is not None`; assert the invariant
+        # so the type narrows. It is structurally guaranteed, so stripping it under
+        # -O is harmless (the None path is never reached).
+        assert self._pdp is not None  # noqa: S101 (type-narrowing invariant, not a runtime check)
         form = affordance.primary_form(prefer=self._prefer)
         request = AccessRequest(
             thing_id=affordance.thing_id,
@@ -579,6 +593,8 @@ class ThingClient:
         # Resolve uriVariables: {id} fills from args and leaves the body.
         import dataclasses
 
+        filled: WoTForm
+        rest: Any
         if isinstance(arguments, dict):
             href, rest = form.fill(arguments)
             filled = dataclasses.replace(form, href=href) if href != form.href else form
@@ -593,7 +609,9 @@ class ThingClient:
                 raise
             return {"error": str(exc), "status": getattr(exc, "status", None), "response": declared}
 
-    def _error_response(self, action: WoTAction, form, status):
+    def _error_response(
+        self, action: WoTAction, form: WoTForm, status: int | None
+    ) -> dict[str, Any] | None:
         """The declared ``additionalResponses`` descriptor matching a failed
         call (by ``htv:statusCodeNumber`` when present, else the first
         error response), enriched with the referenced schemaDefinition. Returns
@@ -602,7 +620,7 @@ class ThingClient:
         if not descriptors:
             return None
 
-        def _code(d):
+        def _code(d: dict[str, Any]) -> Any:
             return d.get("htv:statusCodeNumber") or d.get("statusCodeNumber")
 
         match = next((d for d in descriptors if _code(d) == status), descriptors[0])
@@ -624,7 +642,7 @@ class ThingClient:
             return True
         return any("queryaction" in f.op for f in action.forms)
 
-    def _lifecycle_form(self, action: WoTAction):
+    def _lifecycle_form(self, action: WoTAction) -> WoTForm | None:
         """Pick the action form that drives the async lifecycle (declares
         ``queryaction``), honoring transport preference; else any form."""
         cand = [f for f in action.forms if "queryaction" in f.op] or list(action.forms)
@@ -634,10 +652,18 @@ class ThingClient:
                     return f
         return cand[0] if cand else None
 
-    async def _invoke_async(self, action, tool_name, arguments, *, wait, timeout):
+    async def _invoke_async(
+        self,
+        action: WoTAction,
+        tool_name: str,
+        arguments: dict[str, Any] | None,
+        *,
+        wait: bool,
+        timeout: float,
+    ) -> Any:
         form = self._lifecycle_form(action)
         binding = self._registry.resolve(form) if form else None
-        if binding is None or not hasattr(binding, "invoke_async"):
+        if form is None or binding is None or not hasattr(binding, "invoke_async"):
             # No lifecycle-capable transport: fall back to a plain invoke so the
             # call still completes (returns the raw result, not a handle).
             if binding is not None and hasattr(binding, "invoke") and form is not None:
@@ -661,7 +687,7 @@ class ThingClient:
         finally:
             self._inflight.pop(tool_name, None)
 
-    async def _wait_for(self, status, *, timeout: float):
+    async def _wait_for(self, status: Any, *, timeout: float) -> Any:
         import asyncio
         import time
 
@@ -671,14 +697,14 @@ class ThingClient:
             status = await self.query_action(status)
         return status
 
-    async def query_action(self, status):
+    async def query_action(self, status: Any) -> Any:
         """Poll a long-running action's status (the ``queryaction`` op)."""
         binding = self._registry.resolve(status.form) if status.form else None
         if binding is None or not hasattr(binding, "query_action"):
             return status
         return await binding.query_action(status)
 
-    async def cancel_action(self, status):
+    async def cancel_action(self, status: Any) -> Any:
         """Cancel a long-running action (the ``cancelaction`` op)."""
         binding = self._registry.resolve(status.form) if status.form else None
         if binding is None or not hasattr(binding, "cancel_action"):
@@ -696,7 +722,7 @@ class ThingClient:
         them with frames(); they are not in list_actions()."""
         return list(self._media)
 
-    def media_form(self, name: str):
+    def media_form(self, name: str) -> WoTForm | None:
         """The media form backing a media affordance, or None. Lets callers read
         the form's media hint (e.g. a snapshot default) without reaching in."""
         entry = self._media.get(name)
@@ -746,7 +772,7 @@ class ThingClient:
             return {"error": f"no writable transport for property {name}"}
         return await binding.write(prop, form, value)
 
-    def _bulk_form(self, thing: WoTThing, *ops: str):
+    def _bulk_form(self, thing: WoTThing, *ops: str) -> WoTForm | None:
         """The Thing-level form declaring any of ``ops`` (a bulk operation), or None."""
         for f in thing.forms:
             if any(op in f.op for op in ops):
@@ -833,7 +859,7 @@ class ThingClient:
                     out[prop.name] = await self.write_property(name, mine[prop.name])
         return out
 
-    async def subscribe(self, name: str, args: dict[str, Any] | None = None):
+    async def subscribe(self, name: str, args: dict[str, Any] | None = None) -> AsyncIterator[Any]:
         """Subscribe to an event or observable property. Returns an async
         iterator that yields each pushed value. ``args`` are subscribe-time
         parameters (an event's ``subscription`` schema), e.g. a filter.
@@ -871,7 +897,7 @@ class ThingClient:
         # the template before the transport sees the form.
         href, rest = form.fill(args or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
-        stream = await binding.subscribe(target, filled, rest)
+        stream: AsyncIterator[Any] = await binding.subscribe(target, filled, rest)
         # 2. per-delivery filter: the token can expire while the stream lives,
         # so re-authorize before each value and stop the stream on lapse.
         if self._pdp is not None:
@@ -888,7 +914,7 @@ class ThingClient:
         arguments: dict[str, Any] | None = None,
         *,
         track: str = "video",
-    ):
+    ) -> AsyncIterator[Any]:
         """Open a media affordance and yield decoded frames. Returns an async
         iterator; ``track`` selects video or audio.
 
@@ -911,13 +937,13 @@ class ThingClient:
                 return _single_denial_aiter(denied)
         form = next((f for f in affordance.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
-        if binding is None or not hasattr(binding, "frames"):
+        if form is None or binding is None or not hasattr(binding, "frames"):
             return _empty_aiter(f"no media transport for {name}; register MediaBinding")
         import dataclasses
 
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
-        stream = binding.frames(affordance, filled, rest, track=track)
+        stream: AsyncIterator[Any] = binding.frames(affordance, filled, rest, track=track)
         if self._pdp is not None:
             from thingctx.authz.pdp import _authorized_stream
 
@@ -929,16 +955,18 @@ class ThingClient:
     async def publish(
         self,
         name: str,
-        frames,
+        frames: AsyncIterator[Any],
         arguments: dict[str, Any] | None = None,
         *,
         track: str = "video",
-        audio=None,
-    ) -> None:
+        audio: AsyncIterator[Any] | None = None,
+    ) -> dict[str, Any] | None:
         """Push an async iterator of frames to a media affordance's ingest
         target (a URL or a file). The outbound mirror of ``frames()``; returns
-        when the source is exhausted. With ``audio`` supplied, ``frames`` is the
-        video track and ``audio`` is muxed alongside it into one A/V output.
+        None when the source is exhausted. With ``audio`` supplied, ``frames`` is
+        the video track and ``audio`` is muxed alongside it into one A/V output.
+        Under a PDP that denies the call (and authz_raise off) it returns the
+        denial envelope instead of reaching the device.
 
             await client.publish("studio__broadcast", frame_source())
             await client.publish(
@@ -958,7 +986,7 @@ class ThingClient:
                 return denied
         form = next((f for f in affordance.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
-        if binding is None or not hasattr(binding, "publish"):
+        if form is None or binding is None or not hasattr(binding, "publish"):
             raise RuntimeError(f"no media transport for {name}; register MediaBinding")
         import dataclasses
 
@@ -974,28 +1002,39 @@ class ThingClient:
         arguments: dict[str, Any] | None = None,
         *,
         track: str | None = None,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         """Remux a media affordance's source to ``target`` (a local file) by
         stream copy: the file is bit exact (same codecs, frame rate, A/V sync)
         with no re-encode. The clean "save the source"; ``publish`` re-encodes
         for a transform. ``track`` (``video``/``audio``) limits the copy to one
-        stream; by default every media stream is copied.
+        stream; by default every media stream is copied. Under a PDP that denies
+        the call (and authz_raise off) it returns the denial envelope instead of
+        reaching the device.
 
             await client.save("cam__watch", "clip.mp4")
         """
         entry = self._media.get(name)
         if entry is None:
             raise KeyError(f"unknown media affordance: {name}")
-        affordance, _op = entry
+        affordance, op = entry
+        # Saving reads the device stream to a local file, the same read that
+        # frames() performs, so it is authorized as the affordance's own op and
+        # gated before the stream opens. Every device-reaching method enforces
+        # the PDP; without this gate save would be a hole in that boundary.
+        if self._pdp is not None:
+            denied = await self._authorize(affordance, op)
+            if denied is not None:
+                return denied
         form = next((f for f in affordance.forms if is_media_form(f)), None)
         binding = self._registry.resolve(form) if form else None
-        if binding is None or not hasattr(binding, "save"):
+        if form is None or binding is None or not hasattr(binding, "save"):
             raise RuntimeError(f"no media transport for {name}; register MediaBinding")
         import dataclasses
 
         href, rest = form.fill(arguments or {})
         filled = dataclasses.replace(form, href=href) if href != form.href else form
         await binding.save(affordance, filled, target, rest, track=track)
+        return None
 
     async def verify(self, thing_id: str | None = None) -> list[VerifyReport]:
         """Ground each Thing's TD against the live endpoint: read every
@@ -1010,15 +1049,17 @@ class ThingClient:
         return [await verify_thing(self, t) for t in things]
 
 
-async def _empty_aiter(err: str):
-    if False:  # pragma: no cover, make this an async generator
-        yield None
+async def _empty_aiter(err: str) -> AsyncIterator[Any]:
     import warnings
 
     warnings.warn(err, stacklevel=2)
+    # An empty async generator: the loop never runs, but the `yield` makes this a
+    # generator function (so callers can `async for` over it) with no items.
+    for _ in ():
+        yield
 
 
-async def _single_denial_aiter(envelope: Any):
+async def _single_denial_aiter(envelope: Any) -> AsyncIterator[Any]:
     """Yield one authorization-denial envelope as a stream, so a stream-shaped
     denial (subscribe/frames with authz_raise=False) is visible to `async for`
     rather than silently empty."""

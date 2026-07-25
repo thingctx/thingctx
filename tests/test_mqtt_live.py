@@ -27,10 +27,10 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("paho.mqtt.client")
-import paho.mqtt.client as mqtt  # noqa: E402
+import paho.mqtt.client as mqtt
 
-from thingctx import parse_thing  # noqa: E402
-from thingctx.bindings import MqttBinding  # noqa: E402
+from thingctx import parse_thing
+from thingctx.bindings import MqttBinding
 
 MOSQUITTO = shutil.which("mosquitto")
 MOSQUITTO_PASSWD = shutil.which("mosquitto_passwd")
@@ -54,7 +54,7 @@ def _new_client():
     return mqtt.Client(version.VERSION1) if version else mqtt.Client()
 
 
-@pytest.fixture()
+@pytest.fixture
 def broker(tmp_path: Path):
     """Launch a password-protected Mosquitto; yield its port."""
     pwfile = tmp_path / "passwd"
@@ -94,7 +94,7 @@ def _responder(port: int, topic: str):
     client = _new_client()
     client.username_pw_set(USER, PASSWORD)
 
-    def _on_message(c, _u, msg):  # noqa: ANN001
+    def _on_message(c, _u, msg):
         c.publish(f"{topic}/reply", b'{"ok": true, "echo": ' + msg.payload + b"}")
 
     client.on_message = _on_message
@@ -152,6 +152,6 @@ async def test_wrong_password_is_rejected_by_broker(broker):
     client.loop_stop()
     try:
         client.disconnect()
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     assert not connected

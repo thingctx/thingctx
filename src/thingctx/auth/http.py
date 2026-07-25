@@ -64,7 +64,7 @@ def _httpx_cert(c: ClientCertificate) -> Any:
     return c.certfile
 
 
-def _aws_signer(cred: SignatureCredential):
+def _aws_signer(cred: SignatureCredential) -> Callable[[Any], None]:
     """A request-signer closure for the SigV4 algorithm: resolve region/service
     from the request host (when not given in ``params``) and sign in place."""
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import thingctx.bindings as bindings
+from thingctx import bindings
 from thingctx.integrations.mcp import client_from_registry
 
 

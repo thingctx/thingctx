@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, cast
 
 from thingctx.gateways.engine import (
     INVOKE,
@@ -237,7 +237,8 @@ class MqttGatewayBinding:
             await self._handle_subscribe(req, data)
             return
 
-        result = await self._gateway.dispatch(req)
+        # serve() sets _gateway before any inbound message can be handled.
+        result = await cast("Gateway", self._gateway).dispatch(req)
         await self.reply(req, result)
 
     async def _handle_subscribe(self, req: ServeRequest, data: Any) -> None:
@@ -245,7 +246,8 @@ class MqttGatewayBinding:
         stream topic on permit. The request may name a ``stream`` topic to receive
         on; default is ``<subscribe-topic>/stream``."""
         # Authorize the subscribeevent op for this caller via the engine gate.
-        decision = await self._gateway.authorize(req)
+        # serve() sets _gateway before any inbound message reaches here.
+        decision = await cast("Gateway", self._gateway).authorize(req)
         if not decision.get("permit"):
             await self.reply(req, {"error": "subscribe denied", "denied": True})
             return
@@ -288,7 +290,7 @@ class MqttGatewayBinding:
             token = token[7:].strip()
         try:
             return await self._guard.validate(token)
-        except Exception:  # noqa: BLE001 - a bad token is anonymous, not a crash
+        except Exception:
             return None
 
     # -- RequestReply capability ------------------------------------------ #
@@ -305,14 +307,17 @@ class MqttGatewayBinding:
         self._publish(f"{self._prefix}/{thing_slug}/events/{event}", payload)
 
     def _start_mirror(self, slug: str, name: str) -> None:
+        # _start_mirror runs from serve(), which set _gateway just before.
+        gateway = cast("Gateway", self._gateway)
+
         async def _mirror() -> None:
             try:
-                stream = await self._gateway.client.subscribe(f"{slug}{TOOL_SEP}{name}")
+                stream = await gateway.client.subscribe(f"{slug}{TOOL_SEP}{name}")
                 async for payload in stream:
                     await self.mirror_event(slug, name, payload)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - a dead mirror must not kill the gateway
+            except Exception:
                 return
 
         self._event_tasks.append(asyncio.ensure_future(_mirror()))
@@ -323,7 +328,8 @@ class MqttGatewayBinding:
         client, so per-delivery re-authorization (token expiry / revocation)
         applies: the caller's stream stops when their grant lapses, not just at
         subscribe time."""
-        client = self._gateway.client
+        # Reached from _handle_subscribe, so serve() has already set _gateway.
+        client = cast("Gateway", self._gateway).client
         pdp = getattr(client, "_pdp", None)
         if pdp is not None and identity is not None:
             client = client.guarded(pdp, identity=identity)
@@ -335,7 +341,7 @@ class MqttGatewayBinding:
                     self._publish(stream_topic, payload)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - a dead mirror must not kill the gateway
+            except Exception:
                 return
 
         self._event_tasks.append(asyncio.ensure_future(_mirror()))
@@ -357,7 +363,8 @@ def _user_property(props: Any, key: str) -> str | None:
         return None
     for name, value in pairs:
         if name == key:
-            return value
+            # MQTT v5 user-property values are UTF-8 strings (paho decodes them).
+            return str(value)
     return None
 
 
@@ -366,5 +373,5 @@ def _jsonable(value: Any) -> Any:
         return value
     try:
         return json.loads(to_text(value))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {"result": str(value)}

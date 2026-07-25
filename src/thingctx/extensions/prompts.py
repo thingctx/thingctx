@@ -60,7 +60,7 @@ def list_prompts(client: Any) -> list[dict[str, Any]]:
     return out
 
 
-async def get_prompt(client: Any, name: str, arguments: dict[str, Any] | None = None):
+async def get_prompt(client: Any, name: str, arguments: dict[str, Any] | None = None) -> Any:
     """Expand a prompt template into [{role, content}] messages. If the
     TD carries tc:template, expand it client-side ({arg} filled from
     arguments); else invoke the action. Raises ValueError if name is not

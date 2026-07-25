@@ -218,9 +218,9 @@ async def test_driving_through_mcp_server_enforces_authz():
     # value never reaches it.
     denied = await _call_via_server(server, "pump__set_speed", {"rpm": 3000})
     assert "3000" not in denied, f"denied write must not reach the device: {denied}"
-    assert (
-        "ok" not in denied.lower() or "denied" in denied.lower() or "not" in denied.lower()
-    ), denied
+    assert "ok" not in denied.lower() or "denied" in denied.lower() or "not" in denied.lower(), (
+        denied
+    )
 
     await mb.aclose()
     await gw.client.aclose()

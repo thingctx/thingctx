@@ -15,10 +15,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 
-from _pump import DEVICE_TOKEN, PumpDevice, pump_td, start_http_server  # noqa: E402
+from _pump import DEVICE_TOKEN, PumpDevice, pump_td, start_http_server
 
-from thingctx import HttpBinding, LocalBinding, ThingClient  # noqa: E402
-from thingctx.validate import validate_semantics  # noqa: E402
+from thingctx import HttpBinding, LocalBinding, ThingClient
+from thingctx.validate import validate_semantics
 
 
 @pytest.fixture

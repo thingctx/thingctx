@@ -15,9 +15,15 @@ repos:
       - id: check-case-conflict
       - id: check-yaml
       - id: check-json
+      # The bundled W3C TD 1.1 schema must stay byte-identical to the upstream
+      # file (a drift tripwire test asserts it), so the whitespace fixers must
+      # not touch it.
       - id: end-of-file-fixer
+        exclude: ^src/thingctx/data/td-schema-1\.1\.json$
       - id: trailing-whitespace
+        exclude: ^src/thingctx/data/td-schema-1\.1\.json$
       - id: mixed-line-ending
+        exclude: ^src/thingctx/data/td-schema-1\.1\.json$
       - id: debug-statements
 
   - repo: https://github.com/gitleaks/gitleaks
@@ -26,11 +32,31 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.14.4
     hooks:
       - id: ruff
         args: ["--fix"]
       - id: ruff-format
+
+  # Types and dead-code run from the project's own environment (local hooks), so
+  # they see the installed optional dependencies and the [tool.mypy]/[tool.vulture]
+  # config in pyproject. Install the dev extra once: pip install -e ".[dev]".
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+      - id: vulture
+        name: vulture
+        entry: vulture
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
 
   # Local guard: block internal/private strings. The forbidden list is NOT in
   # this repo (it lives in a gitignored file); without it this hook is a no-op.

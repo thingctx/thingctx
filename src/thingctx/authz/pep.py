@@ -44,9 +44,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AuthorizationDenied",
-    "guard_client",
     "_authorized_stream",
     "_token_expired",
+    "guard_client",
 ]
 
 

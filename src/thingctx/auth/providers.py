@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import base64
 import time
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 from thingctx.auth.context import AuthContext
 from thingctx.auth.credentials import (
@@ -25,25 +25,26 @@ from thingctx.auth.credentials import (
     BearerToken,
     Credential,
     RequestSigner,
+    Secret,
     SignatureCredential,
 )
 from thingctx.auth.sigv4 import _AWS_SCHEMES, _aws_creds
 from thingctx.auth.store import TokenStore, default_token_store, token_key
 
 __all__ = [
-    "CredentialProvider",
+    "ApiKeyAuth",
     "AuthStrategy",
+    "AwsSigV4Auth",
     "BaseAuth",
+    "BasicAuth",
+    "CredentialProvider",
     "DirectCredentialAuth",
     "NoSecAuth",
-    "StaticBearerAuth",
-    "BasicAuth",
-    "ApiKeyAuth",
+    "OAuth2AuthorizationCodeAuth",
     "OAuth2ClientCredentialsAuth",
     "OAuth2JwtBearerAuth",
-    "OAuth2AuthorizationCodeAuth",
-    "AwsSigV4Auth",
     "RequestSigner",
+    "StaticBearerAuth",
 ]
 
 
@@ -55,11 +56,9 @@ class CredentialProvider(Protocol):
 
     def matches(self, scheme: Any, credential: Any) -> bool:
         """True if this provider handles ``scheme`` given ``credential``."""
-        pass
 
     async def resolve(self, ctx: AuthContext) -> Credential | None:
         """Return the credential material for this scheme, or ``None``."""
-        pass
 
 
 class BaseAuth:
@@ -101,7 +100,9 @@ class DirectCredentialAuth(BaseAuth):
         return isinstance(credential, Credential)
 
     async def resolve(self, ctx: AuthContext) -> Credential | None:
-        return ctx.credential
+        # matches() admits this provider only when the runtime secret is itself
+        # a Credential, so ctx.credential (Any) is one here.
+        return cast("Credential", ctx.credential)
 
 
 class NoSecAuth(BaseAuth):
@@ -122,7 +123,7 @@ class StaticBearerAuth(BaseAuth):
         token = cred.get("access_token") if isinstance(cred, dict) else cred
         if not token:
             return None
-        return BearerToken(token=str(token))
+        return BearerToken(token=Secret(str(token)))
 
 
 class BasicAuth(BaseAuth):
@@ -136,15 +137,15 @@ class BasicAuth(BaseAuth):
         if not cred:  # no secret supplied means no credential (never a "None" login)
             return None
         if isinstance(cred, tuple | list) and len(cred) == 2:
-            return BasicCredential(username=str(cred[0]), password=str(cred[1]))
+            return BasicCredential(username=Secret(str(cred[0])), password=Secret(str(cred[1])))
         if isinstance(cred, dict):
             return BasicCredential(
-                username=str(cred.get("username", "")),
-                password=str(cred.get("password", "")),
+                username=Secret(str(cred.get("username", ""))),
+                password=Secret(str(cred.get("password", ""))),
             )
         raw = str(cred)
         user, _, pw = raw.partition(":")
-        return BasicCredential(username=user, password=pw)
+        return BasicCredential(username=Secret(user), password=Secret(pw))
 
 
 class ApiKeyAuth(BaseAuth):
@@ -161,7 +162,7 @@ class ApiKeyAuth(BaseAuth):
             return None
         name = getattr(scheme, "key_name", "Authorization") or "Authorization"
         location = "query" if getattr(scheme, "in_", "header") == "query" else "header"
-        return ApiKeyCredential(name=name, value=str(secret), location=location)
+        return ApiKeyCredential(name=name, value=Secret(str(secret)), location=location)
 
 
 # --------------------------------------------------------------------------- #
@@ -200,7 +201,8 @@ def _secret_fp(secret: Any) -> str:
 def _cache_get(cache: dict, key: tuple) -> str | None:
     hit = cache.get(key)
     if hit and hit[1] - 60 > time.monotonic():  # 60s safety margin
-        return hit[0]
+        # _cache_put stores (token: str, expiry: float); hit[0] is the token.
+        return cast("str", hit[0])
     return None
 
 
@@ -236,7 +238,7 @@ async def _refresh_grant(
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(token_url, data=data)
         resp.raise_for_status()
-        return resp.json()
+        return cast("dict", resp.json())
 
 
 class OAuth2ClientCredentialsAuth(BaseAuth):
@@ -253,9 +255,8 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
     def matches(self, scheme: Any, credential: Any) -> bool:
         if getattr(scheme, "scheme", None) != "oauth2":
             return False
-        if isinstance(credential, dict) and credential.get("private_key"):
-            return False  # that is a JWT-bearer credential
-        return True
+        # A private_key routes to JWT-bearer, not client-credentials.
+        return not (isinstance(credential, dict) and credential.get("private_key"))
 
     @staticmethod
     def _creds(cred: Any) -> tuple[str | None, str | None]:
@@ -269,8 +270,15 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         return (cred if isinstance(cred, str) else None), None
 
     @staticmethod
-    def _token_request(method: str, cid, secret, grant, scopes, owner=None):
-        data = {"grant_type": grant}
+    def _token_request(
+        method: str,
+        cid: str | None,
+        secret: str | None,
+        grant: str,
+        scopes: tuple[str, ...],
+        owner: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        data: dict[str, Any] = {"grant_type": grant}
         if scopes:
             data["scope"] = " ".join(scopes)
         # The password grant carries the resource owner's credentials alongside
@@ -280,7 +288,7 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
                 data["username"] = owner["username"]
             if owner.get("password") is not None:
                 data["password"] = owner["password"]
-        headers: dict = {}
+        headers: dict[str, str] = {}
         if method == "basic" and secret is not None:
             raw = f"{cid}:{secret}".encode()
             headers["Authorization"] = f"Basic {base64.b64encode(raw).decode()}"
@@ -294,10 +302,10 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
     async def resolve(self, ctx: AuthContext) -> Credential | None:
         cred, scheme = ctx.credential, ctx.scheme
         if isinstance(cred, dict) and cred.get("access_token"):
-            return BearerToken(token=cred["access_token"])
+            return BearerToken(token=Secret(cred["access_token"]))
         token_url = getattr(scheme, "token", "")
         if isinstance(cred, str) and not token_url:
-            return BearerToken(token=cred)  # already-issued bearer
+            return BearerToken(token=Secret(cred))  # already-issued bearer
 
         cid, secret = self._creds(cred)
         if not token_url or cid is None:
@@ -306,7 +314,7 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         key = ("cc", ctx.owner_id or scheme.name, token_url, scopes, cid, _secret_fp(secret))
         cached = _cache_get(ctx.cache, key)
         if cached:
-            return BearerToken(token=cached)
+            return BearerToken(token=Secret(cached))
 
         _guard_tls(token_url, ctx.allow_insecure_oauth)
         grant = getattr(scheme, "flow", "") or "client_credentials"
@@ -314,10 +322,7 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         if grant == "password" and isinstance(cred, dict):
             owner = {"username": cred.get("username"), "password": cred.get("password")}
         methods_key = ("cc-method", token_url)
-        if secret is None:
-            methods = ["post"]
-        else:
-            methods = ctx.cache.get(methods_key) or ["basic", "post"]
+        methods = ["post"] if secret is None else ctx.cache.get(methods_key) or ["basic", "post"]
 
         import httpx
 
@@ -337,7 +342,7 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         if not access:
             return None
         _cache_put(ctx.cache, key, access, (tok or {}).get("expires_in", 3600))
-        return BearerToken(token=access)
+        return BearerToken(token=Secret(access))
 
 
 class OAuth2JwtBearerAuth(BaseAuth):
@@ -373,7 +378,7 @@ class OAuth2JwtBearerAuth(BaseAuth):
         key = ("jwt", ctx.owner_id or scheme.name, token_url, scopes, iss, fp)
         cached = _cache_get(ctx.cache, key)
         if cached:
-            return BearerToken(token=cached)
+            return BearerToken(token=Secret(cached))
 
         _guard_tls(token_url, ctx.allow_insecure_oauth)
         try:
@@ -414,7 +419,7 @@ class OAuth2JwtBearerAuth(BaseAuth):
         if not access:
             return None
         _cache_put(ctx.cache, key, access, (tok or {}).get("expires_in", 3600))
-        return BearerToken(token=access)
+        return BearerToken(token=Secret(access))
 
 
 class OAuth2AuthorizationCodeAuth(BaseAuth):
@@ -453,7 +458,7 @@ class OAuth2AuthorizationCodeAuth(BaseAuth):
     async def resolve(self, ctx: AuthContext) -> Credential | None:
         cred, scheme = ctx.credential, ctx.scheme
         if isinstance(cred, dict) and cred.get("access_token"):
-            return BearerToken(token=cred["access_token"])  # caller supplied one
+            return BearerToken(token=Secret(cred["access_token"]))  # caller supplied one
         token_url = getattr(scheme, "token", "") or (
             cred.get("token_url") if isinstance(cred, dict) else ""
         )
@@ -467,7 +472,7 @@ class OAuth2AuthorizationCodeAuth(BaseAuth):
         key = ("ac", ctx.owner_id or scheme.name, token_url, scopes, _cid, _secret_fp(_rt or _sec))
         cached = _cache_get(ctx.cache, key)
         if cached:
-            return BearerToken(token=cached)
+            return BearerToken(token=Secret(cached))
 
         cid, secret = OAuth2ClientCredentialsAuth._creds(cred)
         skey = token_key(ctx.owner_id, token_url, scopes)
@@ -498,7 +503,7 @@ class OAuth2AuthorizationCodeAuth(BaseAuth):
         rotated = (tok or {}).get("refresh_token")
         if rotated and rotated != refresh:  # some IdPs rotate the refresh token
             self.store.set(skey, {**record, "refresh_token": rotated, "client_id": cid})
-        return BearerToken(token=access)
+        return BearerToken(token=Secret(access))
 
 
 # --------------------------------------------------------------------------- #
@@ -539,5 +544,9 @@ class AwsSigV4Auth(BaseAuth):
         if service:
             params["service"] = service
         return SignatureCredential(
-            algorithm="aws-sigv4", key_id=ak, secret_key=sk, token=st, params=params
+            algorithm="aws-sigv4",
+            key_id=Secret(ak),
+            secret_key=Secret(sk),
+            token=Secret(st) if st else None,
+            params=params,
         )

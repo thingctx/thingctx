@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from thingctx.bindings import BindingRegistry, ProtocolBinding
 from thingctx.contrib.llm import LLMHost
 from thingctx.registry import _max_td_bytes, _user_agent
 from thingctx.runtime import ThingClient
+
+if TYPE_CHECKING:
+    from thingctx.trust import ApprovePolicy
 
 
 def from_td(
@@ -29,7 +32,7 @@ def from_td(
     bindings: BindingRegistry | list[ProtocolBinding] | None = None,
     validate: bool = False,
     approve: Any = None,
-    approve_when: str = "declared",
+    approve_when: ApprovePolicy = "declared",
     **host_kwargs: Any,
 ) -> LLMHost:
     """From one or more TD dicts. Defaults to http + local bindings; pass

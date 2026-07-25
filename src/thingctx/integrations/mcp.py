@@ -36,15 +36,24 @@ registry; no flag or TD edit is needed, and the TD names no implementation.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import secrets
 import sys
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from thingctx.runtime import ThingClient, to_text
 from thingctx.thing import TOOL_SEP, _tool_slug
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Awaitable, Callable
+
+    from mcp import types
+    from mcp.server.lowlevel import Server
+
+    from thingctx.trust import ApprovePolicy
 
 logger = logging.getLogger("thingctx.mcp")
 
@@ -78,7 +87,7 @@ def _credentials_from_env() -> dict[str, str]:
     return creds
 
 
-class _NeedsManualApproval(Exception):
+class _NeedsManualApproval(Exception):  # noqa: N818 (a control-flow signal, not an error)
     """Raised by the approver when the connected client cannot show an
     elicitation dialog. The bridge catches it and returns a pending-approval
     envelope with a token; the user then approves by calling the ``approve``
@@ -87,22 +96,22 @@ class _NeedsManualApproval(Exception):
     client (e.g. Claude Desktop) would hang or silently deny."""
 
 
-def _client_can_elicit(session) -> bool:
+def _client_can_elicit(session: Any) -> bool:
     """True if the connected client declared the elicitation capability at
     initialize. A client that did not cannot answer session.elicit(), so asking
     would hang; the bridge routes to the approve-tool path instead."""
-    import mcp.types as types
+    from mcp import types
 
     check = getattr(session, "check_client_capability", None)
     if check is None:
         return False
     try:
-        return bool(check(types.ClientCapabilities(elicitation={})))
-    except Exception:  # noqa: BLE001
+        return bool(check(types.ClientCapabilities(elicitation=types.ElicitationCapability())))
+    except Exception:
         return False
 
 
-def _elicit_approver(server):
+def _elicit_approver(server: Any) -> Callable[[Any], Awaitable[bool]]:
     """An approver that asks the connected MCP client to confirm a gated call.
 
     If the client supports MCP elicitation, ask via a dialog and honor the
@@ -111,10 +120,10 @@ def _elicit_approver(server):
     elicit nobody answers or silently denying. Denies only when there is no live
     session at all (a gate with nobody to open stays shut)."""
 
-    async def approve(req) -> bool:
+    async def approve(req: Any) -> bool:
         try:
             session = server.request_context.session
-        except Exception:  # noqa: BLE001  (no active request/session)
+        except Exception:
             return False
         if not _client_can_elicit(session):
             # No dialog channel: hand off to the approve tool via the bridge.
@@ -131,7 +140,7 @@ def _elicit_approver(server):
             result = await session.elicit(
                 message=message, requestedSchema={"type": "object", "properties": {}}
             )
-        except Exception:  # noqa: BLE001  (elicit unexpectedly unavailable at call time)
+        except Exception:
             raise _NeedsManualApproval() from None
         return getattr(result, "action", None) == "accept"
 
@@ -143,10 +152,10 @@ def build_mcp_server(
     *,
     name: str = "thingctx",
     approve: Any = "elicit",
-    approve_when: str | None = None,
+    approve_when: ApprovePolicy | None = None,
     event_history: int = 16,
     tool_mode: str | None = None,
-):
+) -> Server:
     """Build an mcp Server that bridges `client` to MCP. Needs the `mcp`
     package.
 
@@ -165,8 +174,9 @@ def build_mcp_server(
     import collections
     import os
 
-    import mcp.types as types
+    from mcp import types
     from mcp.server.lowlevel import Server
+    from pydantic import AnyUrl
 
     # Tool projection mode. The flat surface (one tool per action) grows with the
     # fleet: both the tool count and the context they cost every turn. The gateway
@@ -176,29 +186,28 @@ def build_mcp_server(
     # start/read/stop background trio (a tool cannot hold a live stream), which
     # forwards a parameterized event's uriVariables (e.g. mqtt broker/topic).
     #
-    # DEFAULT IS "auto": flat while the flat surface stays at or under FLAT_MAX
+    # DEFAULT IS "auto": flat while the flat surface stays at or under flat_max
     # tools, gateway once it would exceed it. Flat's per-Thing names (mqtt__publish)
     # match user intent, so they win tool selection against a client's own code
     # sandbox; the gateway's generic invoke_action does not, so it is bypass-prone
     # in an open agent. A large surface, though, sprawls under flat, so it flips to
     # the constant gateway surface. Force either with THINGCTX_TOOL_MODE.
-    FLAT_MAX = 60
+    flat_max = 60
     tool_mode = (tool_mode or os.environ.get("THINGCTX_TOOL_MODE") or "auto").strip().lower()
     if tool_mode not in ("gateway", "flat", "auto"):
         tool_mode = "auto"
     if tool_mode == "auto":
         # The flat surface size is the tool-spec count (one per action, plus the
-        # property setters/cancels the flat route adds); compare to FLAT_MAX.
+        # property setters/cancels the flat route adds); compare to flat_max.
         _flat_n = len(client.tool_specs)
-        tool_mode = "flat" if _flat_n <= FLAT_MAX else "gateway"
-        try:
+        tool_mode = "flat" if _flat_n <= flat_max else "gateway"
+        # Best effort: a broken stderr must not sink the server startup.
+        with contextlib.suppress(Exception):
             print(
                 f"thingctx-mcp: tool mode = {tool_mode} (auto: {_flat_n} actions "
-                f"{'<=' if tool_mode == 'flat' else '>'} {FLAT_MAX})",
+                f"{'<=' if tool_mode == 'flat' else '>'} {flat_max})",
                 file=sys.stderr,
             )
-        except Exception:  # noqa: BLE001
-            pass
 
     # Instructions the client puts in the model's system context at initialize.
     # This is the strongest steer thingctx has against the agent bypassing a Thing
@@ -236,7 +245,7 @@ def build_mcp_server(
     # surface. subscribe_event is therefore dropped from the MCP gateway surface.
     # Background-subscription verbs: receive an event's messages BETWEEN prompts,
     # not only during a call. Available in both tool modes.
-    _BG_SUB_TOOLS = [
+    _bg_sub_tools: list[dict[str, Any]] = [
         {
             "type": "function",
             "function": {
@@ -290,12 +299,12 @@ def build_mcp_server(
             },
         },
     ]
-    _BG_SUB_NAMES = {t["function"]["name"] for t in _BG_SUB_TOOLS}
+    _bg_sub_names = {t["function"]["name"] for t in _bg_sub_tools}
     # A media (RTSP/video) affordance is not a discrete-message event; it is
     # captured as an image. In gateway mode it gets its own verb so the surface
     # stays consistent (one shape for every affordance), instead of a per-Thing
     # <slug>__snapshot tool the model must cross over to.
-    _SNAPSHOT_VERB = {
+    _snapshot_verb = {
         "type": "function",
         "function": {
             "name": "snapshot",
@@ -330,7 +339,7 @@ def build_mcp_server(
     # action can't be confirmed by an elicitation dialog, the bridge parks it and
     # returns a token; the user says "yes" and the agent calls approve(token) to
     # run it. Present unless the approval gate is off (approve_when="never").
-    _APPROVE_TOOL = {
+    _approve_tool = {
         "type": "function",
         "function": {
             "name": "approve",
@@ -357,13 +366,13 @@ def build_mcp_server(
         # Drop the projection's streaming subscribe_event (MCP can't carry a stream);
         # the trio below is the single event-read model over MCP.
         [t for t in GATEWAY_TOOLS if t["function"]["name"] != "subscribe_event"]
-        + _BG_SUB_TOOLS
-        + ([_SNAPSHOT_VERB] if _has_media else [])
-        + ([_APPROVE_TOOL] if _approvals_on else [])
+        + _bg_sub_tools
+        + ([_snapshot_verb] if _has_media else [])
+        + ([_approve_tool] if _approvals_on else [])
     )
     _gateway_names = (
         (GATEWAY_TOOL_NAMES - {"subscribe_event"})
-        | _BG_SUB_NAMES
+        | _bg_sub_names
         | ({"snapshot"} if _has_media else set())
         | ({"approve"} if _approvals_on else set())
     )
@@ -437,7 +446,7 @@ def build_mcp_server(
     # An action carries MCP annotations derived from the TD's semantics; a
     # `tc:mcp` block on the action passes any annotation through (and overrides).
     @server.list_tools()
-    async def list_tools():
+    async def list_tools() -> list[types.Tool]:
         out = []
         valid = set(types.ToolAnnotations.model_fields)
         if gateway is not None:
@@ -567,7 +576,7 @@ def build_mcp_server(
         # event to subscribe to, so a registry with no events shows no noise.
         if event_names:
             bg_read_only = {"read_subscription"}
-            for spec in _BG_SUB_TOOLS:
+            for spec in _bg_sub_tools:
                 fn = spec["function"]
                 nm = fn["name"]
                 out.append(
@@ -585,7 +594,7 @@ def build_mcp_server(
         # The approve tool (flat mode): the chat-native confirmation for a gated
         # action when the client can't show an elicitation dialog.
         if _approvals_on:
-            fn = _APPROVE_TOOL["function"]
+            fn = _approve_tool["function"]
             out.append(
                 types.Tool(
                     name=fn["name"],
@@ -598,7 +607,7 @@ def build_mcp_server(
             )
         return out
 
-    async def _snapshot(name: str, args: dict):
+    async def _snapshot(name: str, args: dict) -> Any:
         """Grab one frame (or a short burst) from a media affordance and return
         them as MCP image content."""
         import base64
@@ -630,7 +639,7 @@ def build_mcp_server(
             picked = [frame] if frame is not None else []
         else:
             # Skip ahead to ``seconds`` first, then sample ``count`` frames.
-            async def _from(start: float):
+            async def _from(start: float) -> AsyncIterator[Any]:
                 async for fr in await client.frames(name, args, track="video"):
                     if not start or (fr.pts is not None and fr.pts >= start):
                         yield fr
@@ -662,7 +671,7 @@ def build_mcp_server(
     # store's job, not the client's.
     _subs: dict[str, dict] = {}
     _sub_counter = [0]
-    _SUB_RING = 200
+    _sub_ring = 200
 
     # Pending approvals: when a gated call can't be confirmed by an elicitation
     # dialog (the client has none), it is parked here under a token, and the user
@@ -686,7 +695,7 @@ def build_mcp_server(
                 ring.append((state["seq"], value))
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 (a dead stream ends the pump; read() reports it)
+        except Exception:
             state["ended"] = True
             logger.warning("background subscription %s stopped", sub_id, exc_info=True)
 
@@ -704,7 +713,7 @@ def build_mcp_server(
         _sub_counter[0] += 1
         sub_id = f"{thing_id}:{event}:{_sub_counter[0]}"
         _subs[sub_id] = {
-            "ring": collections.deque(maxlen=_SUB_RING),
+            "ring": collections.deque(maxlen=_sub_ring),
             "dropped": 0,
             "seq": 0,
             "ended": False,
@@ -754,10 +763,10 @@ def build_mcp_server(
         stream = state.get("stream")
         aclose = getattr(stream, "aclose", None) if stream is not None else None
         if aclose is not None:
-            try:
+            # Teardown: a stream that errors while closing is already being torn
+            # down, so the failure has nowhere useful to go.
+            with contextlib.suppress(Exception):
                 await aclose()
-            except Exception:  # noqa: BLE001
-                pass
         return {"subscription_id": sub_id, "stopped": True, "remaining": len(state["ring"])}
 
     def _gateway_connect_target(verb: str, args: dict) -> str | None:
@@ -778,7 +787,7 @@ def build_mcp_server(
                 return _tool_name(t.id, affordance)
         return None
 
-    def _tool_result(payload: Any):
+    def _tool_result(payload: Any) -> types.CallToolResult:
         """Wrap a runtime result as an MCP tool result: text for any client,
         structured content for those that use it, and ``isError`` when the
         runtime reports a failure (so a model is not told a failed call
@@ -791,7 +800,9 @@ def build_mcp_server(
             isError=is_error,
         )
 
-    async def _run_gated_call(tool: str, args: dict, *, bypass_approval: bool = False):
+    async def _run_gated_call(
+        tool: str, args: dict, *, bypass_approval: bool = False
+    ) -> types.CallToolResult:
         """Run a tool through the gateway or the flat client, catching the
         can't-elicit approval signal. On that signal the call is parked under a
         token and a needs_approval envelope is returned, so the user can confirm
@@ -806,7 +817,7 @@ def build_mcp_server(
             # PDP (policy) still runs; only the human-confirm step is satisfied.
             prior = client._approve
 
-            async def _yes(_req):
+            async def _yes(_req: Any) -> bool:
                 return True
 
             client.set_approval(_yes)
@@ -840,13 +851,13 @@ def build_mcp_server(
                 client.set_approval(prior)
 
     @server.call_tool()
-    async def call_tool(tool: str, args: dict):
+    async def call_tool(tool: str, args: dict) -> Any:
         args = args or {}
         from thingctx.integrations.connect import CONNECT_TOOL, connect_tool, ensure_connected
 
         try:
             session = server.request_context.session
-        except Exception:  # noqa: BLE001 - no live session (e.g. a piped call)
+        except Exception:
             session = None
         # The explicit connect tool: the agent (or the user) drives a sign in.
         if tool == CONNECT_TOOL:
@@ -858,7 +869,7 @@ def build_mcp_server(
         # Thing lives in the arguments, so resolve the underlying flat tool name
         # first, else the connect check cannot find the Thing that needs auth.
         connect_target = tool
-        if gateway is not None and tool in _gateway_names and tool not in _BG_SUB_NAMES:
+        if gateway is not None and tool in _gateway_names and tool not in _bg_sub_names:
             connect_target = _gateway_connect_target(tool, args) or tool
         connect_err = await ensure_connected(client, connect_target, session)
         if connect_err is not None:
@@ -920,20 +931,25 @@ def build_mcp_server(
     # Properties -> readable resources; events -> resources draining the recent
     # pushed payloads. Observable properties and events are also subscribable.
     @server.list_resources()
-    async def list_resources():
-        out = []
-        for name in client.list_properties():
-            prop = client.property_for(name)
+    async def list_resources() -> list[types.Resource]:
+        def _prop_resource(prop_name: str) -> types.Resource:
+            prop = client.property_for(prop_name)
             tag = " (observable)" if prop is not None and prop.observable else ""
-            out.append(
-                types.Resource(uri=_prop_uri(name), name=name, description=f"Property {name}{tag}")
+            return types.Resource(
+                uri=AnyUrl(_prop_uri(prop_name)),
+                name=prop_name,
+                description=f"Property {prop_name}{tag}",
             )
-        for name in event_names:
-            out.append(types.Resource(uri=_event_uri(name), name=name, description=f"Event {name}"))
+
+        out = [_prop_resource(prop_name) for prop_name in client.list_properties()]
+        out.extend(
+            types.Resource(uri=AnyUrl(_event_uri(ev)), name=ev, description=f"Event {ev}")
+            for ev in event_names
+        )
         return out
 
     @server.list_resource_templates()
-    async def list_resource_templates():
+    async def list_resource_templates() -> list[types.ResourceTemplate]:
         # Parameterized reads: a safe action with one uriVariable is exposed as
         # a templated resource the client fills (e.g. thing://<tool>/{id}).
         return [
@@ -946,7 +962,7 @@ def build_mcp_server(
         ]
 
     @server.read_resource()
-    async def read_resource(uri):
+    async def read_resource(uri: Any) -> str:
         u = str(uri)
         if u.startswith("event://"):
             name = u.removeprefix("event://")
@@ -979,7 +995,7 @@ def build_mcp_server(
             return to_text(await client.read_property(rest))
         return to_text({"error": f"unknown resource: {u}"})
 
-    async def _pump(uri: str, name: str, session) -> None:
+    async def _pump(uri: str, name: str, session: Any) -> None:
         """Relay a subscription onto MCP and notify the client that the resource
         changed (it then re-reads). Event payloads are buffered in a bounded ring
         so a burst is delivered whole on the next read; observable properties
@@ -1000,25 +1016,25 @@ def build_mcp_server(
                 await session.send_resource_updated(uri)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001  (a dead stream/session ends the pump)
+        except Exception:
             logger.warning("subscription relay for %s stopped", uri, exc_info=True)
         finally:
             pumps.pop(uri, None)
 
     @server.subscribe_resource()
-    async def subscribe_resource(uri):
+    async def subscribe_resource(uri: Any) -> None:
         u = str(uri)
         name = subscribable.get(u)
         if name is None or u in pumps:
             return  # not subscribable, or already relaying
         try:
             session = server.request_context.session
-        except Exception:  # noqa: BLE001  (no live session to notify)
+        except Exception:
             return
         pumps[u] = asyncio.create_task(_pump(u, name, session))
 
     @server.unsubscribe_resource()
-    async def unsubscribe_resource(uri):
+    async def unsubscribe_resource(uri: Any) -> None:
         task = pumps.pop(str(uri), None)
         if task is not None:
             task.cancel()
@@ -1027,27 +1043,25 @@ def build_mcp_server(
     from thingctx.extensions.prompts import get_prompt, list_prompts
 
     @server.list_prompts()
-    async def list_prompts_handler():
-        out = []
-        for p in list_prompts(client):
-            out.append(
-                types.Prompt(
-                    name=p["name"],
-                    description=p.get("description", ""),
-                    arguments=[
-                        types.PromptArgument(
-                            name=a["name"],
-                            description=a.get("description", ""),
-                            required=a.get("required", False),
-                        )
-                        for a in p.get("arguments", [])
-                    ],
-                )
+    async def list_prompts_handler() -> list[types.Prompt]:
+        return [
+            types.Prompt(
+                name=p["name"],
+                description=p.get("description", ""),
+                arguments=[
+                    types.PromptArgument(
+                        name=a["name"],
+                        description=a.get("description", ""),
+                        required=a.get("required", False),
+                    )
+                    for a in p.get("arguments", [])
+                ],
             )
-        return out
+            for p in list_prompts(client)
+        ]
 
     @server.get_prompt()
-    async def get_prompt_handler(name: str, arguments: dict | None):
+    async def get_prompt_handler(name: str, arguments: dict | None) -> types.GetPromptResult:
         messages = await get_prompt(client, name, arguments or {})
         return types.GetPromptResult(
             messages=[
@@ -1063,7 +1077,10 @@ def build_mcp_server(
 
 
 def client_from_registry(
-    registry, credentials: dict | None = None, approve_when: str = "declared", verbose: bool = False
+    registry: Any,
+    credentials: dict | None = None,
+    approve_when: ApprovePolicy = "declared",
+    verbose: bool = False,
 ) -> ThingClient:
     """Build one ThingClient over all the TDs a registry yields, with the
     bindings whose deps are installed (local always; http/mqtt if
@@ -1107,24 +1124,20 @@ def client_from_registry(
         "true",
         "yes",
     )
-    try:
+    # Skip a transport whose optional dependency is not installed; a real
+    # construction error must still surface, so catch ImportError only.
+    with contextlib.suppress(ImportError):
         from thingctx.bindings import HttpBinding
 
         bindings.append(HttpBinding(credentials=credentials or {}, block_private=block_private))
-    except Exception:  # noqa: BLE001
-        pass
-    try:
+    with contextlib.suppress(ImportError):
         from thingctx.bindings import MqttBinding
 
         bindings.append(MqttBinding())
-    except Exception:  # noqa: BLE001
-        pass
-    try:
+    with contextlib.suppress(ImportError):
         from thingctx.bindings.builtin.media import MediaBinding
 
         bindings.append(MediaBinding(credentials=credentials or {}, block_private=block_private))
-    except Exception:  # noqa: BLE001
-        pass
     # THINGCTX_POLICY picks a coarse per-operation posture: read-only or
     # full. THINGCTX_IDENTITY (optional) gives the agent a named principal so the
     # decision, the audit, and any AuthZEN subject carry WHO acted, not just WHAT was
@@ -1138,6 +1151,7 @@ def client_from_registry(
     agent_identity = os.environ.get("THINGCTX_IDENTITY")
     if policy or agent_identity:
         from thingctx.authz.pdp import (
+            GrantSource,
             LocalPolicyGrantSource,
             PolicyDecisionPoint,
             StaticGrantSource,
@@ -1155,6 +1169,7 @@ def client_from_registry(
         # StaticGrantSource, then either serve it directly (no identity) or bind it to a
         # named role (identity). Passing ``things`` lets read-only permit safe actions.
         static = StaticGrantSource(preset, things=things)
+        grants: GrantSource
         if agent_identity:
             # The identity IS a claims dict: its name is the subject and its role, so
             # a role -> grant map keys the fine grant off the coarse preset. Standard:
@@ -1173,7 +1188,7 @@ def client_from_registry(
     )
 
 
-def _build_server(registry):
+def _build_server(registry: Any) -> Server:
     """Build the MCP server over a registry of TDs, shared by every transport.
 
     Per-Thing secrets are read from the environment (THINGCTX_TOKEN_<SLUG>)
@@ -1182,9 +1197,16 @@ def _build_server(registry):
     """
     creds = _credentials_from_env()
     # Trust policy from the environment; default "declared" honors exactly what
-    # each TD marks risky. The server wires an elicitation approver, so a gated
-    # tool prompts the client user to confirm before it runs.
-    approve_when = os.environ.get("THINGCTX_APPROVE_WHEN", "declared")
+    # each TD marks risky. An unrecognized value clamps to the safe default rather
+    # than degrading silently downstream. The server wires an elicitation approver,
+    # so a gated tool prompts the client user to confirm before it runs.
+    raw_when = os.environ.get("THINGCTX_APPROVE_WHEN", "declared")
+    # The membership test IS the validation; mypy does not narrow `in` over a
+    # Literal, hence the cast.
+    approve_when = cast(
+        "ApprovePolicy",
+        raw_when if raw_when in ("declared", "destructive", "all", "never") else "declared",
+    )
     client = client_from_registry(
         registry, credentials=creds, approve_when=approve_when, verbose=True
     )
@@ -1201,7 +1223,7 @@ def _build_server(registry):
     return build_mcp_server(client, name=name or "things")
 
 
-async def serve(registry) -> None:
+async def serve(registry: Any) -> None:
     """Run the MCP server over stdio (the local, one-per-session transport)."""
     from mcp.server.stdio import stdio_server
 
@@ -1238,7 +1260,7 @@ def _check_http_exposure(host: str) -> None:
     )
 
 
-def serve_http(registry, *, host: str = "127.0.0.1", port: int = 8080) -> None:
+def serve_http(registry: Any, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     """Run the MCP server over streamable HTTP (the remote transport).
 
     A long lived server that many callers reach by URL, for a hosted gateway or a
@@ -1248,8 +1270,6 @@ def serve_http(registry, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     The endpoint itself performs no inbound authentication: a non-loopback bind
     warns at startup, and refuses when ``THINGCTX_REQUIRE_AUTH=1`` is set.
     """
-    import contextlib
-
     import uvicorn
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
@@ -1260,11 +1280,11 @@ def serve_http(registry, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     manager = StreamableHTTPSessionManager(app=server)
 
     @contextlib.asynccontextmanager
-    async def lifespan(app):
+    async def lifespan(app: Any) -> AsyncIterator[None]:
         async with manager.run():
             yield
 
-    async def handle(scope, receive, send):
+    async def handle(scope: Any, receive: Any, send: Any) -> None:
         # The session manager wants the raw ASGI at the mount root; Mount at / (not
         # /mcp) so the client posts to the base URL with no trailing-slash redirect.
         await manager.handle_request(scope, receive, send)

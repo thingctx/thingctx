@@ -24,7 +24,7 @@ import time
 import urllib.parse
 import urllib.request
 import webbrowser
-from typing import Any
+from typing import Any, cast
 
 from thingctx.auth.store import TokenStore, default_token_store, token_key
 
@@ -120,7 +120,8 @@ def exchange_code(
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        return json.loads(resp.read().decode("utf-8"))
+        # The token endpoint returns a JSON object (RFC 6749 §5.1).
+        return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
 
 
 _PAGE = (
@@ -129,7 +130,7 @@ _PAGE = (
 
 
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         # Only the registered redirect (path "/") from a loopback Host counts, so
         # a stray local request to another path or origin cannot fill or race the

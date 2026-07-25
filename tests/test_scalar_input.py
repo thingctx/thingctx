@@ -23,7 +23,7 @@ class CaptureBinding:
     def with_things(self, things):  # accepted by the client wiring
         return self
 
-    async def invoke(self, action, form, arguments):  # noqa: ANN001
+    async def invoke(self, action, form, arguments):
         self.body = arguments
         return {"ok": True}
 

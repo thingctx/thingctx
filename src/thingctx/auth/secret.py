@@ -11,8 +11,10 @@ it cannot guarantee a value is gone from memory.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import os
+from typing import Any, NoReturn, SupportsIndex
 
 __all__ = ["Secret"]
 
@@ -30,7 +32,7 @@ def _as_bytes(value: str | bytes | bytearray) -> bytearray:
 # Best-effort, opt-in memory locking; a no-op where unavailable or not permitted.
 
 
-def _libc():
+def _libc() -> Any:
     import ctypes
     import ctypes.util
 
@@ -38,7 +40,7 @@ def _libc():
     return ctypes.CDLL(name, use_errno=True) if name else None
 
 
-def _try_lock(buf: bytearray):
+def _try_lock(buf: bytearray) -> Any:
     """Pin ``buf`` in RAM; return a handle to unlock later, or ``None``. Best
     effort: failures are swallowed."""
     if not buf:
@@ -52,20 +54,19 @@ def _try_lock(buf: bytearray):
         carr = (ctypes.c_char * len(buf)).from_buffer(buf)
         if lib.mlock(carr, len(buf)) == 0:
             return carr
-    except Exception:  # noqa: BLE001  (best effort only)
+    except Exception:
         return None
     return None
 
 
-def _try_unlock(handle, length: int) -> None:
+def _try_unlock(handle: Any, length: int) -> None:
     if handle is None:
         return
-    try:
+    # Best-effort platform call; a munlock failure must not surface on wipe.
+    with contextlib.suppress(Exception):
         lib = _libc()
         if lib is not None and hasattr(lib, "munlock"):
             lib.munlock(handle, length)
-    except Exception:  # noqa: BLE001
-        pass
 
 
 class Secret:
@@ -77,7 +78,7 @@ class Secret:
     ``THINGCTX_MLOCK_SECRETS=1``) attempts to keep the value out of swap.
     """
 
-    __slots__ = ("_buf", "_wiped", "_lock_handle")
+    __slots__ = ("_buf", "_lock_handle", "_wiped")
 
     def __init__(self, value: str | bytes | bytearray, *, lock: bool | None = None) -> None:
         self._buf = _as_bytes(value)
@@ -119,14 +120,13 @@ class Secret:
     def __enter__(self) -> Secret:
         return self
 
-    def __exit__(self, *exc) -> None:  # noqa: ANN002
+    def __exit__(self, *exc: object) -> None:
         self.wipe()
 
     def __del__(self) -> None:
-        try:
+        # Interpreter teardown can already have torn down what wipe() touches.
+        with contextlib.suppress(Exception):
             self.wipe()
-        except Exception:  # noqa: BLE001  (never raise from a finalizer)
-            pass
 
     # constant-time comparison -------------------------------------------- #
 
@@ -147,7 +147,7 @@ class Secret:
         except RuntimeError:
             return False
 
-    __hash__ = None  # unhashable
+    __hash__ = None  # type: ignore[assignment]  # unhashable: the standard idiom, deliberately non-callable
 
     def __bool__(self) -> bool:
         return not self._wiped and len(self._buf) > 0
@@ -164,17 +164,17 @@ class Secret:
 
     # block serialization / duplication ----------------------------------- #
 
-    def __reduce__(self):
+    def __reduce__(self) -> NoReturn:
         raise TypeError("Secret cannot be pickled")
 
-    def __reduce_ex__(self, protocol):  # noqa: ANN001
+    def __reduce_ex__(self, _protocol: SupportsIndex) -> NoReturn:
         raise TypeError("Secret cannot be pickled")
 
-    def __getstate__(self):
+    def __getstate__(self) -> NoReturn:
         raise TypeError("Secret cannot be serialized")
 
-    def __copy__(self):
+    def __copy__(self) -> NoReturn:
         raise TypeError("Secret cannot be copied")
 
-    def __deepcopy__(self, memo):  # noqa: ANN001
+    def __deepcopy__(self, memo: dict[Any, Any]) -> NoReturn:
         raise TypeError("Secret cannot be copied")

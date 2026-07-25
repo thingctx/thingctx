@@ -102,7 +102,7 @@ class _FlakyBackend:
         for i in range(self.total):
             yield Frame(data=i, kind="video", pts=float(i))
 
-    def write(self, frames, target, *, options, stop):  # noqa: ANN001
+    def write(self, frames, target, *, options, stop):
         raise NotImplementedError
 
 
@@ -247,13 +247,13 @@ def test_publish_audio_only_track(tmp_path):
 
 def test_publish_audio_needs_capable_backend():
     class _NoAv:
-        def can_open(self, url, hint):  # noqa: ANN001
+        def can_open(self, url, hint):
             return True
 
-        def read(self, url, *, options, stop):  # noqa: ANN001
+        def read(self, url, *, options, stop):
             return iter(())
 
-        def write(self, frames, target, *, options, stop):  # noqa: ANN001
+        def write(self, frames, target, *, options, stop):
             pass
 
     inv = MediaBinding(backends=[_NoAv()])

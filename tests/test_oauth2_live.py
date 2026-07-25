@@ -41,7 +41,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode()
 
@@ -69,7 +69,7 @@ class _Handler(BaseHTTPRequestHandler):
         return None
 
 
-@pytest.fixture()
+@pytest.fixture
 def server():
     _Handler.seen = {"token_auth_style": None, "api_auth": None, "token_calls": 0}
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)

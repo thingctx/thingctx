@@ -532,12 +532,18 @@ class _MediaBinding:
     def handles(self, form):
         return True
 
+    def __init__(self):
+        self.saved = []
+
     def frames(self, action, form, arguments, *, track="video"):
         async def _gen():
             for f in ({"frame": 0}, {"frame": 1}):
                 yield f
 
         return _gen()
+
+    async def save(self, action, form, target, arguments, *, track=None):
+        self.saved.append(target)
 
     async def invoke(self, action, form, arguments):
         return None
@@ -569,6 +575,36 @@ async def test_media_enforced_as_invokeaction():
     ac2 = guard_client(client2, pdp_ok, identity={"roles": ["r"], "exp": time.time() + 3600})
     got = [fr async for fr in await ac2.frames(media2)]
     assert got == [{"frame": 0}, {"frame": 1}], f"granted media must stream all frames, got {got}"
+    await client2.aclose()
+
+
+async def test_save_enforced_and_cannot_bypass_frames_gate():
+    """save() reads the device stream to a file, so it is gated by the PDP exactly
+    like frames(): a denied caller never reaches the binding, a granted one does."""
+    td = _camera_td()
+    vocab = build_vocabulary(parse_thing(td))
+
+    deny_binding = _MediaBinding()
+    pdp_deny = PolicyDecisionPoint(vocab, LocalPolicyGrantSource({"r": set()}))
+    client = ThingClient(tds=[td], bindings=[deny_binding])
+    media_name = next(iter(getattr(client, "_media", {})), None)
+    assert media_name is not None
+    ac = guard_client(client, pdp_deny, identity={"roles": ["r"], "exp": time.time() + 3600})
+    with pytest.raises(AuthorizationDenied):
+        await ac.save(media_name, "clip.mp4")
+    assert deny_binding.saved == [], "a denied save must never reach the binding"
+    await client.aclose()
+
+    ok_binding = _MediaBinding()
+    pdp_ok = PolicyDecisionPoint(
+        vocab, LocalPolicyGrantSource({"r": {("urn:cam", "watch", "invokeaction")}})
+    )
+    client2 = ThingClient(tds=[td], bindings=[ok_binding])
+    media2 = next(iter(getattr(client2, "_media", {})), None)
+    assert media2 is not None
+    ac2 = guard_client(client2, pdp_ok, identity={"roles": ["r"], "exp": time.time() + 3600})
+    await ac2.save(media2, "clip.mp4")
+    assert ok_binding.saved == ["clip.mp4"], "a granted save must reach the binding"
     await client2.aclose()
 
 

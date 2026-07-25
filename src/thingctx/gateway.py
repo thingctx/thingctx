@@ -256,10 +256,11 @@ class GatewayProjection:
                 return await self._write(args)
             if name == "subscribe_event":
                 return await self._subscribe(args)
-            return {"error": f"unknown gateway tool {name!r}"}
         except KeyError as exc:
             # KeyError stringifies with surrounding quotes; unwrap to the message.
             return {"error": exc.args[0] if exc.args else str(exc)}
+        else:
+            return {"error": f"unknown gateway tool {name!r}"}
 
     def _search(self, args: dict[str, Any]) -> dict[str, Any]:
         query = str(args.get("query", ""))
@@ -273,7 +274,7 @@ class GatewayProjection:
         the client's media map so describe can steer the model to the right tool."""
         try:
             media = set(self._client.list_media())
-        except Exception:  # noqa: BLE001
+        except Exception:
             return set()
         out: set[str] = set()
         for aff in list(thing.actions) + list(thing.properties) + list(thing.events):

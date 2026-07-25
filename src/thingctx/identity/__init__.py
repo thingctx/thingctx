@@ -18,7 +18,7 @@ Every name is served lazily, so the guard needs ``pyjwt[crypto]`` + ``httpx``
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Static visibility for the lazily served names; never imported at runtime.
@@ -34,20 +34,20 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
+    "DEFAULT_GUARDS",
+    "AuthorizationError",
+    "CloudflareAccessGuard",
     # Outbound Entra credential provider (needs azure-identity, the ``entra`` extra).
     "EntraAuth",
-    "make_provider",
-    # Inbound gateway guard (needs pyjwt[crypto] + httpx, the ``authz`` extra).
-    "JwtGatewayGuard",
-    "Grant",
-    "AuthorizationError",
     "EntraGatewayGuard",
-    "CloudflareAccessGuard",
+    "Grant",
     # Pluggability, mirroring discover_bindings / discover_auth.
     "GuardRegistry",
-    "DEFAULT_GUARDS",
-    "register_guard",
+    # Inbound gateway guard (needs pyjwt[crypto] + httpx, the ``authz`` extra).
+    "JwtGatewayGuard",
     "discover_guards",
+    "make_provider",
+    "register_guard",
 ]
 
 _LAZY = {
@@ -65,7 +65,7 @@ _LAZY = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     module = _LAZY.get(name)
     if module is not None:
         import importlib

@@ -21,8 +21,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import thingctx.reliability as reliability
-from thingctx import HttpBinding, TransportError
+from thingctx import HttpBinding, TransportError, reliability
 from thingctx.reliability import RetryPolicy, send_with_retry
 
 

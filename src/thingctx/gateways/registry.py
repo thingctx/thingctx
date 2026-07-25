@@ -28,6 +28,10 @@ def discover_gateway_bindings() -> dict[str, Any]:
     from importlib.metadata import entry_points
 
     found: dict[str, Any] = {}
+    # Typed Any to span two importlib.metadata shapes: the current keyword form
+    # returns EntryPoints; the deprecated fallback returns a mapping whose get()
+    # is typed differently. Both are only iterated below.
+    eps: Any
     try:
         eps = entry_points(group=GATEWAY_GROUP)
     except TypeError:  # pragma: no cover - older importlib.metadata signature
@@ -35,7 +39,7 @@ def discover_gateway_bindings() -> dict[str, Any]:
     for ep in eps:
         try:
             found[ep.name] = ep.load()
-        except Exception:  # noqa: BLE001 - a broken plugin must not break discovery
+        except Exception:  # noqa: S112, PERF203  isolate a broken third-party plugin; one bad entry point must not sink discovery
             continue
     return found
 

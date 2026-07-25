@@ -27,8 +27,8 @@ __all__ = [
     "MediaAuthPlan",
     "apply_media",
     "av_auth_options",
-    "ytdlp_auth_options",
     "redact_url",
+    "ytdlp_auth_options",
 ]
 
 _REDACTED = "***"

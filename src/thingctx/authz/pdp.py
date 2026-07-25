@@ -21,6 +21,7 @@ write on exactly the writable properties the TD declares, and nothing else.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -59,7 +60,7 @@ class Decision:
     reason: str = ""
 
 
-class AuthorizationDenied(Exception):
+class AuthorizationDenied(Exception):  # noqa: N818 (public API name; the Error suffix would break consumers)
     """Raised when the PDP denies a call, before any device touch.
 
     Deliberately distinct from thingctx's own error ENVELOPES (dict returns like
@@ -99,7 +100,14 @@ def _token_expired(identity: Any, *, now: float | None = None) -> bool:
     return (now if now is not None else _time.time()) >= float(exp)
 
 
-async def _authorized_stream(stream, pdp, identity, request, *, revocation_check=None):
+async def _authorized_stream(
+    stream: AsyncIterator[Any],
+    pdp: Any,
+    identity: Any,
+    request: AccessRequest,
+    *,
+    revocation_check: Callable[[Any, AccessRequest], Awaitable[bool]] | None = None,
+) -> AsyncIterator[Any]:
     """Wrap a device stream so each delivered value is re-authorized, and STOP the
     stream the moment authorization lapses.
 
@@ -186,10 +194,7 @@ class LocalPolicyGrantSource:
         guard's output), or a bare list/str for convenience in tests."""
         if identity is None:
             return []
-        if isinstance(identity, dict):
-            raw = identity.get(self._claim)
-        else:
-            raw = identity
+        raw = identity.get(self._claim) if isinstance(identity, dict) else identity
         if raw is None:
             return []
         if isinstance(raw, str):

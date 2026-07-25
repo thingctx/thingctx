@@ -20,7 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-__all__ = ["TokenStore", "MemoryTokenStore", "FileTokenStore", "token_key", "default_token_store"]
+__all__ = ["FileTokenStore", "MemoryTokenStore", "TokenStore", "default_token_store", "token_key"]
 
 
 def token_key(owner_id: str | None, token_url: str, scopes: tuple[str, ...] | list[str]) -> str:
@@ -67,7 +67,7 @@ class MemoryTokenStore:
 
 
 def _default_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "thingctx" / "tokens.json"
 
 
@@ -115,23 +115,25 @@ class FileTokenStore:
         # write through a symlink at the token path.
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with contextlib.suppress(OSError):
-            os.chmod(self.path.parent, 0o700)
+            self.path.parent.chmod(0o700)
         if self.path.is_symlink():
             raise OSError(f"refusing to write token store through a symlink: {self.path!r}")
         # Write through a temp file in the same dir, 0600 before any secret
-        # lands, then atomically replace.
+        # lands, then atomically replace. The fd-level open/fchmod cannot go
+        # through pathlib: the 0600 mode must be set on the descriptor before
+        # any content is written, and mkstemp hands back a raw fd.
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".tokens-")
         try:
             os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
-            os.replace(tmp, self.path)
+            Path(tmp).replace(self.path)
         except BaseException:
             with contextlib.suppress(OSError):
-                os.unlink(tmp)
+                Path(tmp).unlink()
             raise
         with contextlib.suppress(OSError):
-            os.chmod(self.path, 0o600)
+            self.path.chmod(0o600)
 
 
 _DEFAULT_STORE: TokenStore | None = None
@@ -141,7 +143,9 @@ def default_token_store() -> TokenStore:
     """The process-wide default :class:`FileTokenStore`, shared by the built-in
     provider and ``thingctx auth login`` so consent and refresh agree on where
     tokens live."""
-    global _DEFAULT_STORE
+    # Module-level lazy singleton: the process shares one store, and the seam is
+    # resettable (tests redirect the token path by rebinding the module global).
+    global _DEFAULT_STORE  # noqa: PLW0603
     if _DEFAULT_STORE is None:
         _DEFAULT_STORE = FileTokenStore()
     return _DEFAULT_STORE

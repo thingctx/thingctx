@@ -57,7 +57,7 @@ class ServeRequest:
     ``thingctx.identity`` produces and ``thingctx.authz`` consumes, so a request
     authenticated on the bus is authorized exactly like one over HTTP."""
 
-    __slots__ = ("thing_slug", "affordance", "op", "payload", "correlation", "identity")
+    __slots__ = ("affordance", "correlation", "identity", "op", "payload", "thing_slug")
 
     def __init__(
         self,
@@ -103,17 +103,14 @@ class GatewayBinding(Protocol):
         """The re-served form(s) for one (affordance, op), with this driver's own
         namespaced vocabulary. Return ``[]`` for an op this transport cannot carry
         (so the projected TD is honest about what the bus can do)."""
-        pass
 
     async def serve(self, engine: Gateway) -> None:
         """Connect and begin serving the fleet: subscribe to inbound addresses,
         and on each inbound message build a ``ServeRequest`` and await
         ``engine.dispatch(req)``, then deliver the reply on the wire."""
-        pass
 
     async def aclose(self) -> None:
         """Stop serving and release the transport."""
-        pass
 
 
 @runtime_checkable
@@ -348,7 +345,9 @@ class Gateway:
 
     async def mirror(self, thing_slug: str, event: str, payload: Any) -> None:
         """Push a native event onto the driver's wire, if it mirrors events."""
-        if self.can_mirror:
+        # can_mirror already is isinstance(self._binding, EventMirroring); repeat it
+        # inline so the call narrows to the capability protocol that defines it.
+        if self.can_mirror and isinstance(self._binding, EventMirroring):
             await self._binding.mirror_event(thing_slug, event, payload)
 
     # -- projection: ask the driver for each affordance's re-served forms --- #
@@ -372,7 +371,7 @@ class Gateway:
         props: dict = {}
         for name, prop in thing.properties.items():
             ops = ([READ] if prop.readable else []) + ([WRITE] if prop.writable else [])
-            forms: list[dict] = []
+            forms = []
             for op in ops:
                 forms.extend(self._binding.project_forms(thing, name, op))
             if forms:

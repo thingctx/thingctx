@@ -11,7 +11,7 @@ own wire with its own applier, so no auth logic lives in any transport.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from thingctx.auth import (
     DEFAULT_AUTH,
@@ -20,6 +20,9 @@ from thingctx.auth import (
     resolve_credentials,
 )
 from thingctx.thing import WoTAction, WoTForm
+
+if TYPE_CHECKING:
+    from thingctx.auth.credentials import Credential
 
 # NOTE: this module holds the transport-NEUTRAL binding contract only. Response
 # decoding is transport-specific and lives with each binding (HTTP's content-type
@@ -95,7 +98,7 @@ class AuthMixin:
         for strat in extra_auth or ():
             self._auth_registry.register(strat, first=True)
 
-    def with_security(self, thing):
+    def with_security(self, thing: Any) -> AuthMixin:
         """Bind one resource's declared security schemes so requests carry the
         right auth. Returns self (chainable)."""
         self._schemes_by_name = dict(getattr(thing, "security_schemes", {}) or {})
@@ -103,14 +106,14 @@ class AuthMixin:
         self._register(thing)
         return self
 
-    def with_things(self, things):
+    def with_things(self, things: Any) -> AuthMixin:
         """Bind many resources so each interaction authenticates as its owner.
         Returns self (chainable)."""
         for thing in things or ():
             self._register(thing)
         return self
 
-    def _register(self, thing) -> None:
+    def _register(self, thing: Any) -> None:
         tid = getattr(thing, "id", None)
         if tid is None:
             return
@@ -130,7 +133,7 @@ class AuthMixin:
         return "".join(c if (c.isalnum() or c in "._-") else "-" for c in slug)
 
     @staticmethod
-    def _form_security(form) -> tuple | None:
+    def _form_security(form: Any) -> tuple | None:
         """A form's own declared security (WoT form-level security), or ``None``
         if it does not override the Thing's. This lets one Thing use a different
         scheme per affordance, e.g. a control action and a media stream."""
@@ -141,7 +144,7 @@ class AuthMixin:
             return None
         return tuple(sec) if isinstance(sec, list | tuple) else (sec,)
 
-    def _resolve(self, owner_id: str | None, form=None):
+    def _resolve(self, owner_id: str | None, form: Any = None) -> tuple[tuple, dict, str | None]:
         """Return (active scheme names, schemes_by_name, slug) for the owner
         of the interaction. A form may override the owner's active schemes with
         its own (form-level security), resolved against the same definitions."""
@@ -160,7 +163,7 @@ class AuthMixin:
             active = form_sec
         return active, schemes, slug
 
-    def _credential_for(self, owner_id, slug, sname):
+    def _credential_for(self, owner_id: str | None, slug: str | None, sname: str) -> Any:
         """The secret for a scheme, looked up by owner id, then slug, then
         scheme name (so a multi-owner client carries one secret per owner)."""
         for key in (owner_id, slug, sname):
@@ -168,7 +171,9 @@ class AuthMixin:
                 return self._credentials[key]
         return None
 
-    async def _resolve_credentials(self, owner_id: str | None = None, form=None) -> list:
+    async def _resolve_credentials(
+        self, owner_id: str | None = None, form: Any = None
+    ) -> list[Credential]:
         """Resolve the owner's active schemes into neutral credential material
         via the shared, transport-neutral primitive. If ``form`` declares its own
         security, that overrides the owner's for this affordance."""

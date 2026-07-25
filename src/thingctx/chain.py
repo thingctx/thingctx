@@ -41,8 +41,13 @@ import asyncio
 import os
 import re
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO
 from urllib.parse import urljoin, urlsplit
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Iterator
+
+    import httpx
 
 from thingctx.bindings.base import _decode
 from thingctx.bindings.builtin.http import _http_body
@@ -129,11 +134,10 @@ def _split_path(path: str) -> list[str | int]:
     for seg in path.split("."):
         if not seg:
             continue
-        name = re.match(r"^[^\[\]]*", seg).group(0)
+        name = seg.split("[", 1)[0]  # the segment up to the first index bracket
         if name:
             parts.append(name)
-        for idx in re.findall(r"\[(\d+)\]", seg):
-            parts.append(int(idx))
+        parts.extend(int(idx) for idx in re.findall(r"\[(\d+)\]", seg))
     return parts
 
 
@@ -172,7 +176,7 @@ def _matches(body: Any, cond: dict) -> bool:
     ``{path, in: [...]}`` / ``{path, truthy: true}``."""
     value = json_path(body, cond.get("path", ""))
     if "equals" in cond:
-        return value == cond["equals"]
+        return bool(value == cond["equals"])
     if "in" in cond:
         return value in (cond["in"] or [])
     if "truthy" in cond:
@@ -221,7 +225,7 @@ def _follow_arg_names(spec: dict) -> set[str]:
     return names
 
 
-def _signer(binding: Any, signers: list):
+def _signer(binding: Any, signers: list) -> Callable[[Any], Awaitable[None]] | None:
     if not signers:
         return None
 
@@ -454,9 +458,10 @@ async def _follow_poll(
 _RETRY_STATUS = (408, 429, 500, 502, 503, 504)
 
 
-def _coerce_media(media: Media) -> Media:
+def _coerce_media(media: Media) -> bytes | bytearray | Path | BinaryIO:
     """Turn a str media into a Path: a ``file://`` URL maps to its filesystem
-    path, anything else is taken as a path. Non-str media passes through."""
+    path, anything else is taken as a path. Non-str media passes through. Never
+    returns a ``str``, so callers narrow to the seekable/readable members."""
     if isinstance(media, str):
         if media.startswith("file://"):
             from urllib.request import url2pathname
@@ -481,7 +486,7 @@ def _media_size(media: Media) -> int:
     return end - cur
 
 
-def _chunks(media: Media, chunk_size: int):
+def _chunks(media: Media, chunk_size: int) -> Iterator[bytes]:
     """Yield the media body in ``chunk_size`` slices without buffering the whole
     thing (except when it is already ``bytes`` in memory)."""
     media = _coerce_media(media)
@@ -504,7 +509,15 @@ def _chunks(media: Media, chunk_size: int):
         yield block
 
 
-async def _send_signed(client, method, url, *, headers=None, content=None, sign=None):
+async def _send_signed(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    content: bytes | None = None,
+    sign: Callable[[Any], Awaitable[None]] | None = None,
+) -> httpx.Response:
     """Build, optionally sign, and send one request. A request is built (rather
     than ``client.request``) so an auth signer can run on it, and ``params`` is
     never passed so a URL's existing query survives."""
@@ -520,8 +533,15 @@ async def _send_signed(client, method, url, *, headers=None, content=None, sign=
 
 
 async def _resumable_put(
-    client, session_uri, media, *, media_type, base_headers, chunk_size, sign=None
-):
+    client: httpx.AsyncClient,
+    session_uri: str,
+    media: Media,
+    *,
+    media_type: str,
+    base_headers: dict[str, str],
+    chunk_size: int,
+    sign: Callable[[Any], Awaitable[None]] | None = None,
+) -> Any:
     """Upload: PUT ``media`` to an already-open session URI in ``chunk_size``
     blocks with ``Content-Range`` headers, finalizing on a 2xx. A ``308`` means
     resume incomplete (keep going). Returns the finalized response body."""
@@ -573,7 +593,15 @@ def _range_total(content_range: str) -> int | None:
     return int(tail) if tail.isdigit() else None
 
 
-async def _get_with_retry(client, url, *, headers, sign, retries, backoff):
+async def _get_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    headers: dict[str, str],
+    sign: Callable[[Any], Awaitable[None]] | None,
+    retries: int,
+    backoff: float,
+) -> httpx.Response:
     """GET ``url`` once, retrying transient transport errors and retryable
     statuses with bounded backoff. A connection dropped mid-body raises, so the
     caller re-requests the same range, resuming from the last completed byte."""
@@ -601,17 +629,17 @@ async def _get_with_retry(client, url, *, headers, sign, retries, backoff):
 
 
 async def _ranged_get(
-    client,
-    url,
+    client: httpx.AsyncClient,
+    url: str,
     *,
-    headers,
-    chunk_size,
-    sign=None,
-    dest=None,
-    retries=3,
-    backoff=0.2,
-    max_bytes=None,
-):
+    headers: dict[str, str],
+    chunk_size: int,
+    sign: Callable[[Any], Awaitable[None]] | None = None,
+    dest: str | None = None,
+    retries: int = 3,
+    backoff: float = 0.2,
+    max_bytes: int | None = None,
+) -> Any:
     """Download: GET ``url`` in ``Range`` slices, resuming from the last received
     byte when a chunk fails. Probes with ``bytes=0-0``: a ``206`` reports the
     total in ``Content-Range`` and confirms range support; a ``200`` means the
@@ -639,7 +667,10 @@ async def _ranged_get(
             f"download of {total} bytes exceeds the {max_bytes}-byte limit "
             "(raise THINGCTX_MAX_DOWNLOAD_BYTES or set it to 0 to disable)"
         )
-    sink = Path(dest).open("wb") if dest is not None else None
+    # The sink stays open across the download loop and is closed in the finally
+    # below; a `with` cannot span the conditional open, and the one local-file
+    # open is not the blocking network I/O ASYNC230 targets.
+    sink = Path(dest).open("wb") if dest is not None else None  # noqa: SIM115, ASYNC230
     buf = bytearray() if dest is None else None
     received = 0
     try:
@@ -655,10 +686,13 @@ async def _ranged_get(
                 backoff=backoff,
             )
             block = resp.content
-            if sink is not None:
-                sink.write(block)
-            else:
+            # buf and sink are mutually exclusive: buf accumulates in memory when
+            # there is no dest, sink streams to the file when there is.
+            if buf is not None:
                 buf.extend(block)
+            else:
+                assert sink is not None  # noqa: S101 (buf/sink invariant, not a runtime check)
+                sink.write(block)
             received += len(block)
             if max_bytes is not None and received > max_bytes:
                 raise ChainError(
@@ -673,10 +707,13 @@ async def _ranged_get(
             sink.close()
     if dest is not None:
         return {"path": str(dest), "bytes": received, "contentType": ctype}
+    assert buf is not None  # noqa: S101 (dest is None here, so buf accumulated the body)
     return bytes(buf)
 
 
-def _deliver(dest, data: bytes, ctype: str | None, *, max_bytes: int | None = None):
+def _deliver(
+    dest: str | None, data: bytes, ctype: str | None, *, max_bytes: int | None = None
+) -> Any:
     if max_bytes is not None and len(data) > max_bytes:
         raise ChainError(
             f"download of {len(data)} bytes exceeds the {max_bytes}-byte limit "

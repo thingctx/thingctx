@@ -17,6 +17,7 @@ providers with no secret in the agent.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 from typing import Any
@@ -24,11 +25,11 @@ from urllib.parse import urlparse
 
 
 def _clients_dir() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "thingctx" / "oauth-clients"
 
 
-def _code_scheme(thing: Any):
+def _code_scheme(thing: Any) -> Any:
     """The Thing's oauth2 authorization-code scheme, or None."""
     for s in getattr(thing, "security_schemes", {}).values():
         if getattr(s, "scheme", None) == "oauth2" and getattr(s, "flow", "") in (
@@ -61,7 +62,7 @@ def _load_client(path: Path) -> dict:
     }
 
 
-def _has_token(thing_id: str, scheme) -> bool:
+def _has_token(thing_id: str, scheme: Any) -> bool:
     """Whether the store already holds a refresh token for this Thing + scope."""
     from thingctx.auth.store import default_token_store, token_key
 
@@ -70,7 +71,7 @@ def _has_token(thing_id: str, scheme) -> bool:
     return bool(default_token_store().get(key))
 
 
-def thing_for_tool(client: Any, tool: str):
+def thing_for_tool(client: Any, tool: str) -> Any:
     """The Thing that owns a ``<slug>.<name>`` tool, or None."""
     action = client.action_for(tool) if hasattr(client, "action_for") else None
     tid = getattr(action, "thing_id", None)
@@ -112,7 +113,7 @@ def connect_status(client: Any) -> list[dict]:
     return out
 
 
-def _thing_by_name(client: Any, name: str):
+def _thing_by_name(client: Any, name: str) -> Any:
     """Match a Thing by id, title, or tool-namespace slug, exact or as a
     substring of the title (what a user would type: "calendar", "google
     calendar"). Returns the single match, or None when zero or ambiguous."""
@@ -179,7 +180,9 @@ async def _run_connect(thing: Any, scheme: Any, session: Any) -> str | None:
     # An agent-triggered call must never silently start a login (the browser only
     # opens after the human approves here).
     if session is not None:
-        try:
+        # Best effort: a client that cannot elicit falls through to the local
+        # consent below rather than blocking the connect.
+        with contextlib.suppress(Exception):
             result = await session.elicit(
                 message=(
                     f"Connect {label}? This opens a browser once so you can sign in "
@@ -189,8 +192,6 @@ async def _run_connect(thing: Any, scheme: Any, session: Any) -> str | None:
             )
             if getattr(result, "action", None) != "accept":
                 return f"{label} was not connected (sign in declined)."
-        except Exception:  # noqa: BLE001 - client without elicitation: fall through to consent
-            pass
 
     from thingctx.auth.oauth_consent import login
 
@@ -204,7 +205,7 @@ async def _run_connect(thing: Any, scheme: Any, session: Any) -> str | None:
             scopes=tuple(getattr(scheme, "scopes", ()) or ()),
             owner_id=thing.id,
         )
-    except Exception as exc:  # noqa: BLE001 - surface a clean message, not a traceback
+    except Exception as exc:
         return f"Could not connect {label}: {exc}"
     return None
 

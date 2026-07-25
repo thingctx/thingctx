@@ -337,7 +337,7 @@ async def test_subscription_relay_deregisters_so_resubscribe_resumes():
         def __init__(self) -> None:
             self.opens = 0
 
-        async def subscribe(self, target, form, args=None):  # noqa: ANN001
+        async def subscribe(self, target, form, args=None):
             self.opens += 1
             n = self.opens
 
@@ -398,7 +398,7 @@ async def test_gateway_start_subscription_fills_event_urivariables():
     class _Events:
         scheme = "local"
 
-        async def subscribe(self, target, form, args=None):  # noqa: ANN001
+        async def subscribe(self, target, form, args=None):
             # The topic uriVariable is filled into the href (form.fill) before the
             # binding is called, so it arrives on the form, not in args.
             seen["href"] = form.href
@@ -458,7 +458,7 @@ async def test_gateway_background_subscription_buffers_between_reads():
     class _PushEvents:
         scheme = "local"
 
-        async def subscribe(self, target, form, args=None):  # noqa: ANN001
+        async def subscribe(self, target, form, args=None):
             async def _gen():
                 while True:
                     yield await push.get()

@@ -34,10 +34,14 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from thingctx.bindings.base import ProtocolBinding
 from thingctx.contracts import implements
+
+if TYPE_CHECKING:
+    from thingctx.thing import WoTAction, WoTForm
 
 _VAR = re.compile(r"\{([^}]+)\}")
 
@@ -75,7 +79,7 @@ _VERSIONED_INTERPRETER = re.compile(r"^(?:python|ruby|perl|php|node|nodejs)\d+(?
 
 
 def _is_interpreter(program: str) -> bool:
-    base = os.path.basename(program).lower()
+    base = Path(program).name.lower()
     return base in _INTERPRETERS or bool(_VERSIONED_INTERPRETER.match(base))
 
 
@@ -125,7 +129,7 @@ class ExecBinding:
                     "trust every command in the Thing Description)"
                 )
             return None
-        if not (program in self._allow or os.path.basename(program) in self._allow):
+        if not (program in self._allow or Path(program).name in self._allow):
             return f"program not allowed: {program!r}"
         # The program is allowlisted; make sure it is not an interpreter being
         # handed inline code or a module, which would run past the allow list. A
@@ -133,7 +137,7 @@ class ExecBinding:
         # interpreter refuse ANY flag argument. A membership test on known flags
         # ("-c", "-m") misses a concatenated form ("-cCODE") and every future
         # flag; keying on the leading "-" catches them all.
-        base = os.path.basename(program)
+        base = Path(program).name
         if _is_interpreter(program) and (
             base.lower() == "env" or any(a.startswith("-") for a in argv[1:])
         ):
@@ -154,7 +158,9 @@ class ExecBinding:
         base.update(self._extra_env)
         return base
 
-    async def invoke(self, action, form, arguments):  # noqa: ANN001
+    async def invoke(
+        self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         import asyncio
 
         spec = (getattr(form, "raw", {}) or {}).get("x-thingctx-exec") or {}
@@ -165,7 +171,7 @@ class ExecBinding:
         missing: list[str] = []
 
         def _fill(token: str) -> str:
-            def sub(m: re.Match) -> str:
+            def sub(m: re.Match[str]) -> str:
                 key = m.group(1)
                 if key in arguments:
                     return str(arguments[key])

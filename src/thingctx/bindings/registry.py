@@ -14,6 +14,7 @@ implementation of the :class:`~thingctx.bindings.base.ProtocolBinding` contract.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from thingctx.bindings.base import ProtocolBinding, binding_schemes, select_binding
@@ -128,7 +129,7 @@ class BindingRegistry:
         """Every scheme the registered bindings claim, in precedence order."""
         return tuple(s for b in self._bindings for s in binding_schemes(b))
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ProtocolBinding]:
         return iter(self._bindings)
 
     def __len__(self) -> int:
@@ -153,7 +154,9 @@ def discover_bindings(*, group: str = "thingctx.bindings") -> list[ProtocolBindi
     try:
         eps = entry_points(group=group)
     except TypeError:  # older selection API
-        eps = entry_points().get(group, [])  # type: ignore[attr-defined]
+        # Pre-3.10 dict-style API; typed against the modern EntryPoints, so the
+        # empty-list default reads as a bad arg to the deprecated .get shim.
+        eps = entry_points().get(group, [])  # type: ignore[arg-type]
     return [ep.load()() for ep in eps]
 
 
@@ -175,7 +178,9 @@ def discover_local_handlers(
     try:
         eps = entry_points(group=group)
     except TypeError:  # older selection API
-        eps = entry_points().get(group, [])  # type: ignore[attr-defined]
+        # Pre-3.10 dict-style API; typed against the modern EntryPoints, so the
+        # empty-list default reads as a bad arg to the deprecated .get shim.
+        eps = entry_points().get(group, [])  # type: ignore[arg-type]
     out: dict[str, Any] = {}
     for ep in eps:
         if slugs is not None and ep.name not in slugs:

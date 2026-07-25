@@ -39,7 +39,7 @@ class _RecordingBackend:
         self.seen["options"] = options
         yield Frame(data=0, kind=options.get("track", "video"), pts=0.0)
 
-    def write(self, frames, target, *, options, stop):  # noqa: ANN001
+    def write(self, frames, target, *, options, stop):
         raise NotImplementedError
 
 
@@ -150,7 +150,7 @@ def test_media_errors_redact_credentials_end_to_end():
                 url, _ = av_auth_options(plan, url)
             raise RuntimeError(f"connect failed for {url!r}")
 
-        def write(self, frames, target, *, options, stop):  # noqa: ANN001
+        def write(self, frames, target, *, options, stop):
             raise NotImplementedError
 
     client = ThingClient(

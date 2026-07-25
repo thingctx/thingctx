@@ -158,7 +158,7 @@ async def main() -> None:
         try:
             await _first_frames(wrong, "local__watch", 1, timeout=10.0)
             print("  unexpected: read succeeded with the wrong password")
-        except Exception as exc:  # noqa: BLE001 - any failure means it was refused
+        except Exception as exc:
             # The error is a MediaError with the password scrubbed from the URL.
             print(f"  wrong password  -> refused: {exc}")
         finally:

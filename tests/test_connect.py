@@ -50,7 +50,7 @@ def env(tmp_path, monkeypatch):
         json.dumps({"installed": {"client_id": "cid", "client_secret": "sec"}})
     )
 
-    import thingctx.auth.store as store
+    from thingctx.auth import store
 
     store._DEFAULT_STORE = None  # rebind to the redirected path
 
@@ -112,7 +112,7 @@ async def test_connect_matches_by_title_substring(env):
 
     for name in ("calendar", "demo calendar", "Demo Calendar"):
         # fresh store each time so each name actually runs consent
-        import thingctx.auth.store as store
+        from thingctx.auth import store
 
         store.default_token_store()._data = {}
         res = await connect_tool(_client(), {"thing": name}, _AcceptSession())
@@ -131,7 +131,7 @@ async def test_declining_does_not_connect(env):
 async def test_no_client_file_is_a_clear_error(tmp_path, monkeypatch):
     # Redirect config home but do NOT create a client file for the provider.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    import thingctx.auth.store as store
+    from thingctx.auth import store
 
     store._DEFAULT_STORE = None
     from thingctx.integrations.connect import connect_tool

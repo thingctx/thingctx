@@ -334,7 +334,7 @@ def start_mqtt_broker(device: PumpDevice):
         return None
     try:
         import paho.mqtt.client as mqtt
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
     with socket.socket() as s:
@@ -369,7 +369,7 @@ def start_mqtt_broker(device: PumpDevice):
         proc.terminate()
         try:
             proc.wait(timeout=3)
-        except Exception:  # noqa: BLE001
+        except Exception:
             proc.kill()
 
     return "127.0.0.1", port, stop
@@ -398,7 +398,7 @@ def _ollama_models() -> list[str]:
     try:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=1) as r:
             return [m["name"] for m in json.loads(r.read()).get("models", [])]
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
 
 
