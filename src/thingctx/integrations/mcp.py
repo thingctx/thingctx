@@ -1172,9 +1172,8 @@ def client_from_registry(
         static = StaticGrantSource(preset, things=things)
         grants: GrantSource
         if agent_identity:
-            # The identity IS a claims dict: its name is the subject and its role, so
-            # a role -> grant map keys the fine grant off the coarse preset. Standard:
-            # this maps cleanly to an AuthZEN subject (sub + roles claim).
+            # The identity is a claims dict: its name is the subject and its role,
+            # so a role -> grant map keys the fine grant off the coarse preset.
             identity = {"sub": agent_identity, "roles": [agent_identity]}
             grants = LocalPolicyGrantSource({agent_identity: static.grants})
         else:
