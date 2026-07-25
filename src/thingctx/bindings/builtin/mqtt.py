@@ -155,10 +155,24 @@ class MqttBinding(AuthMixin):
     def _endpoint(self, form, fallback: str):
         import urllib.parse
 
+        # An MQTT topic filter may contain '#' (multi-level wildcard) and '+', both
+        # legal, common last characters. urlparse would read '#' as a URL fragment
+        # and drop the wildcard, so parse the authority with urlparse but take the
+        # topic straight from the raw href after "host[:port]/", fragment intact.
         u = urllib.parse.urlparse(form.href)
         host = self._broker or u.hostname or "localhost"
         port = u.port or 1883
-        topic = u.path.lstrip("/") or fallback
+        href = form.href
+        scheme_sep = href.find("://")
+        rest = href[scheme_sep + 3 :] if scheme_sep != -1 else href
+        slash = rest.find("/")
+        topic = rest[slash + 1 :] if slash != -1 else ""
+        # Strip a query string if one was appended (MQTT topics carry no query),
+        # but never strip '#': it is the wildcard, not a fragment.
+        q = topic.find("?")
+        if q != -1:
+            topic = topic[:q]
+        topic = topic or fallback
         return host, port, topic
 
     async def _apply_auth(self, client, owner_id: str | None, form=None):
@@ -228,31 +242,53 @@ class MqttBinding(AuthMixin):
                 pass
 
     async def invoke(self, action, form, arguments):  # noqa: ANN001
+        """Publish to the form topic. When the action declares an ``output``
+        schema, await a reply on ``<topic>/reply`` (request/response). When it
+        does not, fire-and-forget: publish, wait for PUBACK at QoS >= 1, return
+        ``{"ok": True}`` without subscribing for a reply."""
         import asyncio
 
         from thingctx.reliability import TransportError
 
         host, port, topic = self._endpoint(form, getattr(action, "name", "action"))
+        expect_reply = bool(getattr(action, "output_schema", None))
         reply_topic = f"{topic}/reply"
         loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
+        fut: asyncio.Future | None = loop.create_future() if expect_reply else None
         client, props = await self._connect(getattr(action, "thing_id", None), host, port, form)
 
-        def _on_message(_c, _u, msg):  # noqa: ANN001
-            payload = _decode_mqtt(msg.payload)
-            if not fut.done():
-                loop.call_soon_threadsafe(fut.set_result, payload)
+        if expect_reply:
 
-        client.on_message = _on_message
+            def _on_message(_c, _u, msg):  # noqa: ANN001
+                payload = _decode_mqtt(msg.payload)
+                if fut is not None and not fut.done():
+                    loop.call_soon_threadsafe(fut.set_result, payload)
+
+            client.on_message = _on_message
+
+        # Retain: call-time ``retain`` wins over the form's ``mqv:retain``.
+        retain = False
+        body = arguments
+        if isinstance(arguments, dict) and "retain" in arguments:
+            body = {k: v for k, v in arguments.items() if k != "retain"}
+            retain = bool(arguments.get("retain"))
+        elif form.raw.get("mqv:retain") is not None:
+            retain = bool(form.raw.get("mqv:retain"))
+
         try:
-            await self._establish(client, host, port, topics=[reply_topic], props=props)
-            info = client.publish(topic, json.dumps(arguments), qos=self._qos)
+            topics = [reply_topic] if expect_reply else []
+            await self._establish(client, host, port, topics=topics, props=props)
+            info = client.publish(topic, json.dumps(body), qos=self._qos, retain=retain)
             # At QoS >= 1, confirm the broker stored the publish (PUBACK) before
-            # waiting on a reply, so a dropped publish is not mistaken for a slow
-            # device. wait_for_publish blocks, so run it off the event loop.
+            # waiting on a reply (or returning), so a dropped publish is not
+            # mistaken for a slow device. wait_for_publish blocks, so run it off
+            # the event loop.
             wait_pub = getattr(info, "wait_for_publish", None)
             if self._qos and callable(wait_pub):
                 await loop.run_in_executor(None, lambda: wait_pub(self._timeout))
+            if not expect_reply:
+                return {"ok": True, "topic": topic}
+            assert fut is not None
             return await asyncio.wait_for(fut, timeout=self._timeout)
         except asyncio.TimeoutError as exc:
             raise TransportError(

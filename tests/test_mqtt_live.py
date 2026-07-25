@@ -124,7 +124,9 @@ async def test_username_password_authenticates_and_roundtrips(broker):
         inv = MqttBinding(
             credentials={"urn:dev:pump": {"username": USER, "password": PASSWORD}}
         ).with_security(thing)
-        action = SimpleNamespace(thing_id="urn:dev:pump", name="do")
+        action = SimpleNamespace(
+            thing_id="urn:dev:pump", name="do", output_schema={"type": "object"}
+        )
         form = SimpleNamespace(href=f"mqtt://127.0.0.1:{port}/{topic}", raw={})
 
         result = await asyncio.wait_for(inv.invoke(action, form, {"speed": 7}), timeout=5)

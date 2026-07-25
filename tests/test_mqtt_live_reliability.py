@@ -60,8 +60,8 @@ def _mk_paho(cid: str = ""):
         return mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=cid)
 
 
-def _form(topic: str):
-    action = SimpleNamespace(name="cmd")
+def _form(topic: str, *, output=True):
+    action = SimpleNamespace(name="cmd", output_schema={"type": "object"} if output else None)
     return action, SimpleNamespace(href=f"mqtt://{HOST}:{PORT}/{topic}", raw={})
 
 
