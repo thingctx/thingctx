@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Enforcement helpers and the ``guard_client`` factory.
 
 Authorization enforcement lives INSIDE :class:`thingctx.ThingClient` now: each
@@ -28,8 +30,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from thingctx import ThingClient
-
 # Re-exported from the PDP module (their new home): the client enforces inline,
 # so these live next to the PDP to avoid a client -> pep import cycle. Keeping
 # the names importable from here preserves existing imports.
@@ -38,6 +38,7 @@ from thingctx.authz.pdp import (
     _authorized_stream,
     _token_expired,
 )
+from thingctx.runtime import ThingClient
 
 if TYPE_CHECKING:
     from thingctx.authz.pdp import PolicyDecisionPoint
