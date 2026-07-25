@@ -598,19 +598,17 @@ def client_from_registry(
     return ThingClient(tds=tds, bindings=bindings, approve_when=approve_when)
 
 
-async def serve(registry) -> None:
-    """Run the stdio MCP server over a registry of TDs.
+def _build_server(registry):
+    """Build the MCP server over a registry of TDs, shared by every transport.
 
     Per-Thing secrets are read from the environment (THINGCTX_TOKEN_<SLUG>)
     and bound to each Thing's declared security scheme, so authenticated
     surfaces are drivable without baking secrets into any TD.
     """
-    from mcp.server.stdio import stdio_server
-
     creds = _credentials_from_env()
     # Trust policy from the environment; default "declared" honors exactly what
     # each TD marks risky. The server wires an elicitation approver, so a gated
-    # tool prompts the CLI user to confirm before it runs.
+    # tool prompts the client user to confirm before it runs.
     approve_when = os.environ.get("THINGCTX_APPROVE_WHEN", "declared")
     client = client_from_registry(
         registry, credentials=creds, approve_when=approve_when, verbose=True
@@ -623,23 +621,83 @@ async def serve(registry) -> None:
     print(f"thingctx-mcp: approval policy = {approve_when}", file=sys.stderr)
     n = len(client.things)
     name = client.things[0].title if n == 1 else f"things ({n})"
-    server = build_mcp_server(client, name=name or "things")
+    return build_mcp_server(client, name=name or "things")
+
+
+async def serve(registry) -> None:
+    """Run the MCP server over stdio (the local, one-per-session transport)."""
+    from mcp.server.stdio import stdio_server
+
+    server = _build_server(registry)
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
 
+def serve_http(registry, *, host: str = "127.0.0.1", port: int = 8080) -> None:
+    """Run the MCP server over streamable HTTP (the remote transport).
+
+    A long lived server that many callers reach by URL, for a hosted gateway or a
+    cloud agent runtime that only accepts a remote MCP endpoint. streamable-http is
+    the go forward remote transport; legacy SSE is not served. Bind 0.0.0.0 in a
+    container; keep 127.0.0.1 as the default so a bare run is not exposed by accident.
+    """
+    import contextlib
+
+    import uvicorn
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    server = _build_server(registry)
+    manager = StreamableHTTPSessionManager(app=server)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        async with manager.run():
+            yield
+
+    async def handle(scope, receive, send):
+        # The session manager wants the raw ASGI at the mount root; Mount at / (not
+        # /mcp) so the client posts to the base URL with no trailing-slash redirect.
+        await manager.handle_request(scope, receive, send)
+
+    app = Starlette(routes=[Mount("/", app=handle)], lifespan=lifespan)
+    print(f"thingctx-mcp: serving streamable-http on http://{host}:{port}/", file=sys.stderr)
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
 def main() -> None:
-    if len(sys.argv) < 2:
-        print(
-            "usage: python -m thingctx.integrations.mcp <dir | file | url | tdd:url> ...",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-    import asyncio
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="thingctx-mcp",
+        description="Serve a fleet of W3C WoT Things to an MCP client.",
+    )
+    parser.add_argument(
+        "sources",
+        nargs="+",
+        metavar="SOURCE",
+        help="a TD dir, file, URL, or tdd:url; one or more.",
+    )
+    parser.add_argument(
+        "--http",
+        action="store_true",
+        help="serve over streamable HTTP instead of stdio (for a hosted gateway or a "
+        "cloud agent runtime that takes a remote MCP URL).",
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="HTTP bind host (default 127.0.0.1).")
+    parser.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080).")
+    args = parser.parse_args()
 
     from thingctx.registry import from_args
 
-    asyncio.run(serve(from_args(sys.argv[1:])))
+    registry = from_args(args.sources)
+    if args.http:
+        serve_http(registry, host=args.host, port=args.port)
+    else:
+        import asyncio
+
+        asyncio.run(serve(registry))
 
 
 if __name__ == "__main__":

@@ -37,6 +37,9 @@ mqtt = ["paho-mqtt>=2.0"]
 validate = ["jsonschema>=4.0"]
 # Expose a Thing (or a whole fleet of TDs) to any MCP client.
 mcp = ["mcp>=1.0"]
+# Serve the bridge over streamable HTTP (thingctx-mcp --http) for a hosted gateway or
+# a cloud agent runtime that only takes a remote MCP URL. starlette ships with mcp.
+mcp-http = ["mcp>=1.0", "uvicorn>=0.27"]
 # Import OpenAPI specs (YAML support; JSON works without it).
 openapi = ["httpx>=0.25", "pyyaml>=6"]
 # Cloud auth: OAuth2 JWT-bearer assertions need RS256 JWT signing (pyjwt);
