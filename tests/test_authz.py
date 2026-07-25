@@ -817,3 +817,140 @@ async def test_envelope_mode_stream_denials_surface_and_touch_nothing():
         assert vals[0]["op"] == op
     assert fired == []  # device stream never opened
     await client.aclose()
+
+
+# --------------------------------------------------------------------------- #
+# long-running action lifecycle: queryaction / cancelaction are distinct ops
+# --------------------------------------------------------------------------- #
+
+
+def _async_action_td() -> dict:
+    """A pump with a long-running ``calibrate`` action whose form declares the
+    three lifecycle ops, so invokeaction / queryaction / cancelaction are three
+    separate grantable tuples."""
+    return {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": PUMP_ID,
+        "title": "Pump",
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "actions": {
+            "calibrate": {
+                "synchronous": False,
+                "forms": [
+                    {
+                        "href": "http://pump.local/calibrate",
+                        "op": ["invokeaction", "queryaction", "cancelaction"],
+                    }
+                ],
+            }
+        },
+    }
+
+
+class _LifecycleBinding(ProtocolBinding):
+    """A stub http transport with the async lifecycle, recording each device
+    hop so a test can assert a denied poll/cancel never reached the device."""
+
+    scheme = "http"
+
+    def __init__(self, fired: list) -> None:
+        self._fired = fired
+
+    async def invoke_async(self, action, form, arguments):
+        from thingctx.lifecycle import ActionStatus
+
+        self._fired.append(("invoke_async", action.name))
+        return ActionStatus(
+            status="running",
+            href="http://pump.local/calibrate/1",
+            form=form,
+            thing_id=action.thing_id,
+            name=action.name,
+        )
+
+    async def query_action(self, status):
+        from thingctx.lifecycle import ActionStatus
+
+        self._fired.append(("query", status.name))
+        return ActionStatus(
+            status="completed",
+            output={"done": True},
+            href=status.href,
+            form=status.form,
+            thing_id=status.thing_id,
+            name=status.name,
+        )
+
+    async def cancel_action(self, status):
+        self._fired.append(("cancel", status.name))
+        return status
+
+
+def _lifecycle_client(fired: list, allowed: set, *, authz_raise: bool = True) -> ThingClient:
+    td = _async_action_td()
+    vocab = build_vocabulary(parse_thing(td))
+    pdp = PolicyDecisionPoint(vocab, LocalPolicyGrantSource({"op": allowed}))
+    return ThingClient(
+        tds=[td],
+        bindings=[_LifecycleBinding(fired)],
+        pdp=pdp,
+        identity={"roles": ["op"]},
+        authz_raise=authz_raise,
+    )
+
+
+async def test_cancel_action_denied_never_reaches_the_device():
+    """cancelaction is a distinct grant: an identity with invokeaction but not
+    cancelaction can start the action, but a cancel is refused before the device
+    is touched (the poll/cancel lifecycle is not an authorization blind spot)."""
+    fired: list = []
+    client = _lifecycle_client(fired, {(PUMP_ID, "calibrate", "invokeaction")})
+    handle = await client.invoke("pump__calibrate", {}, wait=False)
+    fired.clear()
+    with pytest.raises(AuthorizationDenied) as ei:
+        await client.cancel_action(handle)
+    assert ei.value.request.op == "cancelaction"
+    assert fired == []  # the device DELETE never fired
+    await client.aclose()
+
+
+async def test_cancel_action_granted_reaches_the_device():
+    """With cancelaction granted, the cancel runs: the gate refuses only a
+    denied op, never a granted one."""
+    fired: list = []
+    client = _lifecycle_client(
+        fired,
+        {(PUMP_ID, "calibrate", "invokeaction"), (PUMP_ID, "calibrate", "cancelaction")},
+    )
+    handle = await client.invoke("pump__calibrate", {}, wait=False)
+    fired.clear()
+    await client.cancel_action(handle)
+    assert fired == [("cancel", "calibrate")]
+    await client.aclose()
+
+
+async def test_query_action_denied_never_polls_the_device():
+    """queryaction is a distinct grant: a public query_action poll is refused
+    when queryaction is not granted."""
+    fired: list = []
+    client = _lifecycle_client(fired, {(PUMP_ID, "calibrate", "invokeaction")}, authz_raise=False)
+    handle = await client.invoke("pump__calibrate", {}, wait=False)
+    fired.clear()
+    denied = await client.query_action(handle)
+    assert denied["op"] == "queryaction"
+    assert fired == []  # the device GET never fired
+    await client.aclose()
+
+
+async def test_blocking_invoke_poll_does_not_need_a_separate_queryaction_grant():
+    """The internal blocking poll of invoke(wait=True) is part of the invoke the
+    caller already passed invokeaction for, so it runs without a separate
+    queryaction grant. Only the public query_action re-entry point requires it."""
+    fired: list = []
+    client = _lifecycle_client(fired, {(PUMP_ID, "calibrate", "invokeaction")}, authz_raise=False)
+    result = await client.invoke("pump__calibrate", {}, wait=True)
+    assert result.status == "completed"
+    assert ("invoke_async", "calibrate") in fired
+    assert ("query", "calibrate") in fired  # the wait-poll ran despite no queryaction grant
+    await client.aclose()
