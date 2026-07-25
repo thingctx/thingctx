@@ -41,18 +41,24 @@ repos:
   # Types and dead-code run from the project's own environment (local hooks), so
   # they see the installed optional dependencies and the [tool.mypy]/[tool.vulture]
   # config in pyproject. Install the dev extra once: pip install -e ".[dev]".
+  #
+  # These invoke the venv's own tools via a repo-relative path
+  # (pre-commit runs hooks with the repo root as cwd). A bare `entry: mypy` with
+  # `language: system` resolves against the caller's PATH, so a commit from a
+  # shell that has not activated the venv fails with "executable not found"; the
+  # `.venv/bin/...` path resolves whether or not the venv is on PATH.
   - repo: local
     hooks:
       - id: mypy
         name: mypy
-        entry: mypy
+        entry: .venv/bin/mypy
         language: system
         types: [python]
         pass_filenames: false
         require_serial: true
       - id: vulture
         name: vulture
-        entry: vulture
+        entry: .venv/bin/vulture
         language: system
         types: [python]
         pass_filenames: false
@@ -62,7 +68,7 @@ repos:
       # checks ruff lacks, chiefly B613 (trojan source). Config in [tool.bandit].
       - id: bandit
         name: bandit
-        entry: bandit -r src/thingctx -c pyproject.toml -q
+        entry: .venv/bin/bandit -r src/thingctx -c pyproject.toml -q
         language: system
         types: [python]
         pass_filenames: false
@@ -75,7 +81,7 @@ repos:
       # which is push-cadence work. CI runs the same command on every push/PR.
       - id: pip-audit
         name: pip-audit
-        entry: pip-audit . --progress-spinner off
+        entry: .venv/bin/pip-audit . --progress-spinner off
         language: system
         pass_filenames: false
         require_serial: true
@@ -85,7 +91,7 @@ repos:
       # authz kernel / TD model reaching outward). Contracts in [tool.importlinter].
       - id: import-linter
         name: import-linter
-        entry: lint-imports
+        entry: .venv/bin/lint-imports
         language: system
         types: [python]
         pass_filenames: false
