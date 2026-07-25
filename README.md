@@ -509,8 +509,11 @@ thingctx.HttpBinding(credentials={"weather": "secret"})  # by Thing id/slug, or 
 
 ## Contributing
 
-Adding a transport, or a description for a device you own, is a scoped and
-immediately useful first change. Start at the issues labeled
+Driving your own device needs nothing from this repository. You write a
+description, thingctx reads it, and neither of us has to know about the other.
+
+What the project does need is transports it cannot yet speak. Each is one self
+contained class. Start at the issues labeled
 [`good first issue`](https://github.com/thingctx/thingctx/labels/good%20first%20issue),
 and see [CONTRIBUTING.md](CONTRIBUTING.md) for how a binding is put together.
 
