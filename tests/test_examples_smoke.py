@@ -89,3 +89,26 @@ def test_time_td_is_schema_valid():
 
     td = json.loads((EXAMPLES / "registry" / "time.td.json").read_text())
     assert validate_td(td) == []
+
+
+def test_every_example_td_is_schema_valid():
+    """Every TD we ship validates, not just the quickstart one. The README serves
+    the whole registry folder, so an invalid TD in it breaks the first thing a
+    reader runs."""
+    pytest.importorskip("jsonschema")
+    from thingctx import validate_td
+
+    found = []
+    for path in sorted(EXAMPLES.rglob("*.json")):
+        try:
+            doc = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        # A TD is identified by its @context, which is what tells the registry
+        # loader this file is a Thing Description and not adjacent config.
+        if not isinstance(doc, dict) or "wot/td" not in str(doc.get("@context", "")):
+            continue
+        found.append(path)
+        assert validate_td(doc) == [], f"{path.relative_to(REPO)} is not a valid TD"
+
+    assert found, "no example TDs discovered; the glob or the layout changed"

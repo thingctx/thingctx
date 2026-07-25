@@ -3,6 +3,8 @@
   "id": "urn:thingctx:cam:sample",
   "title": "Sample camera",
   "description": "A camera whose live stream is reached by reference. Over MCP it exposes a snapshot tool that returns one still frame as an image.",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
   "actions": {
     "watch": {
       "description": "Capture a still frame from the camera.",
