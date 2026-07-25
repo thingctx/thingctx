@@ -69,6 +69,16 @@ _INTERPRETERS = frozenset(
         "setsid",
     }
 )
+# Versioned interpreter binaries (python3.14, node20, ruby3.2, …) are the same
+# risk class as the unversioned names above.
+_VERSIONED_INTERPRETER = re.compile(r"^(?:python|ruby|perl|php|node|nodejs)\d+(?:\.\d+)*$")
+
+
+def _is_interpreter(program: str) -> bool:
+    base = os.path.basename(program).lower()
+    return base in _INTERPRETERS or bool(_VERSIONED_INTERPRETER.match(base))
+
+
 # A minimal environment for spawned programs: enough to find and run a binary,
 # without leaking the parent's secrets (API keys, cloud creds) to it.
 _SAFE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TZ", "SystemRoot")
@@ -124,7 +134,9 @@ class ExecBinding:
         # ("-c", "-m") misses a concatenated form ("-cCODE") and every future
         # flag; keying on the leading "-" catches them all.
         base = os.path.basename(program)
-        if base in _INTERPRETERS and (base == "env" or any(a.startswith("-") for a in argv[1:])):
+        if _is_interpreter(program) and (
+            base.lower() == "env" or any(a.startswith("-") for a in argv[1:])
+        ):
             return (
                 f"program {program!r} is an interpreter invoked with a flag argument, "
                 "which can bypass the allow list; allowlist a concrete wrapper program instead"
