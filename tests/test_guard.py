@@ -497,3 +497,37 @@ async def test_jwks_endpoint_answering_a_bare_list_fails_closed(keypair, monkeyp
 
     # and the bad shape was never cached, so a later good fetch still works
     assert g._jwks_cache is None
+
+
+async def test_jwks_with_a_non_list_keys_member_fails_closed(keypair, monkeypatch):
+    """The object check is not enough on its own: a str ``keys`` iterates into
+    characters before it fails, so the AttributeError lands in _signing_key and
+    escapes as a 500. Validate the key list too, and refuse before caching."""
+    import httpx
+
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"keys": "not-a-list"}
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)
+    with pytest.raises(AuthorizationError):
+        await g.validate(keypair.mint())
+    assert g._jwks_cache is None
