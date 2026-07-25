@@ -161,8 +161,8 @@ follow_imports = "skip"
 follow_imports_for_stubs = true
 
 # Dead-symbol detection. The whitelist names only what is reachable through
-# indirection vulture cannot follow (entry points, protocol signatures); a
-# NEW flagged name is real dead code (PRINCIPLES.md #2), not a suppression.
+# indirection vulture cannot follow (entry points, protocol signatures). A newly
+# flagged name is real dead code, so delete it rather than whitelist it.
 [tool.vulture]
 paths = ["src/thingctx", ".vulture_whitelist.py"]
 min_confidence = 80
@@ -184,9 +184,9 @@ skips = [
     "B311", # random for jitter: ruff S311 governs; the one use is retry jitter, not a secret
 ]
 
-# Dependency-direction guardrail (a fitness function, architecture-principles
-# §13.1). The linter follows the real runtime import graph (TYPE_CHECKING-only
-# imports are excluded) and fails if an edge points the wrong way. The layers
+# Dependency-direction guardrail, enforced as a fitness function. The linter
+# follows the real runtime import graph (TYPE_CHECKING-only imports are
+# excluded) and fails if an edge points the wrong way. The layers
 # run outermost first: an entrypoint may import the engine, never the reverse.
 [tool.importlinter]
 root_package = "thingctx"
@@ -306,8 +306,8 @@ select = [
 
 ignore = [
     # --- PL: keep the idiom rules, drop the complexity-threshold opinions. A
-    #     function's branch/argument/statement count is a design judgment, not a
-    #     mechanical defect; PRINCIPLES.md #4 covers "say it once" by eye. ---
+    #     function's branch, argument, and statement counts are a design
+    #     judgment, not a mechanical defect. ---
     "PLR0911", # too many return statements
     "PLR0912", # too many branches
     "PLR0913", # too many arguments
@@ -324,8 +324,8 @@ ignore = [
 
 # Families deliberately NOT selected (restraint is the taste):
 #   ANN  - annotate-everything is noise; mypy already proves the public types.
-#   D    - full pydocstyle is pedantic; docstring quality is a contract judgment
-#          (PRINCIPLES.md #7), not a line-shape a linter should grade.
+#   D    - full pydocstyle is pedantic; whether a docstring states a real
+#          contract is a judgment, not a line shape a linter should grade.
 #   FBT  - boolean-trap flagging fights too many legitimate keyword flags here.
 #   COM  - trailing-comma placement is ruff-format's job, not a lint concern.
 #   PLR0* complexity thresholds - see the PL ignores above.
