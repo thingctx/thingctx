@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Only the first box matters. Fill in what you know and skip the rest, we can
-        work the details out in the comments.
+        Only the first box matters. Fill in what you know and skip the rest.
+        We can work the details out in the comments.
 
   - type: textarea
     id: what

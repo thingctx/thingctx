@@ -10,6 +10,6 @@ pointed it at. -->
 
 ---
 
-CI runs the tests, the linters, and the sign off check, so you do not need to verify
-those by hand. If something goes red and it is not obvious why, say so in the PR and we
+CI runs the tests, the linters, and the DCO check, so you do not need to verify those
+by hand. If something goes red and it is not obvious why, say so in the PR and we
 will look at it together. First pull request here is welcome to be rough.
