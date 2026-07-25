@@ -2,19 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Microsoft Entra ID provider for the pluggable gateway guard.
 
-:class:`EntraGatewayGuard` is a thin subclass of
-:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard` supplying the three
-Entra-specific things:
+:class:`EntraGatewayGuard` subclasses
+:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard`, supplying the tenant's
+issuers (v2 and v1 access tokens), its JWKS URL, and the authorization claims.
 
-1. the issuers: ``login.microsoftonline.com/{tenant}/v2.0`` (v2 access tokens)
-   and ``sts.windows.net/{tenant}/`` (v1 access tokens);
-2. the JWKS URL: ``login.microsoftonline.com/{tenant}/discovery/v2.0/keys``;
-3. the authorization claims: delegated scopes in ``scp`` (space-delimited) and
-   app roles in ``roles`` (a list).
-
-Entra's app-only (agent) tokens carry app permissions in ``roles``, never
-``scp``; a delegated (user) token carries ``scp``. This class lets a caller
-require either or both, matching that split.
+An app-only (agent) token carries its permissions in ``roles``, never ``scp``; a
+delegated (user) token carries ``scp``. This class lets a caller require either or
+both, matching that split.
 """
 
 from __future__ import annotations

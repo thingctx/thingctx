@@ -2,52 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 """Cloudflare Access provider for the pluggable gateway guard.
 
-:class:`CloudflareAccessGuard` is a thin subclass of
-:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard`. Everything real (JWKS fetch,
-RS256 verification, iss/aud/exp checks, the non-leaking errors) lives in the
-base; this class supplies only the three Cloudflare-specific things:
+:class:`CloudflareAccessGuard` subclasses
+:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard`. The base does the real work
+(JWKS fetch, RS256, iss/aud/exp, non-leaking errors); this class supplies the
+issuer (``https://<team>.cloudflareaccess.com``), the certs URL, and the grant.
 
-1. the issuer: ``https://<team_domain>.cloudflareaccess.com``;
-2. the JWKS URL: ``https://<team_domain>.cloudflareaccess.com/cdn-cgi/access/certs``
-   (Cloudflare publishes two keys there, current + previously rotated, so the
-   base's kid match is what selects the right one);
-3. the authorization grant. Cloudflare has no equivalent of Entra app roles, so
-   the mapping is spelled out below.
+Token facts (RS256 JWTs): ``aud`` is an array that must contain the Access app's
+AUD tag; a user token carries ``email`` / ``sub``; a service token (the agent
+equivalent) carries ``common_name`` and an empty ``sub``.
 
-Cloudflare Access token facts (RS256 JWTs):
-  * ``iss`` is ``https://<team>.cloudflareaccess.com``;
-  * ``aud`` is an ARRAY containing the Access application's AUD tag (a hex
-    string); the base's audience check requires the configured tag to be a
-    member;
-  * a USER token carries ``email`` / ``sub``;
-  * a SERVICE TOKEN (the app-only / agent equivalent, a client-id/secret pair
-    Cloudflare validates at its edge) carries ``common_name`` (the service
-    token's name, e.g. ``"my-agent.access"``) and ``sub`` empty.
-
-Authorization mapping:
-
-Cloudflare Access authorizes at its EDGE via Access policies: a token is minted
-only if the caller may reach the application. So the FLOOR of authorization is
-"a valid token for this AUD means the policy let you in", coarser than Entra,
-where the app role in the token names the exact permission. To get a grant per
-device or action (the equivalent of ``Thing1.Write``) into the decision, a
-deployment has two paths, both supported through the generic grant machinery:
-
-  * SERVICE-TOKEN MAPPING (``service_token_permissions=``): a mapping from each
-    service token's ``common_name`` to the permissions that holder may exercise,
-    with ``required_permissions=`` naming what this gateway requires. The guard
-    synthesizes the caller's permissions from ``common_name`` and checks them.
-    The mapping lives in the gateway config, NOT in the token, because Cloudflare
-    will not put an arbitrary permission list in a service-token JWT.
-
-  * CUSTOM-CLAIM MAPPING (``permission_claim=`` + ``required_permissions=``): if
-    the deployment configures an Access policy / OIDC IdP to stamp a custom claim
-    (e.g. ``"groups"`` or a bespoke ``"permissions"`` claim) into the token, the
-    guard reads that claim directly, exactly like Entra's ``roles``. It requires
-    the upstream IdP to emit the claim; Access's own service tokens do not.
-
-If neither is configured, the guard is authentication-only: a valid token for
-the AUD passes, the edge Access policy being the authorization.
+Cloudflare authorizes at its edge, so the floor is "a valid token for this AUD
+means the policy let you in", coarser than an Entra app role. Two ways to get a
+per-action grant into the decision, both through the generic grant machinery:
+``service_token_permissions=`` maps each ``common_name`` to its permissions (this
+lives in gateway config, because Cloudflare will not put a permission list in a
+service-token JWT); or ``permission_claim=`` reads a custom claim an upstream IdP
+stamps, like Entra's ``roles``. With neither, the guard is authentication-only.
 """
 
 from __future__ import annotations
@@ -63,38 +33,30 @@ __all__ = ["AuthorizationError", "CloudflareAccessGuard", "make_cloudflare_guard
 class CloudflareAccessGuard(JwtGatewayGuard):
     """Validate and authorize an inbound Cloudflare Access application token.
 
-    Construct with the team domain and the Access application's AUD tag;
-    optionally attach a per-action grant (see the module docstring for the two
-    honest mappings). :meth:`validate` returns the verified claims or raises.
+    Construct with the team domain and the Access app's AUD tag; optionally attach
+    a per-action grant (see the module docstring). :meth:`validate` returns the
+    verified claims or raises.
 
     Args:
-        team_domain: the Cloudflare Zero Trust team name (``"myteam"``), which
-            fixes the issuer ``https://myteam.cloudflareaccess.com`` and the
-            certs URL. A full ``https://...`` host is also accepted and reduced
-            to the team name.
-        audience: the Access application's AUD tag (the hex string). Cloudflare
-            puts it in the token's ``aud`` ARRAY; a token for another app is
-            rejected.
-        required_permissions: if set, the effective permissions of the caller
-            must contain every one of these (or ANY, with ``require_any``). The
-            effective permissions come from ``permission_claim`` if set, else
-            from ``service_token_permissions`` keyed by ``common_name``.
-        permission_claim: the token claim that carries the caller's permissions
-            (a custom claim an upstream IdP / Access policy stamps, e.g.
-            ``"groups"`` or ``"permissions"``). Read like Entra's ``roles``.
-        service_token_permissions: a mapping ``{common_name: [permissions]}``
-            the gateway is configured with, used when ``permission_claim`` is
-            not set. The grant is derived from the service token's identity
-            because Cloudflare will not embed an arbitrary permission list in the
-            token.
-        require_any: accept the token if it has ANY of ``required_permissions``
-            rather than ALL (default: require all).
-        jwks: an explicit JWKS dict ``{"keys": [...]}`` to verify against instead
-            of fetching from Cloudflare. For offline / test setups; when set, no
-            network call is made.
-        allowed_algorithms: the signing algorithms accepted. Cloudflare Access
-            tokens are RS256; the default locks to that so a ``none``/HS
-            downgrade is impossible.
+        team_domain: the Zero Trust team name (``"myteam"``), which fixes the
+            issuer and certs URL. A full ``https://...`` host is also accepted.
+        audience: the Access app's AUD tag. It lives in the token's ``aud`` array;
+            a token for another app is rejected.
+        required_permissions: if set, the caller's effective permissions must
+            contain all of these (or any, with ``require_any``). Effective
+            permissions come from ``permission_claim``, else from
+            ``service_token_permissions`` keyed by ``common_name``.
+        permission_claim: the token claim carrying the caller's permissions (a
+            custom claim an upstream IdP stamps). Read like Entra's ``roles``.
+        service_token_permissions: ``{common_name: [permissions]}``, used when
+            ``permission_claim`` is not set, because Cloudflare will not embed a
+            permission list in the token.
+        require_any: accept the token with any of ``required_permissions`` rather
+            than all (default: all).
+        jwks: an explicit JWKS to verify against instead of fetching. For
+            offline / test setups.
+        allowed_algorithms: accepted signing algorithms. Locked to RS256 so a
+            ``none``/HS downgrade is impossible.
         leeway: clock-skew allowance in seconds for exp/nbf (default 60).
     """
 
@@ -171,7 +133,6 @@ class CloudflareAccessGuard(JwtGatewayGuard):
         if "://" in t:
             host = urlparse(t).hostname or ""
             t = host
-        # Strip the cloudflareaccess.com suffix if a full host was given.
         suffix = ".cloudflareaccess.com"
         t = t.removesuffix(suffix)
         return t.strip("/")
@@ -179,11 +140,9 @@ class CloudflareAccessGuard(JwtGatewayGuard):
     def _authorize(self, claims: dict[str, Any]) -> None:
         """Enforce the per-action grant.
 
-        When the permission source is a service-token mapping (no custom claim),
-        the caller's effective permissions are DERIVED from the token's
-        ``common_name`` against the gateway-configured map, then checked. When a
-        custom claim is configured instead, the base's grant check (set up in
-        __init__) handles it.
+        For the service-token mapping (no custom claim), the caller's permissions
+        are derived from ``common_name`` against the configured map, then checked.
+        For a custom claim, the base's grant check (set up in __init__) handles it.
         """
         if self.required_permissions and not self.permission_claim:
             common_name = str(claims.get("common_name", "") or "")
