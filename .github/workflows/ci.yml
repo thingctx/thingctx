@@ -165,6 +165,26 @@ jobs:
       - name: Test (offline)
         run: pytest -m "not network" -q
 
+  # Branch coverage gate. Runs the offline suite under coverage and fails below
+  # the floor in [tool.coverage.report]. Required (wired into ci-ok), so a change
+  # that drops coverage below the floor blocks merge. One Python version is
+  # enough; the number does not vary across the matrix.
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Test with branch coverage (fails below the floor)
+        run: pytest -m "not network" --cov=thingctx --cov-branch -q
+
   # The base install must stay dependency-free. Install thingctx with NO extras,
   # import the core and the authorization seam, and fail if any heavy dependency
   # (httpx, pyjwt, azure-identity, cryptography) is reachable from that import.
@@ -212,7 +232,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [dco, lint, types, dead-code, security-lint, deps-audit, architecture, test, dep-free-base]
+    needs: [dco, lint, types, dead-code, security-lint, deps-audit, architecture, test, coverage, dep-free-base]
     runs-on: ubuntu-latest
     steps:
       - name: Check upstream jobs
@@ -223,7 +243,7 @@ jobs:
             echo "dco=${{ needs.dco.result }}"
             exit 1
           fi
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.security-lint.result }}" != "success" ] || [ "${{ needs.deps-audit.result }}" != "success" ] || [ "${{ needs.architecture.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
-            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} security-lint=${{ needs.security-lint.result }} deps-audit=${{ needs.deps-audit.result }} architecture=${{ needs.architecture.result }} test=${{ needs.test.result }} dep-free-base=${{ needs.dep-free-base.result }}"
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.security-lint.result }}" != "success" ] || [ "${{ needs.deps-audit.result }}" != "success" ] || [ "${{ needs.architecture.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.coverage.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
+            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} security-lint=${{ needs.security-lint.result }} deps-audit=${{ needs.deps-audit.result }} architecture=${{ needs.architecture.result }} test=${{ needs.test.result }} coverage=${{ needs.coverage.result }} dep-free-base=${{ needs.dep-free-base.result }}"
             exit 1
           fi

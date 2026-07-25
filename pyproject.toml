@@ -63,7 +63,7 @@ all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>
 # The gate tools are pinned, not floated: the CI and the pre-commit hook must
 # agree with what a contributor runs locally, or "green here, red in CI" churn
 # follows. ruff 0.14.x is where the in-function-import rule (PLC0415) is stable.
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff==0.14.4", "mypy==1.14.1", "vulture==2.14", "bandit==1.9.4", "pip-audit==2.9.0", "import-linter==2.3"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "pytest-cov==7.1.0", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff==0.14.4", "mypy==1.14.1", "vulture==2.14", "bandit==1.9.4", "pip-audit==2.9.0", "import-linter==2.3"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
@@ -107,6 +107,35 @@ thingctx = ["data/*.json", "py.typed", "skill/SKILL.md"]
 markers = ["network: hits the network; deselect with -m 'not network'"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Coverage is not in addopts on purpose: a bare `pytest` (or a single-file run
+# while iterating) stays fast and instrumentation-free. CI and the pre-push hook
+# opt in with `--cov=thingctx --cov-branch`; the floor and exclusions below apply
+# whenever they do.
+
+[tool.coverage.run]
+branch = true
+source = ["thingctx"]
+
+[tool.coverage.report]
+# The floor is the honestly-achieved branch+line coverage of the `not network`
+# suite, set just under it to catch a regression without flaking on the small
+# per-run variance from which optional deps load. It is not 95%: the security and
+# runtime core is far higher (netpolicy 99, thing 96, validate 94, http 91, jwt
+# guard 90), and the shortfall is CLI, MQTT/gateway entrypoints, and live
+# integration code reachable only over a network or a broker, which this suite
+# deselects. Raising the package floor is a separate coverage effort, not a gate
+# to lower for it.
+fail_under = 80
+show_missing = true
+exclude_also = [
+    # Type-checking-only imports never run.
+    "if TYPE_CHECKING:",
+    # Defensive re-raises of an impossible state, already marked at the site.
+    "raise AssertionError",
+    # Abstract protocol/stub bodies carry no logic to cover.
+    "\\.\\.\\.$",
+    "raise NotImplementedError",
+]
 
 # py.typed ships, so the annotations are a promise to consumers. mypy makes the
 # promise real: strict-ish on our own source, lenient at the optional-dependency
