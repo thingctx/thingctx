@@ -242,7 +242,11 @@ class PyAVBackend:
             av_options.setdefault("rtsp_transport", "tcp")
 
         fmt = options.get("format") or _output_format(target)
-        container = av.open(target, mode="w", format=fmt, options=av_options)
+        # A network ingest target that accepts the connection but never drains can
+        # wedge the writer; the same timeout that bounds a read bounds the open.
+        container = av.open(
+            target, mode="w", format=fmt, options=av_options, timeout=options.get("timeout")
+        )
         vstate: dict = {"stream": None, "count": 0, "last_pts": None}
         astate: dict = {"stream": None, "resampler": None, "fifo": None, "samples": 0}
         try:
@@ -526,7 +530,7 @@ class PyAVBackend:
         plan = options.get("auth")
         track = options.get("track")  # None: copy all media streams
         fmt = options.get("format") or _output_format(target)
-        out = av.open(target, mode="w", format=fmt)
+        out = av.open(target, mode="w", format=fmt, timeout=options.get("timeout"))
         inputs: list = []
         try:
             mk = getattr(out, "add_stream_from_template", None)
