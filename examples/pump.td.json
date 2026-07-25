@@ -165,6 +165,10 @@
         "properties": { "open": { "type": "boolean" } },
         "required": ["open"]
       },
+      "output": {
+        "type": "object",
+        "properties": { "ok": { "type": "boolean" }, "coolant_open": { "type": "boolean" } }
+      },
       "forms": [{ "href": "mqtt://{MQTT_BROKER}/pump/set_coolant" }]
     }
   },
