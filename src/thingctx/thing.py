@@ -355,13 +355,22 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
     for name, pdef in (td.get("properties") or {}).items():
         pdef = pdef or {}
         ops = _all_ops(pdef)
+        # TD flags are the baseline; when forms declare an explicit op list that
+        # omits writeproperty, the write surface is closed even without readOnly
+        # (dogfood: MQTT observe/read forms were projecting a spurious .set).
+        writable = not bool(pdef.get("readOnly"))
+        if ops and "writeproperty" not in ops:
+            writable = False
+        readable = not bool(pdef.get("writeOnly"))
+        if ops and "readproperty" not in ops and "observeproperty" not in ops:
+            readable = False
         properties[name] = WoTProperty(
             name=name,
             thing_id=thing_id,
             description=_text(pdef, "descriptions", "description", fallback=name),
             schema=_value_schema(pdef),
-            readable=not bool(pdef.get("writeOnly")),
-            writable=not bool(pdef.get("readOnly")),
+            readable=readable,
+            writable=writable,
             observable=bool(pdef.get("observable")) or "observeproperty" in ops,
             forms=_parse_forms(pdef, base=base),
             uri_variables=dict(pdef.get("uriVariables") or {}),
@@ -585,6 +594,53 @@ def _project_input(input_schema: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _href_var_names(href: str) -> set[str]:
+    """The uriVariable names an href references, e.g. {+broker}/{+topic}."""
+    import re as _re
+
+    return {m.lstrip("+") for m in _re.findall(r"\{(\+?[^}]+)\}", href)}
+
+
+def _project_action_params(action: WoTAction, thing_uri_vars: dict[str, Any]) -> dict[str, Any]:
+    """The tool ``parameters`` for an action, INCLUDING the uriVariables its form
+    needs. The bare input schema omits them (they live in ``uriVariables``, not
+    ``input``), so a model reading only the schema cannot supply the broker/topic
+    a form like ``mqtt://{+broker}/{+topic}`` requires. Fold in the action-level
+    uriVariables plus any Thing-level ones the href references, as required
+    string properties, so the flat tool advertises exactly what the call needs.
+
+    Uses the '{+broker}' expansion form's naming; a scalar/array input still wraps
+    under SCALAR_INPUT_KEY, and its uriVariables sit alongside that key."""
+    base = _project_input(action.input_schema)
+    # Which uriVariables does this action's form(s) actually reference?
+    referenced: set[str] = set()
+    for form in action.forms:
+        referenced |= _href_var_names(form.href)
+    if not referenced:
+        return base
+    # Merge action-level uriVariables and referenced Thing-level ones.
+    var_defs = dict(action.uri_variables or {})
+    for name in referenced:
+        if name not in var_defs and name in (thing_uri_vars or {}):
+            var_defs[name] = thing_uri_vars[name]
+    var_defs = {n: d for n, d in var_defs.items() if n in referenced}
+    if not var_defs:
+        return base
+    out = dict(base)
+    props = dict(out.get("properties") or {})
+    for name, vdef in var_defs.items():
+        if name not in props:  # never shadow a real input property
+            props[name] = vdef if isinstance(vdef, dict) else {"type": "string"}
+    out["properties"] = props
+    # A uriVariable the href needs is required to make the call.
+    required = list(out.get("required") or [])
+    for name in var_defs:
+        if name not in required:
+            required.append(name)
+    out["required"] = required
+    return out
+
+
 def is_wrapped_input(input_schema: dict[str, Any]) -> bool:
     """True when :func:`_project_input` wrapped this schema, so the runtime
     must unwrap the model's ``{"value": x}`` back to ``x`` before invoke."""
@@ -592,20 +648,43 @@ def is_wrapped_input(input_schema: dict[str, Any]) -> bool:
     return not (schema.get("type") == "object" or "properties" in schema)
 
 
+# The tool-name namespace separator. A double underscore, NOT a dot.
+#
+# The tool name namespaces the action under its Thing (``<slug><SEP><action>``) so
+# actions of the same name on different Things do not collide. The separator must be
+# in the charset EVERY agent runtime accepts. That intersection is ``[A-Za-z0-9_-]``:
+# a single dot passes the OpenAI/Anthropic function-name charset but is REJECTED by
+# strict MCP clients (Claude Desktop enforces ``^[a-zA-Z0-9_-]{1,64}$``; a ``.`` fails
+# it, as do ``:`` and ``/``). ``__`` is legal in all of them. A single ``_`` is left
+# free for use INSIDE a slug or action name, so ``__`` reads unambiguously as the
+# namespace boundary. Recovery of the (Thing, action) split is by a stored map at the
+# call site, never by re-splitting the string (an action name may contain ``_``).
+TOOL_SEP = "__"
+
+
 def thing_slug(thing_id: str) -> str:
     """Short slug for a Thing id: urn:demo:pump:v1 -> pump. A trailing
     version segment (v1, 2, ...) is dropped; the last remaining segment is
-    kept and reduced to name-safe characters."""
+    kept and reduced to the universal tool-name charset (letters, digits, ``-``).
+    A ``.`` is NOT kept: it is illegal in strict MCP tool names."""
     parts = [p for p in str(thing_id).split(":") if p]
     if len(parts) >= 2 and parts[-1].lower().lstrip("v").isdigit():
         parts = parts[:-1]
     slug = parts[-1] if parts else str(thing_id)
-    return "".join(c if (c.isalnum() or c in "._-") else "-" for c in slug)
+    return "".join(c if (c.isalnum() or c in "_-") else "-" for c in slug)
 
 
 def _tool_name(thing_id: str, action_name: str) -> str:
-    """Short tool name: urn:demo:pump:v1 + set_speed -> pump.set_speed."""
-    return f"{thing_slug(thing_id)}.{action_name}"
+    """Short tool name: urn:demo:pump:v1 + set_speed -> pump__set_speed."""
+    return f"{thing_slug(thing_id)}{TOOL_SEP}{action_name}"
+
+
+def _tool_slug(tool_name: str) -> str:
+    """Recover the Thing slug from a tool name: pump__set_speed -> pump.
+
+    Splits on the FIRST ``__`` (the namespace boundary), so an action name that
+    itself contains ``_`` (or ``__``) is preserved intact on the action side."""
+    return tool_name.split(TOOL_SEP, 1)[0]
 
 
 def actions_to_tools(
@@ -638,7 +717,7 @@ def actions_to_tools(
                     "function": {
                         "name": name,
                         "description": desc,
-                        "parameters": _project_input(action.input_schema),
+                        "parameters": _project_action_params(action, thing.uri_variables),
                     },
                 }
             )
