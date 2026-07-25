@@ -79,7 +79,7 @@ async def test_mcp_bridge_enforces_authz_allow():
     from thingctx.integrations.mcp import build_mcp_server
 
     server = build_mcp_server(_guarded_client(roles=["operator"]), approve=None)
-    out = await _call(server, "pump.read_speed")
+    out = await _call(server, "pump__read_speed")
     assert "1200" in out, out
 
 
@@ -92,7 +92,7 @@ async def test_mcp_bridge_enforces_authz_deny_before_device():
 
     # 'operator' is granted read_speed only; set_speed has no grant -> deny.
     server = build_mcp_server(_guarded_client(roles=["operator"]), approve=None)
-    out = await _call(server, "pump.set_speed", {"rpm": 3000})
+    out = await _call(server, "pump__set_speed", {"rpm": 3000})
     # The denial surfaces as text (authz_raise=False makes the envelope carry it);
     # the point is the device call never returned an ok/rpm result.
     assert "ok" not in out.lower() or "denied" in out.lower() or "not" in out.lower(), out
@@ -112,7 +112,7 @@ async def test_mcp_bridge_authz_uses_server_level_identity_not_per_call():
     # governs, so even read_speed (granted only to 'operator') is denied. There
     # is no MCP channel to present a different, granted caller per call.
     server = build_mcp_server(_guarded_client(roles=["guest"]), approve=None)
-    out = await _call(server, "pump.read_speed")
+    out = await _call(server, "pump__read_speed")
     assert "1200" not in out, (
         "the gate authorized against the server-level identity (roles=['guest']); "
         f"MCP presented no per-call caller to override it: {out}"
@@ -139,5 +139,5 @@ async def test_mcp_per_call_caller_identity_reaches_the_gate():
     server = build_mcp_server(_guarded_client(roles=["guest"]), approve=None)
     # If MCP propagated a per-call identity, we would present an 'operator' caller
     # here and expect success despite the server default being 'guest'.
-    out = await _call(server, "pump.read_speed")
+    out = await _call(server, "pump__read_speed")
     assert "1200" in out  # only reachable once per-call identity propagation exists

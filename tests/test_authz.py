@@ -154,12 +154,12 @@ async def test_read_write_split():
     fired: list = []
     client = _client(td, fired)
     reader = guard_client(client, pdp, identity={"roles": ["reader"]})
-    assert (await reader.read_property("pump.setpoint")) == {"value": 42, "via": "http"}
+    assert (await reader.read_property("pump__setpoint")) == {"value": 42, "via": "http"}
     assert fired == [("http", "read", "setpoint")]
 
     fired.clear()
     with pytest.raises(AuthorizationDenied) as ei:
-        await reader.write_property("pump.setpoint", 99)
+        await reader.write_property("pump__setpoint", 99)
     assert ei.value.request.op == "writeproperty"
     assert fired == []  # device never touched: PEP fired before binding selection
     await client.aclose()
@@ -167,10 +167,10 @@ async def test_read_write_split():
     fired2: list = []
     client2 = _client(td, fired2)
     writer = guard_client(client2, pdp, identity={"roles": ["writer"]})
-    assert (await writer.write_property("pump.setpoint", 55)) == {"ok": True, "via": "http"}
+    assert (await writer.write_property("pump__setpoint", 55)) == {"ok": True, "via": "http"}
     fired2.clear()
     with pytest.raises(AuthorizationDenied) as ei2:
-        await writer.read_property("pump.setpoint")
+        await writer.read_property("pump__setpoint")
     assert ei2.value.request.op == "readproperty"
     assert fired2 == []
     await client2.aclose()
@@ -253,7 +253,7 @@ async def test_read_write_split_envelope_mode():
     fired: list = []
     client = _client(td, fired)
     reader = guard_client(client, pdp, identity={"roles": ["reader"]}, raise_on_deny=False)
-    denied = await reader.write_property("pump.setpoint", 1)
+    denied = await reader.write_property("pump__setpoint", 1)
     assert denied["error"] == "authorization denied"
     assert denied["op"] == "writeproperty"
     assert denied["affordance"] == "setpoint"
@@ -300,7 +300,7 @@ async def test_vocabulary_is_td_closed():
     client = _client(td, fired)
     ac = guard_client(client, pdp, identity={"roles": ["overreach"]})
     with pytest.raises(AuthorizationDenied):
-        await ac.write_property("pump.serial", "x")
+        await ac.write_property("pump__serial", "x")
     assert fired == []
     await client.aclose()
 
@@ -330,9 +330,9 @@ async def test_default_op_rule():
     fired: list = []
     client = _client(td, fired)
     op = guard_client(client, pdp, identity={"roles": ["operator"]})
-    assert (await op.read_property("pump.telemetry"))["via"] == "http"
-    assert (await op.write_property("pump.telemetry", 3))["via"] == "http"
-    assert (await op.invoke("pump.reboot", {}))["via"] == "http"
+    assert (await op.read_property("pump__telemetry"))["via"] == "http"
+    assert (await op.write_property("pump__telemetry", 3))["via"] == "http"
+    assert (await op.invoke("pump__reboot", {}))["via"] == "http"
     assert len(fired) == 3
     await client.aclose()
 
@@ -362,7 +362,7 @@ async def test_no_identity_denies():
     client = _client(td, fired)
     ac = guard_client(client, pdp, identity=None)
     with pytest.raises(AuthorizationDenied):
-        await ac.read_property("pump.setpoint")
+        await ac.read_property("pump__setpoint")
     assert fired == []
     await client.aclose()
 
@@ -377,7 +377,7 @@ async def test_unknown_affordance_passes_through():
     fired: list = []
     client = _client(td, fired)
     ac = guard_client(client, pdp, identity={"roles": ["reader"]})
-    result = await ac.read_property("pump.nonexistent")
+    result = await ac.read_property("pump__nonexistent")
     assert "unknown property" in result["error"]
     await client.aclose()
 
@@ -409,7 +409,7 @@ async def test_as_tools_returns_guarded_invoke():
     ac = guard_client(client, pdp, identity={"roles": ["reader"]})
     specs, invoke = ac.as_tools()
     with pytest.raises(AuthorizationDenied):
-        await invoke("pump.reboot", {})
+        await invoke("pump__reboot", {})
     assert fired == []
     await client.aclose()
 
@@ -429,12 +429,12 @@ async def test_multi_transport_coverage():
     for prefer_mqtt in (False, True):
         fired: list = []
         client = _client(td, fired, prefer_mqtt=prefer_mqtt)
-        prop = client._props["pump.setpoint"]
+        prop = client._props["pump__setpoint"]
         expected = "mqtt" if prefer_mqtt else "http"
         assert prop.primary_form(prefer=client._prefer).scheme == expected
         ac = guard_client(client, pdp, identity={"roles": ["nobody"]})
         with pytest.raises(AuthorizationDenied):
-            await ac.write_property("pump.setpoint", 7)
+            await ac.write_property("pump__setpoint", 7)
         assert fired == []
         await client.aclose()
 
@@ -455,11 +455,11 @@ async def test_subscribe_enforced_gate_and_denied():
     fired: list = []
     client = _client(td, fired)
     ac = guard_client(client, pdp, identity={"roles": ["reader"]})
-    it = await ac.subscribe("pump.setpoint")
+    it = await ac.subscribe("pump__setpoint")
     seen = [x async for x in it]
     assert seen == []  # granted; stub yields nothing, but NOT denied
     with pytest.raises(AuthorizationDenied):
-        await ac.subscribe("pump.alarm")  # not granted subscribeevent
+        await ac.subscribe("pump__alarm")  # not granted subscribeevent
     await client.aclose()
 
 
@@ -684,23 +684,23 @@ async def test_native_constructor_blocks_every_method_before_device():
     client = _native_deny_all(td, fired)
 
     with pytest.raises(AuthorizationDenied):
-        await client.invoke("pump.reboot", {})
+        await client.invoke("pump__reboot", {})
     assert fired == []
 
     with pytest.raises(AuthorizationDenied):
-        await client.read_property("pump.setpoint")
+        await client.read_property("pump__setpoint")
     assert fired == []
 
     with pytest.raises(AuthorizationDenied):
-        await client.write_property("pump.setpoint", 9)
+        await client.write_property("pump__setpoint", 9)
     assert fired == []
 
     with pytest.raises(AuthorizationDenied):
-        await _drain(client.subscribe("pump.alarm"))  # subscribeevent
+        await _drain(client.subscribe("pump__alarm"))  # subscribeevent
     assert fired == []
 
     with pytest.raises(AuthorizationDenied):
-        await _drain(client.subscribe("pump.setpoint"))  # observeproperty
+        await _drain(client.subscribe("pump__setpoint"))  # observeproperty
     assert fired == []
 
     await client.aclose()
@@ -714,7 +714,7 @@ async def test_native_constructor_as_tools_invoke_is_authorized():
     client = _native_deny_all(td, fired)
     _specs, invoke = client.as_tools()
     with pytest.raises(AuthorizationDenied):
-        await invoke("pump.reboot", {})
+        await invoke("pump__reboot", {})
     assert fired == []
     await client.aclose()
 
@@ -737,7 +737,7 @@ async def test_guarded_is_native_client_sharing_state():
     assert g._pdp is pdp and plain._pdp is None
     _specs, invoke = g.as_tools()
     with pytest.raises(AuthorizationDenied):
-        await invoke("pump.reboot", {})
+        await invoke("pump__reboot", {})
     assert fired == []
     await plain.aclose()
 
@@ -749,13 +749,13 @@ async def test_no_pdp_is_backward_compatible():
     fired: list = []
     client = ThingClient(tds=[td], bindings=[_StreamingBinding("mqtt", fired)])
     assert client._pdp is None
-    assert (await client.invoke("pump.reboot", {}))["ok"] is True
-    assert (await client.read_property("pump.setpoint"))["value"] == 42
-    assert (await client.write_property("pump.setpoint", 3))["ok"] is True
-    assert (await _drain(client.subscribe("pump.setpoint"))) == [{"reading": 1}]
-    assert (await _drain(client.subscribe("pump.alarm"))) == [{"reading": 1}]
+    assert (await client.invoke("pump__reboot", {}))["ok"] is True
+    assert (await client.read_property("pump__setpoint"))["value"] == 42
+    assert (await client.write_property("pump__setpoint", 3))["ok"] is True
+    assert (await _drain(client.subscribe("pump__setpoint"))) == [{"reading": 1}]
+    assert (await _drain(client.subscribe("pump__alarm"))) == [{"reading": 1}]
     _specs, invoke = client.as_tools()
-    assert (await invoke("pump.reboot", {}))["ok"] is True
+    assert (await invoke("pump__reboot", {}))["ok"] is True
     await client.aclose()
 
 
@@ -773,8 +773,8 @@ async def test_envelope_mode_stream_denials_surface_and_touch_nothing():
         identity={"roles": ["nobody"], "exp": time.time() + 3600},
         authz_raise=False,
     )
-    ob = await _drain(client.subscribe("pump.setpoint"))
-    ev = await _drain(client.subscribe("pump.alarm"))
+    ob = await _drain(client.subscribe("pump__setpoint"))
+    ev = await _drain(client.subscribe("pump__alarm"))
     for vals, op in ((ob, "observeproperty"), (ev, "subscribeevent")):
         assert len(vals) == 1
         assert vals[0]["error"] == "authorization denied"

@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """THINGCTX_POLICY: the no-code per-operation posture for the MCP bridge.
 
-A single local user picks read-only / no-writes / full via one env var; the bridge
-wires a PDP so a denied op is refused before the service is touched. No policy set = no
+A single local user picks read-only / full via one env var; the bridge wires a PDP so a
+denied op is refused before the service is touched. read-only permits reads plus safe
+(no-change) actions and denies property writes and unsafe actions. No policy set = no
 PDP (unchanged). Proves the coarse control a marketplace user can actually set.
 """
 
@@ -25,7 +26,10 @@ LAMP = {
             "forms": [{"href": "local://l", "op": ["readproperty", "writeproperty"]}],
         }
     },
-    "actions": {"reset": {"forms": [{"href": "local://l/reset"}]}},
+    "actions": {
+        "reset": {"forms": [{"href": "local://l/reset"}]},
+        "status": {"safe": True, "forms": [{"href": "local://l/status"}]},
+    },
 }
 
 
@@ -50,16 +54,27 @@ async def _verdict(coro) -> str:
     "policy,read,write,action",
     [
         ("read-only", "allow", "deny", "deny"),
-        ("no-writes", "allow", "deny", "allow"),
         ("full", "allow", "allow", "allow"),
     ],
 )
 async def test_policy_presets(monkeypatch, policy, read, write, action):
     monkeypatch.setenv("THINGCTX_POLICY", policy)
     c = client_from_registry(_Reg())
-    assert await _verdict(c.read_property("lamp.level")) == read
-    assert await _verdict(c.write_property("lamp.level", 5)) == write
-    assert await _verdict(c.invoke("lamp.reset")) == action
+    assert await _verdict(c.read_property("lamp__level")) == read
+    assert await _verdict(c.write_property("lamp__level", 5)) == write
+    assert await _verdict(c.invoke("lamp__reset")) == action
+    await c.aclose()
+
+
+async def test_read_only_permits_safe_action_denies_unsafe(monkeypatch):
+    # read-only grants invokeaction on SAFE actions only. An unsafe action (no safe
+    # flag, so safe=false) must be denied, even though both are invokeaction. This is
+    # the boundary a coarse "read-only" posture promises: run a status query, never a
+    # destructive action, on the same Thing.
+    monkeypatch.setenv("THINGCTX_POLICY", "read-only")
+    c = client_from_registry(_Reg())
+    assert await _verdict(c.invoke("lamp__status")) == "allow"  # safe
+    assert await _verdict(c.invoke("lamp__reset")) == "deny"  # unsafe
     await c.aclose()
 
 
@@ -68,7 +83,7 @@ async def test_no_policy_means_no_pdp(monkeypatch):
     monkeypatch.delenv("THINGCTX_POLICY", raising=False)
     c = client_from_registry(_Reg())
     assert c._pdp is None
-    assert await _verdict(c.write_property("lamp.level", 5)) == "allow"
+    assert await _verdict(c.write_property("lamp__level", 5)) == "allow"
     await c.aclose()
 
 

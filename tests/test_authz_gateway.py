@@ -84,7 +84,7 @@ async def test_gateway_validates_north_drives_south_with_device_credential(keypa
 
     token = keypair.mint(scp="Things.Invoke")
     claims, result = await guard.authorize_and_invoke(
-        token, client, "water-pump.setSpeed", {"rpm": 1200}
+        token, client, "water-pump__setSpeed", {"rpm": 1200}
     )
 
     # North: the caller identity survived validation into claims.
@@ -121,7 +121,7 @@ async def test_gateway_invalid_token_never_touches_device(keypair, monkeypatch):
 
     bad_token = keypair.mint(aud="api://attacker-app")  # wrong audience
     with pytest.raises(AuthorizationError):
-        await guard.authorize_and_invoke(bad_token, client, "water-pump.setSpeed", {"rpm": 9999})
+        await guard.authorize_and_invoke(bad_token, client, "water-pump__setSpeed", {"rpm": 9999})
 
     assert "device_auth" not in capture, "the device was touched despite an invalid token"
     await client.aclose()
