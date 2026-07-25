@@ -103,5 +103,14 @@ especially on a well-scoped issue that someone else already claimed.
 ## Where to start
 
 Adding a binding for a transport you use, or a TD for a device you own, is a
-scoped, testable, and immediately useful first contribution. See the open
-issues labeled `help wanted`, claim one, and go.
+scoped, testable, and immediately useful first contribution. See the open issues
+labeled [`good first issue`](https://github.com/thingctx/thingctx/labels/good%20first%20issue)
+or [`help wanted`](https://github.com/thingctx/thingctx/labels/help%20wanted),
+claim one, and go.
+
+## Asking before you build
+
+Not everything needs an issue. If you want to know whether thingctx already does
+something, whether an idea fits, or how to reach a device you have,
+[Discussions](https://github.com/thingctx/thingctx/discussions) is the place, and
+a question there is welcome on its own.
