@@ -44,7 +44,10 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import urljoin, urlsplit
 
+from thingctx.bindings.base import _decode
+from thingctx.bindings.builtin.http import _http_body
 from thingctx.netpolicy import WEB_SCHEMES, check_url, confine_path
+from thingctx.reliability import TransportError
 
 DEFAULT_CHUNK = 8 * 1024 * 1024  # 8 MiB, a multiple of the 256 KiB resumable-upload unit
 
@@ -267,8 +270,6 @@ async def _follow(
     allow_origins: tuple[str, ...],
     depth: int = 0,
 ) -> Any:
-    from thingctx.bindings.builtin.http import _http_body
-
     if depth > _max_hops():
         raise ChainError(f"response chain exceeded {_max_hops()} hops")
     src = spec.get("from")
@@ -524,8 +525,6 @@ async def _resumable_put(
     """Upload: PUT ``media`` to an already-open session URI in ``chunk_size``
     blocks with ``Content-Range`` headers, finalizing on a 2xx. A ``308`` means
     resume incomplete (keep going). Returns the finalized response body."""
-    from thingctx.bindings.base import _decode
-    from thingctx.reliability import TransportError
 
     total = _media_size(media)
     offset = 0
@@ -579,8 +578,6 @@ async def _get_with_retry(client, url, *, headers, sign, retries, backoff):
     statuses with bounded backoff. A connection dropped mid-body raises, so the
     caller re-requests the same range, resuming from the last completed byte."""
     import httpx
-
-    from thingctx.reliability import TransportError
 
     last_exc: Exception | None = None
     for attempt in range(retries + 1):

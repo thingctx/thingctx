@@ -24,6 +24,9 @@ attribute and the gateway constructs it with its own config.
 
 from __future__ import annotations
 
+from thingctx.identity.providers.cloudflare import CloudflareAccessGuard
+from thingctx.identity.providers.entra import EntraGatewayGuard
+
 __all__ = [
     "GUARD_ENTRY_POINT_GROUP",
     "GuardRegistry",
@@ -85,8 +88,6 @@ class GuardRegistry:
 
 def _default_registry() -> GuardRegistry:
     """The two reference providers bundled with this package."""
-    from thingctx.identity.providers.cloudflare import CloudflareAccessGuard
-    from thingctx.identity.providers.entra import EntraGatewayGuard
 
     reg = GuardRegistry()
     reg.register(EntraGatewayGuard)

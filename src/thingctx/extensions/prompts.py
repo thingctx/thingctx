@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from thingctx.thing import _tool_name
+
 TERM = "tc:PromptTemplate"
 
 
@@ -33,7 +35,6 @@ def list_prompts(client: Any) -> list[dict[str, Any]]:
     """Actions annotated @type tc:PromptTemplate. Returns [{name,
     description, arguments}] with arguments from the input schema."""
     out: list[dict[str, Any]] = []
-    from thingctx.thing import _tool_name
 
     for thing in client.things:
         for action in thing.actions.values():

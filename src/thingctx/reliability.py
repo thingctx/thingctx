@@ -16,6 +16,8 @@ import asyncio
 import random
 from dataclasses import dataclass
 
+from thingctx.auth.media import redact_url
+
 # Transient HTTP statuses worth retrying: request timeout, rate limit, and the
 # server-side 5xx family that commonly clears on a second try.
 DEFAULT_RETRY_STATUSES: tuple[int, ...] = (408, 429, 500, 502, 503, 504)
@@ -60,7 +62,6 @@ class TransportError(Exception):
         # A URL can carry credentials (presigned query signatures, userinfo) and
         # a response snippet can echo them, so redact both before they land in an
         # exception message, ``as_dict()``, logs, or an LLM tool result.
-        from thingctx.auth.media import redact_url
 
         self.method = method
         self.url = redact_url(url)

@@ -51,6 +51,7 @@ from thingctx.gateways.engine import (
     Gateway,
     ServeRequest,
 )
+from thingctx.integrations.mcp import build_mcp_server
 from thingctx.thing import TOOL_SEP, thing_slug
 
 # The MCP surface each neutral op maps to. SUBSCRIBE has no MCP surface today (no
@@ -139,7 +140,6 @@ class McpGatewayBinding:
         properties->resources, prompts, media) and its ``client.invoke`` routing
         (which carries the authz/trust gate) are reused verbatim. This driver adds
         no per-device MCP logic; it just wires the server to the fleet's client."""
-        from thingctx.integrations.mcp import build_mcp_server
 
         self._gateway = engine
         self._server = build_mcp_server(

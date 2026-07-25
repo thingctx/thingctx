@@ -35,6 +35,7 @@ from thingctx.gateways.engine import (
     Gateway,
     ServeRequest,
 )
+from thingctx.runtime import to_text
 from thingctx.thing import TOOL_SEP, thing_slug
 
 DEFAULT_PREFIX = "tc"
@@ -361,8 +362,6 @@ def _user_property(props: Any, key: str) -> str | None:
 
 
 def _jsonable(value: Any) -> Any:
-    from thingctx.runtime import to_text
-
     if isinstance(value, dict | list | str | int | float | bool) or value is None:
         return value
     try:

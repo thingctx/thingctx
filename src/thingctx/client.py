@@ -18,6 +18,7 @@ from typing import Any
 
 from thingctx.bindings import BindingRegistry, ProtocolBinding
 from thingctx.contrib.llm import LLMHost
+from thingctx.registry import _max_td_bytes, _user_agent
 from thingctx.runtime import ThingClient
 
 
@@ -75,8 +76,6 @@ async def from_url(
     slow or oversized response cannot hang or exhaust the client.
     """
     import httpx
-
-    from thingctx.registry import _max_td_bytes, _user_agent
 
     limit = _max_td_bytes()
     async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}, timeout=timeout) as http:

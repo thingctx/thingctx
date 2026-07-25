@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from thingctx.authz import AuthorizationDenied
+from thingctx.authz.pdp import AccessRequest
 from thingctx.runtime import ThingClient
 from thingctx.thing import TOOL_SEP, thing_slug
 
@@ -279,7 +281,6 @@ class Gateway:
         An authorization denial becomes an error RESULT (delivered to the caller on
         the wire), not a raised exception: a denied caller must not crash the
         gateway's serve loop for everyone else."""
-        from thingctx.authz import AuthorizationDenied
 
         # Authorize as the CALLER, not as the gateway, when the driver
         # authenticated one. guarded() returns a client that shares all state but
@@ -329,7 +330,6 @@ class Gateway:
             if request.identity is not None
             else getattr(self._client, "_identity", None)
         )
-        from thingctx.authz.pdp import AccessRequest
 
         access = AccessRequest(
             thing_id=self._thing_id_for(request.thing_slug),
