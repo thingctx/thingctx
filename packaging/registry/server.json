@@ -24,7 +24,7 @@
           "valueHint": "tds",
           "description": "A TD Directory URL, a folder of Thing Descriptions, or a TD file. Defaults to the curated thingctx registry.",
           "isRequired": true,
-          "default": "https://td.thingctx.com/v0/"
+          "default": "https://td.thingctx.com/index.json"
         }
       ],
       "environmentVariables": [

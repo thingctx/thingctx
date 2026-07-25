@@ -196,15 +196,21 @@ pip install "thingctx[mcp,http]"
 thingctx-mcp ./examples/registry/        # a folder, a URL, or a TD Directory
 ```
 
+For Claude Desktop, add this to the config file at
+`~/Library/Application Support/Claude/claude_desktop_config.json`
+(on Windows: `%APPDATA%\Claude\claude_desktop_config.json`), then restart
+Claude Desktop:
+
 ```json
 { "mcpServers": { "things": {
   "command": "uvx",
-  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "https://td.thingctx.com/v0/"] } } }
+  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "https://td.thingctx.com/index.json"] } } }
 ```
 
 That runs with only [uv](https://docs.astral.sh/uv/) on the machine; no prior install,
-no PATH setup. If you have already `pip install thingctx[mcp]`, the command is just
-`thingctx-mcp` with the same args.
+no PATH setup. If you have already `pip install 'thingctx[mcp]'`, set `"command"` to
+`thingctx-mcp` (no `uvx`, no `--from` args). The URL is the hosted catalog; point at
+a folder of TD files or any TD Directory URL instead to serve your own.
 
 Risky tools are gated here too (see [Safe by default](#safe-by-default-approval--grounding)
 above): the bridge sends MCP destructive hints and asks the client to confirm a
@@ -215,9 +221,13 @@ Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
 ```json
 { "mcpServers": { "things": {
   "command": "uvx",
-  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "https://td.thingctx.com/v0/"],
-  "env": { "THINGCTX_POLICY": "no-writes", "THINGCTX_APPROVE_WHEN": "destructive" } } } }
+  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "https://td.thingctx.com/index.json"],
+  "env": { "THINGCTX_POLICY": "read-only", "THINGCTX_APPROVE_WHEN": "destructive" } } } }
 ```
+
+`THINGCTX_POLICY` is `read-only` (reads and TD-declared safe actions only;
+writes and state-changing actions are denied) or `full`. Edit the same config
+file as above and restart Claude Desktop after a change.
 
 MCP is just one way to deliver the description, for agents where direct tool
 calling isn't available.
