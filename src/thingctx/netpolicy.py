@@ -1,23 +1,15 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""Shared URL and filesystem guardrails for third-party input.
+"""URL and filesystem guardrails for third-party input.
 
-A Thing Description is third-party input: its form hrefs, and the arguments an
-LLM or caller fills into them, decide what the client connects to and where
-bytes land. These helpers give the transports one place to enforce two checks
-that are always safe to apply:
+A TD's form hrefs, and the arguments an LLM fills into them, decide what the
+client connects to and where bytes land. Two guards apply unconditionally: scheme
+allowlisting (a handoff URL cannot jump to ``file:`` or ``data:``) and write-path
+confinement (a download cannot escape a directory or follow a symlink).
 
-* scheme allowlisting, so a response-chained handoff URL or a fetched document
-  cannot jump to ``file:``, ``data:``, or another unexpected scheme, and
-* write-path confinement, so a download destination cannot escape an intended
-  directory or be redirected through a symlink.
-
-A Web of Things client legitimately talks to link-local and private addresses
-(a camera at ``192.168.x.y``, a hub at ``device.local``), so private-address
-blocking is opt-in (``block_private=True``) rather than the default. Callers that
-process fully untrusted TDs can turn it on; the scheme and path guards carry no
-such tradeoff and are applied unconditionally where a scheme jump or a stray
-write is never legitimate.
+Private-address blocking is opt-in (``block_private``), because a WoT client
+legitimately talks to ``192.168.x.y`` and ``device.local``. Turn it on for fully
+untrusted TDs.
 """
 
 from __future__ import annotations
@@ -56,8 +48,8 @@ def url_scheme(url: str) -> str:
 def require_scheme(url: str, allowed: Collection[str], *, what: str = "URL") -> str:
     """Return ``url`` if its scheme is in ``allowed``, else raise ``PolicyError``.
 
-    Guards a scheme jump that is never legitimate for the caller (for example a
-    response that hands back a ``file://`` "next" URL for an HTTP chain)."""
+    Blocks a scheme jump, e.g. a response that hands back a ``file://`` next URL
+    for an HTTP chain."""
     scheme = url_scheme(url)
     if scheme not in allowed:
         raise PolicyError(
@@ -68,17 +60,17 @@ def require_scheme(url: str, allowed: Collection[str], *, what: str = "URL") -> 
 
 
 def _as_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    """Parse ``host`` as an IP literal, or return None. Accepts the canonical
-    forms plus the non-canonical IPv4 encodings a URL parser and the OS resolver
-    both accept (decimal ``2130706433``, hex ``0x7f.1``, octal, and short forms
-    like ``127.1``); ``ipaddress`` alone rejects those, which would let a
-    loopback or metadata address written that way slip past a private check."""
+    """Parse ``host`` as an IP literal, or return None.
+
+    Also accepts the non-canonical IPv4 encodings the OS resolver accepts (decimal
+    ``2130706433``, hex, octal, short forms like ``127.1``). ``ipaddress`` rejects
+    those, which would let a loopback or metadata address written that way slip
+    past a private check."""
     host = (host or "").strip("[]")
     try:
         return ipaddress.ip_address(host)
     except ValueError:
         pass
-    # inet_aton accepts the non-canonical IPv4 encodings; normalize to a literal.
     try:
         return ipaddress.ip_address(socket.inet_ntoa(socket.inet_aton(host)))
     except OSError:
@@ -87,10 +79,11 @@ def _as_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
 
 def is_private_host(host: str) -> bool:
     """Whether ``host`` is an IP literal in a private, loopback, link-local,
-    reserved, multicast, or unspecified range. A hostname (not an IP literal)
-    returns ``False`` here; use :func:`resolve_is_private` to resolve it first.
-    Non-canonical IPv4 encodings (decimal, hex, octal, short form) are normalized
-    first, so ``2130706433`` is recognized as loopback."""
+    reserved, multicast, or unspecified range.
+
+    A hostname returns ``False``; use :func:`resolve_is_private` to resolve it
+    first. Non-canonical IPv4 encodings are normalized first, so ``2130706433``
+    reads as loopback."""
     ip = _as_ip(host)
     if ip is None:
         return False
@@ -105,10 +98,11 @@ def is_private_host(host: str) -> bool:
 
 
 def resolve_is_private(host: str) -> bool:
-    """Like :func:`is_private_host`, but also resolves a hostname and returns
-    ``True`` if any resolved address is private. Best-effort: a resolution
-    failure is treated as not-private (the connection attempt will fail on its
-    own)."""
+    """Like :func:`is_private_host`, but resolves a hostname first and returns
+    ``True`` if any resolved address is private.
+
+    A resolution failure is treated as not-private; the connection attempt will
+    fail on its own."""
     if is_private_host(host):
         return True
     try:
@@ -126,11 +120,13 @@ def check_url(
     resolve: bool = True,
     what: str = "URL",
 ) -> str:
-    """Validate ``url`` and return it. Always enforces ``allowed_schemes``; when
-    ``block_private`` is set, refuses a host that is, or resolves to, a private,
-    loopback, or link-local address. Resolution is on by default: a private-host
-    block that skipped hostnames would miss ``localhost`` and a cloud metadata
-    name, so pass ``resolve=False`` only when the host is already a literal."""
+    """Validate ``url`` and return it.
+
+    Always enforces ``allowed_schemes``. When ``block_private`` is set, refuses a
+    host that is, or resolves to, a private/loopback/link-local address.
+    Resolution is on by default; skipping it would miss ``localhost`` and a cloud
+    metadata name, so pass ``resolve=False`` only when the host is already a
+    literal."""
     require_scheme(url, allowed_schemes, what=what)
     if block_private:
         host = urlsplit(url).hostname or ""
@@ -145,10 +141,10 @@ def check_url(
 def confine_path(dest: str | PathLike[str], *, base: str | PathLike[str] | None = None) -> Path:
     """Validate a write destination and return it as a :class:`Path`.
 
-    Refuses writing through a symlink at the destination (a symlink swap that
-    would redirect the write elsewhere). When ``base`` is given, the destination
-    must resolve inside it: a relative ``dest`` is taken under ``base`` and an
-    absolute or traversing ``dest`` that escapes ``base`` is refused."""
+    Refuses writing through a symlink (a swap could redirect the write). When
+    ``base`` is given, the destination must resolve inside it: a relative ``dest``
+    is taken under ``base``; an absolute or traversing ``dest`` that escapes is
+    refused."""
     p = Path(dest)
     if p.is_symlink():
         raise PolicyError(f"refusing to write through a symlink: {str(dest)!r}")

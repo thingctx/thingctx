@@ -2,23 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """The Policy Decision Point and its pluggable grant source.
 
-The split:
+The PDP (:class:`PolicyDecisionPoint`) is a pure decision: given a validated
+claim, a ``(thing, affordance, op)`` tuple, and the TD-derived vocabulary, it
+returns permit or deny. No I/O, no transport knowledge. The grant source
+(:class:`GrantSource`) answers "what tuples does this identity hold?" and is
+duck-typed, so a role source, a scope source, or an OPA-over-HTTP source swaps in
+with no PDP change. :class:`LocalPolicyGrantSource` is the reference one.
 
-* The **PDP** (:class:`PolicyDecisionPoint`) is a pure decision. Given a
-  validated claim, a requested ``(thing, affordance, op)`` tuple, and the
-  TD-derived vocabulary, it returns ``permit`` or ``deny(reason)``. No I/O, no
-  transport knowledge.
-* The **grant source** (:class:`GrantSource`) is the pluggable PDP-provider
-  seam: it answers "what tuples does this identity hold?" and is duck-typed so a
-  role-claim source, a scope source, or an OPA-over-HTTP source could replace it
-  with zero PDP change. One reference implementation ships here:
-  :class:`LocalPolicyGrantSource`, a role/scope to grant map with wildcard
-  support.
-
-Wildcards (``*`` at the affordance or op position) are convenience OVER the
-closed universe, never an escape from it. A wildcard grant expands only to
-tuples the vocabulary already contains, so ``(pump, *, writeproperty)`` grants
-write on exactly the writable properties the TD declares, and nothing else.
+Wildcards (``*`` at the affordance or op position) expand only to tuples the
+vocabulary already contains. So ``(pump, *, writeproperty)`` grants write on the
+writable properties the TD declares, and nothing more: a wildcard cannot escape
+the closed universe.
 """
 
 from __future__ import annotations
@@ -42,10 +36,9 @@ class AccessRequest:
     """The tuple a PEP asks the PDP about, plus audit context.
 
     ``op`` is fixed per dispatch method (``read_property`` always asks
-    ``readproperty``, etc.), so the PEP never guesses it. ``form_scheme`` is
-    carried for audit and for the multi-transport point: the SAME request is
-    decided identically whether the form that would route it is http, mqtt, or
-    local, because the decision does not read the scheme.
+    ``readproperty``), so the PEP never guesses it. ``form_scheme`` is audit-only:
+    the decision never reads it, so the same request is decided identically
+    whether it would route over http, mqtt, or local.
     """
 
     thing_id: str
@@ -57,7 +50,7 @@ class AccessRequest:
 @dataclass(frozen=True)
 class Decision:
     """A PDP decision. A value, not an exception, so the enforcement point owns
-    the failure shape (it raises or returns an envelope as it sees fit)."""
+    the failure shape (raise or return an envelope, its choice)."""
 
     permit: bool
     reason: str = ""
@@ -66,15 +59,13 @@ class Decision:
 class AuthorizationDenied(Exception):  # noqa: N818 (public API name; the Error suffix would break consumers)
     """Raised when the PDP denies a call, before any device touch.
 
-    Deliberately distinct from thingctx's own error ENVELOPES (dict returns like
-    ``{"error": ...}``) and from an authentication error (a failure to validate
-    the inbound token before its claims ever reach enforcement). This one means:
-    the identity was authenticated, but is not authorized for this
-    ``(thing, affordance, op)``.
+    Means: authenticated, but not authorized for this ``(thing, affordance,
+    op)``. Distinct from an error envelope (``{"error": ...}`` return) and from an
+    authentication failure (a bad token, before claims reach enforcement).
 
-    Lives here (next to the PDP) so :class:`thingctx.ThingClient` can enforce
-    authorization inline without importing the enforcement module, which would be
-    a cycle. The PEP re-exports it for backward compatibility.
+    Lives here, next to the PDP, so :class:`thingctx.ThingClient` can enforce
+    inline without importing the enforcement module (a cycle). The PEP re-exports
+    it.
     """
 
     def __init__(self, request: AccessRequest, reason: str) -> None:
@@ -89,13 +80,12 @@ class AuthorizationDenied(Exception):  # noqa: N818 (public API name; the Error 
 def _token_expired(identity: Any, *, now: float | None = None) -> bool:
     """True if the identity's token has expired.
 
-    The identity is the validated claims dict the guard returned; a JWT carries
-    ``exp`` (seconds since the epoch), a wall-clock deadline compared against now.
-    A missing ``exp`` is treated as expired (fail-closed): the guard requires exp
-    on inbound tokens, so its absence here means an untrusted identity."""
+    ``identity`` is the validated claims dict; ``exp`` is a wall-clock deadline in
+    epoch seconds. A missing ``exp`` counts as expired (fail-closed): the guard
+    requires exp on inbound tokens, so its absence means an untrusted identity."""
 
     if not isinstance(identity, dict):
-        return True  # no claims -> cannot prove validity -> treat as expired
+        return True  # no claims, cannot prove validity, treat as expired
     exp = identity.get("exp")
     if not isinstance(exp, int | float):
         return True
@@ -110,32 +100,27 @@ async def _authorized_stream(
     *,
     revocation_check: Callable[[Any, AccessRequest], Awaitable[bool]] | None = None,
 ) -> AsyncIterator[Any]:
-    """Wrap a device stream so each delivered value is re-authorized, and STOP the
-    stream the moment authorization lapses.
+    """Re-authorize each delivered value and stop the stream when authorization
+    lapses, so a stream cannot outlive its authorization.
 
-    Two lapse conditions:
-    1. TOKEN EXPIRY: the identity's ``exp`` deadline passes while the stream lives,
-       checked against the wall clock on each delivery, so a stream cannot outlive
-       the token that authorized it.
-    2. REVOCATION: an optional ``revocation_check(identity, request) -> bool`` that
-       returns True to revoke (a role pulled, a policy change). The default re-asks
-       the PDP, catching a policy/grant change.
+    Two lapse conditions: the identity's ``exp`` passes (checked against the wall
+    clock on each delivery), or ``revocation_check(identity, request)`` returns
+    True (a role pulled, a policy change; the default re-asks the PDP).
 
-    On lapse we cut the stream FORWARD (stop yielding); we do not claw back values
-    already delivered, the correct semantics for a live-feed revocation.
+    A lapse cuts the stream forward. Values already delivered are not clawed back,
+    the right semantics for a live feed.
 
-    The token-expiry check applies only when the identity carries an ``exp`` (a
-    time-bounded token). A ``None`` identity (the no-code preset) and a local
-    opt-in identity (a named principal) are both token-less: absence of ``exp``
-    means "not a time-bounded token," not "expired," so it must not stop the
-    stream. The PDP decision always gates the stream regardless."""
+    The expiry check runs only when the identity carries ``exp``. A ``None``
+    identity and a local named principal are token-less: no ``exp`` means "not
+    time-bounded," not "expired," so it must not stop the stream. The PDP decision
+    gates the stream either way."""
     check_expiry = isinstance(identity, dict) and "exp" in identity
     async for value in stream:
         if check_expiry and _token_expired(identity):
-            return  # token expired: stop the stream
+            return  # token expired
         decision = await pdp.decide(identity, request)
         if not decision.permit:
-            return  # grant/policy lapsed: stop the stream
+            return  # grant or policy lapsed
         if revocation_check is not None and await revocation_check(identity, request):
             return
         yield value
@@ -143,12 +128,12 @@ async def _authorized_stream(
 
 @runtime_checkable
 class GrantSource(Protocol):
-    """Answers: which ``(thing, affordance, op)`` tuples does this identity hold?
+    """Which ``(thing, affordance, op)`` tuples does this identity hold?
 
-    Provider-neutral over WHERE the grant lives. A concrete source reads the
-    claim (Entra ``roles``, a scope string, a local principal) and returns the
-    grant set; wildcards are allowed and expanded by the PDP. Async so a source
-    backed by a network policy engine (OPA) fits the same contract.
+    Neutral over where the grant lives. A concrete source reads the claim (Entra
+    ``roles``, a scope string, a local principal) and returns the grant set;
+    wildcards are expanded by the PDP. Async so an OPA-backed source fits the same
+    contract.
     """
 
     async def grant_for(self, identity: Any) -> GrantSet:
@@ -158,16 +143,14 @@ class GrantSource(Protocol):
 class LocalPolicyGrantSource:
     """A reference :class:`GrantSource`: a static role/scope to grant map.
 
-    The identity is expected to be a claims dict (what a token guard's
-    ``validate`` returns). This source reads one claim (default ``roles``) and
-    unions the grant set every named role holds. A role's grants may use ``*`` at
-    the affordance or op position; the PDP expands them against the TD vocabulary
-    at decision time.
+    ``identity`` is a claims dict (what a token guard's ``validate`` returns). This
+    reads one claim (default ``roles``) and unions the grant set every named role
+    holds. A role's grants may use ``*`` at the affordance or op position; the PDP
+    expands them against the TD vocabulary.
 
-    This is the named-grant-sets binding: the issuer emits a coarse ``roles``
-    claim, and the fine ``(thing, affordance, op)`` expansion lives here, next to
-    the TD, as thingctx policy. Swap this class for an OPA or role-service source
-    and the PDP is unchanged.
+    The issuer emits a coarse ``roles`` claim; the fine ``(thing, affordance,
+    op)`` expansion lives here, next to the TD, as thingctx policy. Swap this for
+    an OPA or role-service source and the PDP is unchanged.
 
     Args:
         policy: ``{role_name: {(thing, affordance, op), ...}}``. affordance/op
@@ -192,8 +175,8 @@ class LocalPolicyGrantSource:
         return grants
 
     def _roles(self, identity: Any) -> list[str]:
-        """Pull the role list out of the claims. Accepts a dict of claims (the
-        guard's output), or a bare list/str for convenience in tests."""
+        """Pull the role list out of the claims. Also accepts a bare list/str for
+        convenience in tests."""
         if identity is None:
             return []
         raw = identity.get(self._claim) if isinstance(identity, dict) else identity
@@ -204,40 +187,33 @@ class LocalPolicyGrantSource:
         return list(raw)
 
 
-# The named policy presets a single local user can pick with no identity and no policy
-# file. Each names the wildcard ops it grants; the affordance is the ``*`` wildcard (any
-# affordance), which the PDP expands against the TD vocabulary. The thing_id is NOT
-# wildcardable in the PDP, so the grant is generated per Thing (see StaticGrantSource).
+# Presets a single local user can pick with no identity and no policy file. Each
+# lists the wildcard ops it grants; the affordance is ``*`` (PDP-expanded). thing_id
+# is not wildcardable, so the grant is generated per Thing (see StaticGrantSource).
 #
-# "read-only" grants reads/observe/subscribe AND, per the WoT ``safe`` flag, invokeaction
-# on SAFE actions only (an action with ``safe: true`` causes no state change, so it is
-# read-like: e.g. readFile, listDir, search). It denies property writes and UNSAFE actions
-# (writeFile, sendMessage, delete, a PTZ move). This is "look but don't touch": read
-# everything, run no-op queries, change nothing.
-# "full" grants every op.
+# read-only grants reads/observe/subscribe plus invokeaction on WoT-``safe`` actions
+# only (safe: true means no state change, so it is read-like: readFile, listDir).
+# It denies property writes and unsafe actions (writeFile, delete, a PTZ move).
 POLICY_PRESETS: dict[str, tuple[str, ...]] = {
     "full": ("readproperty", "writeproperty", "observeproperty", "invokeaction", "subscribeevent"),
     "read-only": ("readproperty", "observeproperty", "subscribeevent"),
 }
 
-# Presets that additionally grant invokeaction on SAFE actions only, generated per
-# affordance from the ``safe`` flag. read-only is safe-permitting: it reads the WoT
-# ``safe`` flag for its defined meaning (no state change), NOT a new axis.
+# Presets that also grant invokeaction on safe actions, generated per affordance
+# from the WoT ``safe`` flag.
 _SAFE_ACTION_PRESETS = frozenset({"read-only"})
 
 
 class StaticGrantSource:
     """A :class:`GrantSource` that returns a fixed grant set, ignoring identity.
 
-    For the single local user who wants a coarse posture without an identity provider
-    or a policy file: pick a named preset (``full`` / ``read-only``, see
-    ``POLICY_PRESETS``) and every request is decided against that fixed grant. The
-    grant is ``(thing_id, "*", op)`` for each Thing id and each preset op.
+    For the single local user who wants a coarse posture with no identity provider
+    or policy file: pick a preset (``full`` / ``read-only``) and every request is
+    decided against ``(thing_id, "*", op)`` for each Thing id and preset op.
 
-    ``read-only``'s safe-action ``invokeaction`` grant is per-affordance, so it
-    needs the parsed Things: pass ``things=`` (preferred). ``thing_ids=`` still
-    works for the wildcard ops; without ``things`` a ``read-only`` grant omits the
-    safe-action allowance (the stricter behavior).
+    ``read-only``'s safe-action grant is per-affordance, so it needs the parsed
+    Things: pass ``things=``. ``thing_ids=`` still covers the wildcard ops; without
+    ``things`` a ``read-only`` grant drops the safe-action allowance (stricter).
     """
 
     def __init__(self, preset: str, thing_ids: Any = (), *, things: Any = None) -> None:
@@ -250,7 +226,6 @@ class StaticGrantSource:
         ops = POLICY_PRESETS[preset]
         grants: GrantSet = {(tid, "*", op) for tid in ids for op in ops}
         if preset in _SAFE_ACTION_PRESETS and things:
-            # invokeaction on safe actions only: reads the WoT safe flag, no new axis.
             for t in things:
                 for name, action in getattr(t, "actions", {}).items():
                     if getattr(action, "safe", False):
@@ -259,8 +234,8 @@ class StaticGrantSource:
 
     @property
     def grants(self) -> GrantSet:
-        """The fixed grant set this preset resolved to (identity-free). Lets a caller
-        bind the same preset grant to a named role without re-deriving it."""
+        """The fixed grant set this preset resolved to, so a caller can bind the
+        same grant to a named role without re-deriving it."""
         return set(self._grants)
 
     async def grant_for(self, identity: Any) -> GrantSet:
@@ -269,15 +244,12 @@ class StaticGrantSource:
 
 @dataclass
 class PolicyDecisionPoint:
-    """Decide ``permit`` / ``deny`` for a request, against a TD vocabulary.
+    """Decide permit / deny for a request, against a TD vocabulary.
 
-    Pure once constructed: it holds the closed vocabulary (from
-    :func:`build_vocabulary`) and a :class:`GrantSource`. For each request it
-    asks the source for the identity's grant set, expands any wildcards against
-    the vocabulary, and permits iff the requested tuple is in BOTH the expanded
-    grant and the vocabulary. The double check is deliberate: the vocabulary is
-    the TD-closed universe, so a grant that names an operation the TD never
-    declared can never permit, even a wildcard one.
+    Holds the closed vocabulary (from :func:`build_vocabulary`) and a
+    :class:`GrantSource`. Permits iff the requested tuple is in both the grant and
+    the vocabulary. The double check is the point: a grant that names an operation
+    the TD never declared can never permit, wildcard or not.
 
     Args:
         vocabulary: the closed set of grantable tuples for the Things in scope.
@@ -290,8 +262,7 @@ class PolicyDecisionPoint:
     async def decide(self, identity: Any, request: AccessRequest) -> Decision:
         target: GrantTuple = (request.thing_id, request.affordance, request.op)
 
-        # Capability/vocabulary gate first: an op the TD does not declare is not
-        # grantable at all. This is what closes the vocabulary.
+        # Vocabulary gate first: an op the TD does not declare is not grantable.
         if target not in self.vocabulary:
             return Decision(
                 permit=False,
@@ -313,11 +284,9 @@ class PolicyDecisionPoint:
     def _granted(self, target: GrantTuple, grant: GrantSet) -> bool:
         """Is ``target`` covered by ``grant``, honoring ``*`` wildcards?
 
-        A grant tuple matches the target if each of its affordance/op positions
-        is either ``*`` or equal to the target's. The thing_id must match
-        exactly (a wildcard Thing is not supported). ``target`` is already known
-        to be in the vocabulary, so a wildcard cannot widen beyond what the TD
-        declares.
+        A grant tuple matches if each affordance/op position is ``*`` or equal.
+        thing_id must match exactly (no wildcard Thing). ``target`` is already in
+        the vocabulary, so a wildcard cannot widen beyond what the TD declares.
         """
         t_thing, t_aff, t_op = target
         for g_thing, g_aff, g_op in grant:
