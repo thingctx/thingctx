@@ -215,3 +215,57 @@ def test_client_creds_parsing():
     assert parse("id:secret") == ("id", "secret")
     assert parse(("id", "secret")) == ("id", "secret")
     assert parse({"client_id": "id", "client_secret": "secret"}) == ("id", "secret")
+
+
+# --------------------------------------------------------------------------- #
+# SEC-8: a client secret never goes to a non-HTTPS token endpoint.
+# --------------------------------------------------------------------------- #
+
+
+async def test_client_secret_refused_on_non_https_token_endpoint(monkeypatch):
+    # invariant SEC-8: minting a token against an http:// endpoint with a client
+    # secret is refused BEFORE any request leaves the process, so a secret is never
+    # sent in plaintext. The guard raises; no httpx call is made.
+    import httpx
+
+    from thingctx.auth import OAuth2ClientCredentialsAuth
+    from thingctx.auth.context import AuthContext
+
+    def _no_network(*a, **k):  # any client build here means the guard failed
+        raise AssertionError("a request was attempted before the TLS guard refused")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _no_network)
+
+    scheme = SimpleNamespace(
+        scheme="oauth2",
+        flow="client_credentials",
+        token="http://auth.local/token",  # plaintext endpoint
+        scopes=("read",),
+        name="oauth",
+    )
+    ctx = AuthContext(
+        scheme=scheme,
+        credential={"client_id": "cid", "client_secret": "s3cr3t"},
+        owner_id="urn:dev:svc",
+    )
+    with pytest.raises(ValueError, match="non-https"):
+        await OAuth2ClientCredentialsAuth().resolve(ctx)
+
+
+async def test_loopback_token_endpoint_is_allowed(monkeypatch):
+    # invariant SEC-8: the guard excepts loopback (a dev IdP on localhost), so the
+    # refusal targets real plaintext exposure, not a local test setup.
+    from thingctx.auth.providers import _guard_tls
+
+    _guard_tls("http://127.0.0.1:8080/token", False)  # must not raise
+    _guard_tls("http://localhost/token", False)
+
+
+async def test_explicit_insecure_opt_in_allows_http(monkeypatch):
+    # invariant SEC-8: an explicit allow_insecure opt-in is the only way to send a
+    # secret over http, so the plaintext path is a deliberate, named choice.
+    from thingctx.auth.providers import _guard_tls
+
+    _guard_tls("http://auth.local/token", True)  # opted in: allowed
+    with pytest.raises(ValueError, match="non-https"):
+        _guard_tls("http://auth.local/token", False)  # not opted in: refused
