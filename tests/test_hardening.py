@@ -125,6 +125,36 @@ async def test_chain_download_size_cap(monkeypatch):
         await client.invoke("dl__fetch", {})
 
 
+async def test_chain_block_private_refuses_metadata_next_url_every_mode():
+    """With block_private set, a chain next URL that resolves to a private/metadata
+    host is refused for EVERY follow mode. The resumable and ranged-get sends
+    bypass HttpBinding._send (where the direct path applies the block), so the
+    refusal must happen at the chain's own next-URL check or those modes are an
+    SSRF hole: initiate a chain, hand back a link-local Location, and confirm the
+    ranged-get download never connects."""
+    metadata = "http://169.254.169.254/latest/meta-data/iam/"
+
+    def handler(req):
+        # Only the initiate should ever be reached; a connect to the metadata host
+        # would mean the block failed.
+        assert "169.254.169.254" not in str(req.url), "connected to the metadata host"
+        return httpx.Response(200, json={"url": metadata})
+
+    http = _mock_client(handler, credentials={"dl": "TOK"})
+    http._block_private = True
+    for follow in (
+        {"transport": "ranged-get", "chunkSize": 4, "dest": "{out}"},
+        {"transport": "resumable", "media": "x", "chunkSize": 4},
+        {"op": "GET"},
+    ):
+        td = _chain_td(follow, from_="json:url")
+        # allowlist the metadata host so only the private-host block can stop it
+        td["actions"]["fetch"]["forms"][0]["x-thingctx-next"]["allowOrigins"] = ["169.254.169.254"]
+        client = ThingClient(tds=[td], bindings=[http])
+        with pytest.raises(PolicyError, match="private or loopback"):
+            await client.invoke("dl__fetch", {"out": "/tmp/x"})
+
+
 # --- multi-Thing slug collision ---------------------------------------------
 
 
