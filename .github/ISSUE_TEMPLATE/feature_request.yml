@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Rough is fine. A half formed idea is easier to talk about than no idea.
+        Rough is fine. A vague idea is easier to talk about than no idea.
 
   - type: textarea
     id: idea
