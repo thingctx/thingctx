@@ -1,16 +1,15 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""One-time, interactive OAuth2 authorization-code consent (RFC 6749 + PKCE).
+"""One-time interactive OAuth2 authorization-code consent (RFC 6749 + PKCE).
 
-A human grants access in a browser once and the resulting refresh token is
-persisted so every later run refreshes silently. It is deliberately separate
-from the provider's ``resolve`` path; nothing here ever runs as a side effect of
-invoking a Thing.
+A human grants access in a browser once; the refresh token is persisted so later
+runs refresh silently. Kept separate from the provider's ``resolve`` path: nothing
+here runs as a side effect of invoking a Thing.
 
-Desktop consent follows RFC 8252: a public client redirects to a loopback
-address (``127.0.0.1`` on an ephemeral port) and proves possession with PKCE
-(RFC 7636, S256), guarded by a ``state`` nonce. The token exchange uses the
-standard library only, so consent needs no extra dependency.
+Desktop consent follows RFC 8252: a public client redirects to loopback
+(``127.0.0.1`` on an ephemeral port) and proves possession with PKCE (RFC 7636,
+S256), guarded by a ``state`` nonce. Standard library only, so consent needs no
+extra dependency.
 """
 
 from __future__ import annotations
@@ -76,10 +75,9 @@ def build_authorization_url(
 
 
 def _require_tls(url: str, allow_insecure: bool, *, what: str) -> None:
-    """Refuse to hand a credential (an authorization code, or a client secret)
-    to a non-https endpoint unless it is loopback or explicitly allowed. The
-    authorization and token URLs come from configuration or a TD, so this stops a
-    mistyped or hostile ``http://`` endpoint from receiving them in cleartext."""
+    """Refuse to send a credential to a non-https endpoint unless it is loopback
+    or explicitly allowed. The auth and token URLs come from config or a TD, so a
+    mistyped or hostile ``http://`` must not receive them in cleartext."""
     u = urllib.parse.urlparse(url)
     if u.scheme == "https" or allow_insecure:
         return
@@ -132,9 +130,8 @@ _PAGE = (
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        # Only the registered redirect (path "/") from a loopback Host counts, so
-        # a stray local request to another path or origin cannot fill or race the
-        # single callback slot. The provider redirects to exactly "/".
+        # Only path "/" from a loopback Host counts, so a stray local request to
+        # another path or origin cannot fill or race the single callback slot.
         host = (self.headers.get("Host") or "").split(":")[0]
         if parsed.path != "/" or host not in ("127.0.0.1", "localhost"):
             self.send_response(404)
@@ -164,7 +161,6 @@ def _await_redirect(
     port = server.server_address[1]
     redirect_uri = f"http://127.0.0.1:{port}/"
     url = authorization_url.replace("__REDIRECT__", urllib.parse.quote(redirect_uri, safe=""))
-    # the user-facing prompt: the URL they must open to grant consent
     print(f"thingctx: open this URL to authorize:\n  {url}\n")  # noqa: T201
     if open_browser:
         webbrowser.open(url)
@@ -200,14 +196,13 @@ def authorize_code_flow(
     from a Thing invocation.
     """
     scopes = tuple(scopes)
-    # The authorization URL receives client_id/redirect/state/PKCE and the token
-    # URL receives the code and any client secret, so both must be https (or
-    # loopback / explicitly allowed) before we send a browser or a request there.
+    # Both URLs carry credentials, so gate them before we open a browser or send a
+    # request.
     _require_tls(authorization_url, allow_insecure, what="authorization endpoint")
     _require_tls(token_url, allow_insecure, what="token endpoint")
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(24)
-    # The loopback port is only known after the server binds, so the redirect is
+    # The loopback port is known only after the server binds, so the redirect is
     # templated and filled in _await_redirect.
     auth_url = build_authorization_url(
         authorization_url,
@@ -257,9 +252,9 @@ def login(
     allow_insecure: bool = False,
 ) -> dict[str, Any]:
     """Run consent and persist the refresh token so the provider can refresh
-    silently later. ``owner_id`` is the Thing id the token authorizes (it keys
-    the store the same way the provider does). Returns the stored record (no
-    secret in its ``repr``-safe form is enforced here; treat it as sensitive)."""
+    later. ``owner_id`` is the Thing id the token authorizes; it keys the store the
+    same way the provider does. Returns the stored record (treat it as
+    sensitive)."""
     scopes = tuple(scopes)
     store = store if store is not None else default_token_store()
     tok = authorize_code_flow(
@@ -282,11 +277,9 @@ def login(
         )
     key = token_key(owner_id, token_url, scopes)
     record = {"refresh_token": refresh, "client_id": client_id, "scopes": list(scopes)}
-    # A confidential client (e.g. an "installed"/desktop app) needs its secret to
-    # refresh. Persist it next to the refresh token (an equally long-lived secret,
-    # in the same 0600 store) so refresh is self-contained: any later run -- CLI,
-    # library, or the MCP server -- resolves silently with no runtime credential
-    # config. A public/PKCE client has no secret and this is simply absent.
+    # A confidential (installed/desktop) client needs its secret to refresh.
+    # Persist it next to the refresh token in the same 0600 store, so any later run
+    # resolves with no runtime credential config. A public/PKCE client has none.
     if client_secret:
         record["client_secret"] = client_secret
     store.set(key, record)

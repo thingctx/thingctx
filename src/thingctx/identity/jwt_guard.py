@@ -2,27 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """Provider-neutral inbound JWT validation for a thingctx gateway.
 
-:class:`JwtGatewayGuard` validates an *incoming* bearer JWT and authorizes the
+:class:`JwtGatewayGuard` validates an incoming bearer JWT and authorizes the
 caller, so thingctx can sit in front of devices that do not speak the provider's
-protocol. It is only about inbound identity; the device is invoked with the
-existing outbound stack (its own bearer / basic / apikey), a different credential.
+protocol. Inbound identity only: the device is still invoked with its own outbound
+credential (bearer / basic / apikey), not the caller's.
 
-A concrete provider (Entra, Cloudflare Access, ...) supplies three things to the
-constructor: ``issuers`` (accepted ``iss`` values), the signing keys (a live
-``jwks_url`` to fetch and cache, or a static ``jwks`` set), and the authorization
-grants (:class:`Grant` objects naming the claim and required values).
+A concrete provider (Entra, Cloudflare Access) supplies the accepted ``issuers``,
+the signing keys (a ``jwks_url`` to fetch and cache, or a static ``jwks``), and
+the authorization ``grants``. Validation then fetches the JWKS, picks the key by
+the token's ``kid``, verifies the RS256 signature (never disabled) plus ``iss`` /
+``aud`` / ``exp`` / ``nbf``, and enforces the grants.
 
-The validation runs for every provider:
-
-* fetch the provider's signing keys (JWKS) and cache them;
-* select the key by the token header ``kid``;
-* verify the RS256 signature against that key (never disabled);
-* verify ``iss``, ``aud``, and ``exp`` / ``nbf``;
-* enforce the configured grants.
-
-Any failure raises :class:`AuthorizationError` with a reason that names the
-failure for the gateway's logs without leaking it to the caller unless the
-gateway chooses to surface it.
+Any failure raises :class:`AuthorizationError` with a reason for the gateway's
+logs. The reason is not returned to the caller unless the gateway chooses to.
 """
 
 from __future__ import annotations
@@ -40,21 +32,19 @@ _JWKS_FORCE_COOLDOWN = 30.0  # min seconds between forced refetches (rotation), 
 class AuthorizationError(Exception):
     """Raised when an inbound token fails validation or authorization.
 
-    Deliberately a single flat error type: a caller gets the same 401/403-shaped
-    answer whether the signature was wrong, the token expired, or a grant was
-    missing, and the human-readable ``reason`` says which without leaking it to
-    an attacker unless the gateway chooses to."""
+    One flat type on purpose: the caller gets the same answer whether the
+    signature, the expiry, or a grant failed. The ``reason`` says which, for the
+    log, not the attacker (unless the gateway surfaces it)."""
 
 
 @dataclass(frozen=True)
 class Grant:
     """One authorization requirement checked against a claim.
 
-    A provider maps its own permission model onto this: Entra delegated scopes
-    live in the space-delimited ``scp`` string, Entra app roles live in the
-    ``roles`` list, a Cloudflare custom claim or service-token ``common_name``
-    lives wherever the Access policy puts it. The guard does not care which; it
-    reads ``claim`` and requires the configured ``values``.
+    A provider maps its permission model onto this: Entra scopes in the
+    space-delimited ``scp`` string, Entra app roles in the ``roles`` list, a
+    Cloudflare ``common_name`` wherever the Access policy puts it. The guard reads
+    ``claim`` and requires the configured ``values``.
 
     Args:
         claim: the claim name that carries the grant (e.g. ``"scp"``,
@@ -98,10 +88,9 @@ class Grant:
 class JwtGatewayGuard:
     """Validate and authorize an inbound provider JWT (provider-neutral base).
 
-    Concrete providers subclass this and supply the three provider-specific
-    inputs; the subclass constructor is where "a tenant/team plus an audience"
-    turns into concrete issuers and a JWKS URL. Everything below the constructor
-    is shared and must stay provider-agnostic.
+    Concrete providers subclass this; the subclass constructor turns "a tenant
+    plus an audience" into concrete issuers and a JWKS URL. Everything below the
+    constructor is shared and stays provider-agnostic.
 
     Args:
         issuers: the accepted ``iss`` values. A token whose ``iss`` is not one
@@ -162,10 +151,8 @@ class JwtGatewayGuard:
     async def _get_jwks(self, *, force: bool = False) -> dict:
         """Return the provider's JWKS, from the static set or the cached fetch.
 
-        A fetch failure raises AuthorizationError (fail-closed): the guard's
-        contract is that any failure denies, never falls through. Never leaks the
-        underlying httpx error type to a naive caller that might treat a raised
-        httpx error differently from a denial."""
+        A fetch failure raises AuthorizationError (fail-closed), never falls
+        through, and never leaks the underlying httpx error type."""
         if self._static_jwks is not None:
             return self._static_jwks
         fresh = (
@@ -206,12 +193,10 @@ class JwtGatewayGuard:
             for jwk in keys:
                 if jwk.get("kid") == kid:
                     return jwt.PyJWK.from_dict(jwk).key
-        # No kid match. Fall back to a lone key ONLY when the token carries no
-        # kid, matching common single-key practice. A token that DOES name a kid
-        # absent from the set is a real miss: raise, so the caller refetches the
-        # JWKS and picks up a rotated key, rather than silently trusting the one
-        # stale cached key (which would lock out every new-kid token for the
-        # cache TTL after rotation).
+        # Fall back to a lone key only when the token carries no kid. A token that
+        # names a kid absent from the set is a real miss: raise so the caller
+        # refetches and picks up a rotated key, instead of trusting the stale
+        # cached one (which would lock out every new-kid token for the cache TTL).
         if kid is None and len(keys) == 1:
             return jwt.PyJWK.from_dict(keys[0]).key
         raise AuthorizationError(f"no signing key in the JWKS matches the token kid {kid!r}")
@@ -221,9 +206,8 @@ class JwtGatewayGuard:
     async def validate(self, token: str) -> dict[str, Any]:
         """Verify and authorize ``token``; return its claims or raise.
 
-        Every check is enforced: RS256 signature against the provider JWKS key
-        for the token's ``kid``, issuer, audience, expiry/not-before, and the
-        configured grants. Signature verification is never skipped.
+        Enforces the RS256 signature (never skipped), issuer, audience,
+        expiry/not-before, and the configured grants.
         """
         # optional dep, kept local so the core imports without the extra
         import jwt  # noqa: PLC0415
@@ -249,13 +233,11 @@ class JwtGatewayGuard:
         try:
             key = self._signing_key(jwks, header.get("kid"))
         except AuthorizationError:
-            # A kid miss can mean the provider rotated keys since we cached them.
-            # Refetch once and retry before giving up (only when not static).
-            #
-            # DoS guard: an attacker can send RS256 tokens with random kids to
-            # force a refetch per request. Rate-limit the forced refetch so a
-            # flood of unknown kids cannot amplify into unbounded outbound calls;
-            # a genuine rotation still refreshes within the cooldown window.
+            # A kid miss can mean the provider rotated keys since we cached them,
+            # so refetch once and retry (when not static). Rate-limit the forced
+            # refetch: without the cooldown, a flood of tokens with random kids
+            # amplifies into unbounded outbound calls. A real rotation still
+            # refreshes within the window.
             now = time.time()
             if self._static_jwks is None and (now - self._jwks_forced_at) >= _JWKS_FORCE_COOLDOWN:
                 self._jwks_forced_at = now
@@ -264,9 +246,9 @@ class JwtGatewayGuard:
             else:
                 raise
 
-        # jwt.decode does the heavy lifting: signature (mandatory), aud, exp,
-        # nbf, iat. It raises a specific InvalidTokenError subclass on any
-        # failure. verify_signature is left ON (the default); we never disable it.
+        # jwt.decode verifies signature (mandatory), aud, exp, nbf, iat and raises
+        # a specific InvalidTokenError subclass on failure. verify_signature stays
+        # on; we never disable it.
         try:
             claims = jwt.decode(
                 token,
@@ -297,10 +279,9 @@ class JwtGatewayGuard:
         except jwt.InvalidTokenError as exc:
             raise AuthorizationError(f"token rejected: {exc}") from exc
 
-        # Belt and braces: pyjwt with a list issuer accepts a token whose iss is
-        # any member; confirm the pinned substring (tenant/team id) is actually
-        # in the issuer, so a token from a different tenant/team that somehow
-        # shares a key can never pass.
+        # pyjwt with a list issuer accepts a token whose iss is any member. Confirm
+        # the pinned substring (tenant id) is in the issuer, so a token from a
+        # different tenant that somehow shares a key cannot pass.
         if self._issuer_must_contain is not None:
             iss = str(claims.get("iss", ""))
             if self._issuer_must_contain not in iss:
@@ -326,9 +307,8 @@ class JwtGatewayGuard:
         """Validate the inbound ``token``, then, only if authorized, drive the
         device via ``client.invoke(tool, arguments)``.
 
-        The device is invoked with its own native auth (whatever ``client``'s TD
-        declares), never the caller's. The device is never touched if validation
-        fails: :meth:`validate` raises first, so ``invoke`` never runs.
+        The device is invoked with its own native auth, never the caller's, and is
+        never touched if validation fails: :meth:`validate` raises first.
         """
         claims = await self.validate(token)  # raises before any device call
         result = await client.invoke(tool, arguments or {})
