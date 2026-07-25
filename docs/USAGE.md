@@ -197,11 +197,13 @@ returns an error envelope instead of running. Gating is enforced inside `invoke`
 and `write_property`, so it protects the LLM tool loop, direct callers, and the
 MCP bridge alike.
 
-On the CLI the same policy is `--approve-when declared|destructive|all|never`, or
-`THINGCTX_APPROVE_WHEN` in the environment when you configure the bridge through
-a host's JSON config. `--yes` approves unattended, which is what a script or a CI
-job needs; without a terminal and without `--yes` a gated call is denied and exits
-non-zero.
+`thingctx invoke` takes the same policy as `--approve-when
+declared|destructive|all|never`, falling back to `THINGCTX_APPROVE_WHEN` and then
+to `declared`. An unrecognized value in that variable is clamped back to
+`declared` rather than quietly degrading. The MCP bridge reads the same variable,
+which is how a host's JSON config sets the policy. `-y` / `--yes` approves
+unattended; with no terminal and no `--yes` a gated call is denied and the command
+exits with a failing status, which is the safe default for cron and CI.
 
 **Ground a TD against the live Thing.** `verify` reads each readable property and
 checks it against the declared scalar type. It only reads, so it is safe against
