@@ -1,7 +1,7 @@
 # thingctx
 
 Drive any agent against any W3C Web of Things Thing, over any transport.
-The integration is a JSON Thing Description, not a server you run.
+The integration is a JSON Thing Description; no server per integration.
 
 ## Install
 
