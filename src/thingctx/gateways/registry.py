@@ -16,6 +16,7 @@ keyword config) and returns a ``GatewayBinding`` instance.
 
 from __future__ import annotations
 
+from importlib import metadata
 from typing import Any
 
 GATEWAY_GROUP = "thingctx.gateways"
@@ -25,7 +26,6 @@ def discover_gateway_bindings() -> dict[str, Any]:
     """Map each installed gateway binding's scheme/name to its factory. Broken or
     unimportable entry points are skipped, not raised, so one bad plugin cannot
     break discovery for the rest (same rule as south-binding discovery)."""
-    from importlib.metadata import entry_points
 
     found: dict[str, Any] = {}
     # Typed Any to span two importlib.metadata shapes: the current keyword form
@@ -33,9 +33,9 @@ def discover_gateway_bindings() -> dict[str, Any]:
     # is typed differently. Both are only iterated below.
     eps: Any
     try:
-        eps = entry_points(group=GATEWAY_GROUP)
+        eps = metadata.entry_points(group=GATEWAY_GROUP)
     except TypeError:  # pragma: no cover - older importlib.metadata signature
-        eps = entry_points().get(GATEWAY_GROUP, [])
+        eps = metadata.entry_points().get(GATEWAY_GROUP, [])
     for ep in eps:
         try:
             found[ep.name] = ep.load()

@@ -432,7 +432,8 @@ def load_spec(source: str) -> dict:
     """Load an OpenAPI spec from a file path or http(s) URL. JSON is parsed
     natively; YAML needs ``pyyaml`` (the ``openapi`` extra)."""
     if source.startswith(("http://", "https://")):
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         text = httpx.get(source, follow_redirects=True, timeout=30.0).text
     else:
@@ -445,7 +446,8 @@ def _parse_spec(text: str) -> dict:
         return cast(dict, json.loads(text))
     except ValueError:
         try:
-            import yaml  # type: ignore[import-untyped]  # pyyaml ships no stubs
+            # optional dep, kept local so the core imports without the extra; pyyaml ships no stubs
+            import yaml  # type: ignore[import-untyped]  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover - guidance path
             raise ValueError(
                 "spec is not JSON and PyYAML is not installed; "

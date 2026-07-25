@@ -18,6 +18,8 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 
+from thingctx.validate import assert_valid_td
+
 
 def _text(defn: dict[str, Any], multi_key: str, single_key: str, fallback: str = "") -> str:
     """Resolve a human-readable string, preferring the single-language key
@@ -327,8 +329,6 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
     raises TDValidationError (needs the [validate] extra).
     """
     if validate:
-        from thingctx.validate import assert_valid_td
-
         assert_valid_td(td)
     thing_id = td.get("id") or td.get("@id") or td.get("title", "thing")
     title = _text(td, "titles", "title", fallback=str(thing_id))

@@ -18,6 +18,7 @@ Every name is served lazily, so the guard needs ``pyjwt[crypto]`` + ``httpx``
 
 from __future__ import annotations
 
+import importlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -68,7 +69,5 @@ _LAZY = {
 def __getattr__(name: str) -> Any:
     module = _LAZY.get(name)
     if module is not None:
-        import importlib
-
         return getattr(importlib.import_module(module), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

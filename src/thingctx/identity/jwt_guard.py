@@ -175,7 +175,8 @@ class JwtGatewayGuard:
         )
         if fresh:
             return self._jwks_cache  # type: ignore[return-value]
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         # Reached only when _static_jwks is None; the constructor then requires
         # jwks_url, so it is set here. Guard fail-closed rather than trust it.
@@ -197,7 +198,8 @@ class JwtGatewayGuard:
 
     def _signing_key(self, jwks: dict[str, Any], kid: str | None) -> Any:
         """Build a public key for the token's ``kid`` from the JWKS, or raise."""
-        import jwt
+        # optional dep, kept local so the core imports without the extra
+        import jwt  # noqa: PLC0415
 
         keys = (jwks or {}).get("keys") or []
         if kid is not None:
@@ -223,7 +225,8 @@ class JwtGatewayGuard:
         for the token's ``kid``, issuer, audience, expiry/not-before, and the
         configured grants. Signature verification is never skipped.
         """
-        import jwt
+        # optional dep, kept local so the core imports without the extra
+        import jwt  # noqa: PLC0415
 
         if not token or not isinstance(token, str):
             raise AuthorizationError("no token presented")

@@ -43,7 +43,8 @@ def validate_td(td: dict[str, Any]) -> list[str]:
     a hint if ``jsonschema`` isn't installed.
     """
     try:
-        from jsonschema import Draft7Validator
+        # optional dep, kept local so the core imports without the extra
+        from jsonschema import Draft7Validator  # noqa: PLC0415
     except ImportError:
         raise ImportError(
             "validate_td needs jsonschema, `pip install thingctx[validate]`"

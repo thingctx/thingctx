@@ -137,7 +137,8 @@ class AuthZenPDP:
 
     async def decide(self, identity: Any, request: AccessRequest) -> Decision:
         body = to_authzen_request(identity, request)
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:

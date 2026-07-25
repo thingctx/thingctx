@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import queue as _queue
 import re
 import threading
 import time
@@ -35,7 +36,7 @@ from thingctx.auth import AuthRegistry, AuthStrategy, apply_media, redact_url
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.bindings.builtin.media.frame import Frame, MediaBackend
 from thingctx.contracts import implements
-from thingctx.netpolicy import confine_path
+from thingctx.netpolicy import confine_path, resolve_is_private
 from thingctx.reliability import RetryPolicy, TransportError
 from thingctx.thing import WoTAction, WoTForm
 
@@ -201,7 +202,10 @@ class MediaBinding(AuthMixin):
         # Lazy default backends so importing this module never requires the
         # optional media dependencies.
         if backends is None:
-            from thingctx.bindings.builtin.media.backends import ExtractorBackend, PyAVBackend
+            from thingctx.bindings.builtin.media.backends import (  # noqa: PLC0415  # backends imports this module, so a top-level import would cycle; also pulls the av extra
+                ExtractorBackend,
+                PyAVBackend,
+            )
 
             backends = [ExtractorBackend(), PyAVBackend()]
         if backpressure not in ("latest", "all"):
@@ -248,8 +252,6 @@ class MediaBinding(AuthMixin):
         if not self._allow_file and scheme in ("", "file"):
             raise MediaError(f"local-file media source is not allowed by policy: {url!r}")
         if self._block_private and scheme in _HOSTED_SCHEMES:
-            from thingctx.netpolicy import resolve_is_private
-
             host = urlparse(url).hostname or ""
             # Resolve the host: a hostname (localhost, a cloud metadata name, or
             # an attacker A-record) that points at a private address must be
@@ -458,7 +460,6 @@ class MediaBinding(AuthMixin):
         worker error is re-raised on the event loop with credentials scrubbed
         from the message.
         """
-        import queue as _queue
 
         loop = asyncio.get_running_loop()
         q: _queue.Queue = _queue.Queue(maxsize=self._max_queue)
@@ -533,7 +534,6 @@ class MediaBinding(AuthMixin):
         track crosses on its own bounded queue; the worker pulls from both and
         interleaves by pts. A worker error is re-raised on the event loop with
         credentials scrubbed from the message."""
-        import queue as _queue
 
         loop = asyncio.get_running_loop()
         stop = threading.Event()

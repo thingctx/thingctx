@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from thingctx.bindings import BindingRegistry, ProtocolBinding, default_bindings
 from thingctx.bindings.builtin.media import is_media_form
+from thingctx.chain import run_chain
 from thingctx.gateway import GatewayProjection
 from thingctx.reliability import TransportError
 from thingctx.thing import (
@@ -43,7 +44,7 @@ from thingctx.trust import (
     gate_write,
     verify_thing,
 )
-from thingctx.validate import TDValidationError, validate_support
+from thingctx.validate import TDValidationError, assert_semantics, validate_support
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -108,8 +109,6 @@ class ThingClient:
         self._identity = identity
         self._authz_raise = authz_raise
         if validate == "strict":
-            from thingctx.validate import assert_semantics
-
             for td in tds:
                 assert_semantics(td)
         self._things: list[WoTThing] = [parse_thing(td, validate=bool(validate)) for td in tds]
@@ -270,7 +269,9 @@ class ThingClient:
         # runtime-mutation path, not in _reindex, so a caller's construction-time
         # PDP vocabulary stays authoritative.
         if self._pdp is not None and hasattr(self._pdp, "vocabulary"):
-            from thingctx.authz.vocabulary import build_vocabulary
+            # authz.pep imports this module, so importing the authz package at
+            # load would cycle; the kernel is reached on use instead.
+            from thingctx.authz.vocabulary import build_vocabulary  # noqa: PLC0415
 
             self._pdp.vocabulary = build_vocabulary(self._things)
         return [t.id for t in added]
@@ -523,7 +524,9 @@ class ThingClient:
         audit only. Runs before any binding is selected: a denied call never
         reaches a transport.
         """
-        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied
+        # authz.pep imports this module, so importing the authz package at load
+        # would cycle; the kernel is reached on use instead.
+        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied  # noqa: PLC0415
 
         # Every caller gates this on `self._pdp is not None`; assert the invariant
         # so the type narrows. It is structurally guaranteed, so stripping it under
@@ -551,7 +554,9 @@ class ThingClient:
 
     def _authz_request(self, affordance: Any, op: str) -> AccessRequest:
         """Build the AccessRequest for a stream re-check (subscribe/media)."""
-        from thingctx.authz.pdp import AccessRequest
+        # authz.pep imports this module, so importing the authz package at load
+        # would cycle; the kernel is reached on use instead.
+        from thingctx.authz.pdp import AccessRequest  # noqa: PLC0415
 
         return AccessRequest(thing_id=affordance.thing_id, affordance=affordance.name, op=op)
 
@@ -610,8 +615,6 @@ class ThingClient:
         # A form whose response feeds a follow-up call runs through the response
         # chaining engine (resumable/presigned upload, async-job polling, ...).
         if form.raw.get("x-thingctx-next") and form.scheme in ("http", "https"):
-            from thingctx.chain import run_chain
-
             return await run_chain(self, action, form, arguments)
         # A scalar or array action input is projected to the model wrapped
         # under a single key (thing._project_input); unwrap it here so the
@@ -747,7 +750,9 @@ class ThingClient:
         other device-reaching methods do. Fail closed: with a PDP set, a status
         whose action cannot be resolved is denied (raised, or an envelope when
         ``authz_raise`` is off), never run unchecked."""
-        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied
+        # authz.pep imports this module, so importing the authz package at load
+        # would cycle; the kernel is reached on use instead.
+        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied  # noqa: PLC0415
 
         action = self._action_for_status(status)
         if action is None:
@@ -974,7 +979,9 @@ class ThingClient:
         # 2. per-delivery filter: the token can expire while the stream lives,
         # so re-authorize before each value and stop the stream on lapse.
         if self._pdp is not None:
-            from thingctx.authz.pdp import _authorized_stream
+            # authz.pep imports this module, so importing the authz package at
+            # load would cycle; the kernel is reached on use instead.
+            from thingctx.authz.pdp import _authorized_stream  # noqa: PLC0415
 
             return _authorized_stream(
                 stream, self._pdp, self._identity, self._authz_request(target, op)
@@ -1015,7 +1022,9 @@ class ThingClient:
         filled, rest = _filled_form(form, arguments or {})
         stream: AsyncIterator[Any] = binding.frames(affordance, filled, rest, track=track)
         if self._pdp is not None:
-            from thingctx.authz.pdp import _authorized_stream
+            # authz.pep imports this module, so importing the authz package at
+            # load would cycle; the kernel is reached on use instead.
+            from thingctx.authz.pdp import _authorized_stream  # noqa: PLC0415
 
             return _authorized_stream(
                 stream, self._pdp, self._identity, self._authz_request(affordance, op)

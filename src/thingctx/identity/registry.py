@@ -25,6 +25,7 @@ attribute and the gateway constructs it with its own config.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from importlib import metadata
 
 from thingctx.identity.providers.cloudflare import CloudflareAccessGuard
 from thingctx.identity.providers.entra import EntraGatewayGuard
@@ -130,19 +131,18 @@ def discover_guards(
     Returns:
         a ``{name: guard_class}`` mapping.
     """
-    from importlib.metadata import entry_points
 
     result: dict[str, type] = {}
     if include_builtins:
         result.update({name: DEFAULT_GUARDS[name] for name in DEFAULT_GUARDS})
 
     try:
-        eps = entry_points(group=group)
+        eps = metadata.entry_points(group=group)
     except TypeError:  # older selection API (Python < 3.10): dict-style select
         # On the old API entry_points() returns a dict whose .get takes a list
         # default; typeshed models only the new EntryPoints.get, so it flags the
         # list default. The runtime shim is correct on the version this runs on.
-        eps = entry_points().get(group, [])  # type: ignore[arg-type]
+        eps = metadata.entry_points().get(group, [])  # type: ignore[arg-type]
 
     for ep in eps:
         factory = ep.load()

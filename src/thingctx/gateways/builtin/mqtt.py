@@ -134,7 +134,8 @@ class MqttGatewayBinding:
     async def serve(self, engine: Gateway) -> None:
         """Connect, subscribe to every inbound action/property topic, retain each
         projected TD, and start mirroring events."""
-        import paho.mqtt.client as mqtt
+        # optional dep, kept local so the core imports without the extra
+        import paho.mqtt.client as mqtt  # noqa: PLC0415
 
         self._gateway = engine
         self._loop = asyncio.get_running_loop()

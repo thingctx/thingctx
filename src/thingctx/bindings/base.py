@@ -33,7 +33,9 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str) -> Any:
     if name == "_decode":
-        from thingctx.bindings.builtin.http import _decode
+        # builtin.http imports this module at load, so a module-level import back
+        # would cycle; resolve _decode on access instead.
+        from thingctx.bindings.builtin.http import _decode  # noqa: PLC0415
 
         return _decode
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
+import urllib.parse
 from typing import TYPE_CHECKING, Any
 
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_mqtt
@@ -110,7 +112,8 @@ class MqttBinding(AuthMixin):
         is in play, since enhanced authentication is a v5 feature."""
         if self._client_factory is not None:
             return self._client_factory()
-        import paho.mqtt.client as mqtt
+        # optional dep, kept local so the core imports without the extra
+        import paho.mqtt.client as mqtt  # noqa: PLC0415
 
         cid = self._client_id or ""
         version = getattr(mqtt, "CallbackAPIVersion", None)
@@ -148,8 +151,9 @@ class MqttBinding(AuthMixin):
         (``AuthenticationMethod`` + ``AuthenticationData``), or ``None``."""
         if plan.enhanced is None:
             return None
-        from paho.mqtt.packettypes import PacketTypes
-        from paho.mqtt.properties import Properties
+        # optional dep, kept local so the core imports without the extra
+        from paho.mqtt.packettypes import PacketTypes  # noqa: PLC0415
+        from paho.mqtt.properties import Properties  # noqa: PLC0415
 
         props = Properties(PacketTypes.CONNECT)
         props.AuthenticationMethod = plan.enhanced.method
@@ -158,8 +162,6 @@ class MqttBinding(AuthMixin):
         return props
 
     def _endpoint(self, form: WoTForm, fallback: str) -> tuple[str, int, str]:
-        import urllib.parse
-
         # An MQTT topic filter may contain '#' (multi-level wildcard) and '+', both
         # legal, common last characters. urlparse would read '#' as a URL fragment
         # and drop the wildcard, so parse the authority with urlparse but take the
@@ -207,7 +209,6 @@ class MqttBinding(AuthMixin):
         """Connect with retry/backoff and (re)subscribe to ``topics`` on every
         successful (re)connection, then wait for CONNACK. Raises TransportError
         if it cannot connect within the retry budget."""
-        import asyncio
 
         loop = asyncio.get_running_loop()
         policy = self._connect_policy
@@ -256,7 +257,6 @@ class MqttBinding(AuthMixin):
         schema, await a reply on ``<topic>/reply`` (request/response). When it
         does not, fire-and-forget: publish, wait for PUBACK at QoS >= 1, return
         ``{"ok": True}`` without subscribing for a reply."""
-        import asyncio
 
         host, port, topic = self._endpoint(form, getattr(action, "name", "action"))
         expect_reply = bool(getattr(action, "output_schema", None))
@@ -317,7 +317,6 @@ class MqttBinding(AuthMixin):
         that survives broker reconnects (the topic is re-subscribed on every
         reconnect). ``target`` is the affordance, so the connection
         authenticates as its owner."""
-        import asyncio
 
         name = target if isinstance(target, str) else target.name
         owner = getattr(target, "thing_id", None)

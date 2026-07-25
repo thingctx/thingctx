@@ -32,6 +32,7 @@ prompts before they run.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from pathlib import Path
@@ -161,8 +162,6 @@ class ExecBinding:
     async def invoke(
         self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]
     ) -> dict[str, Any]:
-        import asyncio
-
         spec = (getattr(form, "raw", {}) or {}).get("x-thingctx-exec") or {}
         command = spec.get("command")
         if not isinstance(command, list) or not command:

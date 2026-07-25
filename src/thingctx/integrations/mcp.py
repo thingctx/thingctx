@@ -36,6 +36,10 @@ registry; no flag or TD edit is needed, and the TD names no implementation.
 
 from __future__ import annotations
 
+import argparse
+import asyncio
+import base64
+import collections
 import contextlib
 import importlib.util
 import logging
@@ -45,8 +49,18 @@ import sys
 import time
 from typing import TYPE_CHECKING, Any, cast
 
+from thingctx.bindings import LocalBinding, discover_local_handlers
+from thingctx.extensions.prompts import get_prompt, list_prompts
+from thingctx.gateway import GATEWAY_TOOL_NAMES, GATEWAY_TOOLS
+from thingctx.integrations.connect import (
+    CONNECT_TOOL,
+    connect_status,
+    connect_tool,
+    ensure_connected,
+)
+from thingctx.registry import from_args
 from thingctx.runtime import ThingClient, to_text
-from thingctx.thing import TOOL_SEP, _tool_slug
+from thingctx.thing import TOOL_SEP, _tool_name, _tool_slug, parse_thing, thing_slug
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -101,7 +115,8 @@ def _client_can_elicit(session: Any) -> bool:
     """True if the connected client declared the elicitation capability at
     initialize. A client that did not cannot answer session.elicit(), so asking
     would hang; the bridge routes to the approve-tool path instead."""
-    from mcp import types
+    # optional dep, kept local so the core imports without the extra
+    from mcp import types  # noqa: PLC0415
 
     check = getattr(session, "check_client_capability", None)
     if check is None:
@@ -172,12 +187,11 @@ def build_mcp_server(
     buffered between a client's reads so a burst is delivered whole rather than
     collapsed to the latest (see the event resource read).
     """
-    import collections
-    import os
 
-    from mcp import types
-    from mcp.server.lowlevel import Server
-    from pydantic import AnyUrl
+    # optional dep, kept local so the core imports without the extra
+    from mcp import types  # noqa: PLC0415
+    from mcp.server.lowlevel import Server  # noqa: PLC0415
+    from pydantic import AnyUrl  # noqa: PLC0415
 
     # Tool projection mode. The flat surface (one tool per action) grows with the
     # fleet: both the tool count and the context they cost every turn. The gateway
@@ -204,7 +218,7 @@ def build_mcp_server(
         tool_mode = "flat" if _flat_n <= flat_max else "gateway"
         # Best effort: a broken stderr must not sink the server startup.
         with contextlib.suppress(Exception):
-            print(
+            print(  # noqa: T201  # CLI output
                 f"thingctx-mcp: tool mode = {tool_mode} (auto: {_flat_n} actions "
                 f"{'<=' if tool_mode == 'flat' else '>'} {flat_max})",
                 file=sys.stderr,
@@ -235,8 +249,6 @@ def build_mcp_server(
         "user, and only on an explicit yes call approve with the token."
     )
     server: Server = Server(name, instructions=_instructions)
-    from thingctx.gateway import GATEWAY_TOOL_NAMES, GATEWAY_TOOLS
-
     gateway = client.gateway() if tool_mode == "gateway" else None
     # The gateway's own ``subscribe_event`` returns a live stream, which a direct
     # Python caller can iterate but MCP cannot carry. So over MCP there is ONE
@@ -383,8 +395,6 @@ def build_mcp_server(
         client.set_approval(_elicit_approver(server), approve_when=approve_when)
     elif approve_when is not None:
         client.set_approval(client._approve, approve_when=approve_when)
-
-    import asyncio
 
     # Map each media affordance (``<slug>.<name>``) to a ``<slug>.snapshot`` MCP
     # tool name, disambiguating the rare Thing with several media streams.
@@ -546,8 +556,6 @@ def build_mcp_server(
         # Expose a single ``connect`` tool when the registry has a user-authorized
         # Thing, so the agent can offer to sign you in and see what still needs it.
         # The consent still confirms with you before any browser opens.
-        from thingctx.integrations.connect import CONNECT_TOOL, connect_status
-
         if connect_status(client):
             out.append(
                 types.Tool(
@@ -611,10 +619,10 @@ def build_mcp_server(
     async def _snapshot(name: str, args: dict) -> Any:
         """Grab one frame (or a short burst) from a media affordance and return
         them as MCP image content."""
-        import base64
 
-        from thingctx.bindings.builtin.media.encode import frame_to_jpeg
-        from thingctx.bindings.builtin.media.sample import sample_frames
+        # pulls the av extra, kept local so the core imports without it
+        from thingctx.bindings.builtin.media.encode import frame_to_jpeg  # noqa: PLC0415
+        from thingctx.bindings.builtin.media.sample import sample_frames  # noqa: PLC0415
 
         form = client.media_form(name)
         hint = (getattr(form, "raw", {}) or {}).get("x-thingctx-media") or {}
@@ -701,8 +709,6 @@ def build_mcp_server(
             logger.warning("background subscription %s stopped", sub_id, exc_info=True)
 
     async def _start_subscription(args: dict) -> Any:
-        from thingctx.thing import _tool_name, thing_slug
-
         thing_id = str(args.get("thing_id") or "")
         event = str(args.get("event") or "")
         sub_args = dict(args.get("arguments") or {})
@@ -777,8 +783,6 @@ def build_mcp_server(
         ``<slug>__<name>`` the flat route would use so a Thing needing sign in is
         recognized. Returns None when the target can't be resolved (the verb then
         runs and the projection returns a clear not-found error)."""
-        from thingctx.thing import _tool_name, thing_slug
-
         thing_id = str(args.get("thing_id") or "")
         affordance = str(args.get("action") or args.get("property") or args.get("event") or "")
         if not thing_id or not affordance:
@@ -855,8 +859,6 @@ def build_mcp_server(
     @server.call_tool()
     async def call_tool(tool: str, args: dict) -> Any:
         args = args or {}
-        from thingctx.integrations.connect import CONNECT_TOOL, connect_tool, ensure_connected
-
         try:
             session = server.request_context.session
         except Exception:
@@ -881,8 +883,6 @@ def build_mcp_server(
         # Gateway snapshot verb: resolve thing_id + affordance to the media name,
         # then reuse the same _snapshot path the per-Thing tool uses.
         if tool == "snapshot" and gateway is not None:
-            from thingctx.thing import _tool_name, thing_slug
-
             thing_id = str(args.get("thing_id") or "")
             affordance = str(args.get("affordance") or "")
             thing = next((t for t in client.things if thing_slug(t.id) == thing_id), None)
@@ -1042,8 +1042,6 @@ def build_mcp_server(
             task.cancel()
 
     # tc:PromptTemplate actions -> prompts
-    from thingctx.extensions.prompts import get_prompt, list_prompts
-
     @server.list_prompts()
     async def list_prompts_handler() -> list[types.Prompt]:
         return [
@@ -1099,9 +1097,6 @@ def client_from_registry(
     registry are imported. A single handler is bound directly (so its events
     push as usual); several are bound per slug so colliding action names stay
     distinct."""
-    from thingctx.bindings import LocalBinding, discover_local_handlers
-    from thingctx.thing import thing_slug
-
     tds = registry.fetch()
     present = {thing_slug(td["id"]): td for td in tds if isinstance(td, dict) and td.get("id")}
     handlers = discover_local_handlers(set(present))
@@ -1112,7 +1107,7 @@ def client_from_registry(
         for slug, handler in handlers.items():
             local.register_thing(slug, handler)
     if handlers and verbose:
-        print(
+        print(  # noqa: T201  # CLI output
             f"thingctx-mcp: bound local handler(s) for {', '.join(sorted(handlers))}",
             file=sys.stderr,
         )
@@ -1132,15 +1127,15 @@ def client_from_registry(
     # bindings, so importing the binding class alone cannot reveal a missing dep;
     # probe the dependency module directly instead.
     if importlib.util.find_spec("httpx") is not None:
-        from thingctx.bindings import HttpBinding
+        from thingctx.bindings import HttpBinding  # noqa: PLC0415
 
         bindings.append(HttpBinding(credentials=credentials or {}, block_private=block_private))
     if importlib.util.find_spec("paho") is not None:
-        from thingctx.bindings import MqttBinding
+        from thingctx.bindings import MqttBinding  # noqa: PLC0415
 
         bindings.append(MqttBinding())
     if importlib.util.find_spec("av") is not None:
-        from thingctx.bindings.builtin.media import MediaBinding
+        from thingctx.bindings.builtin.media import MediaBinding  # noqa: PLC0415
 
         bindings.append(MediaBinding(credentials=credentials or {}, block_private=block_private))
     # THINGCTX_POLICY picks a coarse per-operation posture: read-only or
@@ -1155,14 +1150,15 @@ def client_from_registry(
     policy = os.environ.get("THINGCTX_POLICY")
     agent_identity = os.environ.get("THINGCTX_IDENTITY")
     if policy or agent_identity:
-        from thingctx.authz.pdp import (
+        # authz.pep imports runtime, which this server imports, so importing the
+        # authz package at load would cycle; the kernel is reached on use instead.
+        from thingctx.authz.pdp import (  # noqa: PLC0415
             GrantSource,
             LocalPolicyGrantSource,
             PolicyDecisionPoint,
             StaticGrantSource,
         )
-        from thingctx.authz.vocabulary import build_vocabulary
-        from thingctx.thing import parse_thing
+        from thingctx.authz.vocabulary import build_vocabulary  # noqa: PLC0415
 
         things = [parse_thing(td) for td in tds if isinstance(td, dict)]
         # An identity-free posture (policy only) grants the preset wildcard; an
@@ -1185,9 +1181,9 @@ def client_from_registry(
             grants = static
         pdp = PolicyDecisionPoint(build_vocabulary(things), grants)
         if verbose:
-            print(f"thingctx-mcp: operation policy = {preset}", file=sys.stderr)
+            print(f"thingctx-mcp: operation policy = {preset}", file=sys.stderr)  # noqa: T201  # CLI output
             if agent_identity:
-                print(f"thingctx-mcp: agent identity = {agent_identity}", file=sys.stderr)
+                print(f"thingctx-mcp: agent identity = {agent_identity}", file=sys.stderr)  # noqa: T201  # CLI output
     return ThingClient(
         tds=tds, bindings=bindings, approve_when=approve_when, pdp=pdp, identity=identity
     )
@@ -1216,11 +1212,11 @@ def _build_server(registry: Any) -> Server:
         registry, credentials=creds, approve_when=approve_when, verbose=True
     )
     if creds:
-        print(
+        print(  # noqa: T201  # CLI output
             f"thingctx-mcp: loaded {len(creds)} credential(s) for {', '.join(sorted(creds))}",
             file=sys.stderr,
         )
-    print(f"thingctx-mcp: approval policy = {approve_when}", file=sys.stderr)
+    print(f"thingctx-mcp: approval policy = {approve_when}", file=sys.stderr)  # noqa: T201  # CLI output
     # build_mcp_server resolves and prints the effective tool mode (auto -> flat/gateway
     # by fleet size), so no mode line here to avoid a stale/duplicate report.
     n = len(client.things)
@@ -1230,7 +1226,8 @@ def _build_server(registry: Any) -> Server:
 
 async def serve(registry: Any) -> None:
     """Run the MCP server over stdio (the local, one-per-session transport)."""
-    from mcp.server.stdio import stdio_server
+    # optional dep, kept local so the core imports without the extra
+    from mcp.server.stdio import stdio_server  # noqa: PLC0415
 
     server = _build_server(registry)
     async with stdio_server() as (read, write):
@@ -1255,7 +1252,7 @@ def _check_http_exposure(host: str) -> None:
             "authentication. Bind 127.0.0.1, or put an authenticating reverse "
             "proxy or gateway guard in front and unset THINGCTX_REQUIRE_AUTH."
         )
-    print(
+    print(  # noqa: T201  # CLI output
         "thingctx-mcp: WARNING: serving HTTP on a non-loopback host with NO inbound "
         "authentication. Anyone who can reach this port can drive every exposed tool "
         "with this process's credentials. Do not expose it to an untrusted network; "
@@ -1275,10 +1272,11 @@ def serve_http(registry: Any, *, host: str = "127.0.0.1", port: int = 8080) -> N
     The endpoint itself performs no inbound authentication: a non-loopback bind
     warns at startup, and refuses when ``THINGCTX_REQUIRE_AUTH=1`` is set.
     """
-    import uvicorn
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-    from starlette.applications import Starlette
-    from starlette.routing import Mount
+    # optional dep, kept local so the core imports without the extra
+    import uvicorn  # noqa: PLC0415
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager  # noqa: PLC0415
+    from starlette.applications import Starlette  # noqa: PLC0415
+    from starlette.routing import Mount  # noqa: PLC0415
 
     _check_http_exposure(host)
     server = _build_server(registry)
@@ -1295,13 +1293,11 @@ def serve_http(registry: Any, *, host: str = "127.0.0.1", port: int = 8080) -> N
         await manager.handle_request(scope, receive, send)
 
     app = Starlette(routes=[Mount("/", app=handle)], lifespan=lifespan)
-    print(f"thingctx-mcp: serving streamable-http on http://{host}:{port}/", file=sys.stderr)
+    print(f"thingctx-mcp: serving streamable-http on http://{host}:{port}/", file=sys.stderr)  # noqa: T201  # CLI output
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 def main() -> None:
-    import argparse
-
     parser = argparse.ArgumentParser(
         prog="thingctx-mcp",
         description="Serve a fleet of W3C WoT Things to an MCP client.",
@@ -1322,14 +1318,10 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080).")
     args = parser.parse_args()
 
-    from thingctx.registry import from_args
-
     registry = from_args(args.sources)
     if args.http:
         serve_http(registry, host=args.host, port=args.port)
     else:
-        import asyncio
-
         asyncio.run(serve(registry))
 
 

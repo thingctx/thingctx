@@ -10,6 +10,8 @@ lazily here only, so the pure ThingClient has no LLM dependency.
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import os
 from collections.abc import Awaitable, Callable
@@ -145,8 +147,6 @@ class LLMHost:
 
     @staticmethod
     def _as_video_url(video: Any) -> str:
-        import base64
-
         if isinstance(video, bytes | bytearray):
             payload = base64.b64encode(bytes(video)).decode("ascii")
             return "data:video/mp4;base64," + payload
@@ -165,8 +165,6 @@ class LLMHost:
         if isinstance(image, str):
             return image
         if isinstance(image, bytes | bytearray):
-            import base64
-
             payload = base64.b64encode(bytes(image)).decode("ascii")
             return "data:image/jpeg;base64," + payload
 
@@ -282,9 +280,8 @@ class LLMHost:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        import asyncio
-
-        import litellm  # imported lazily; pure client has no LLM dep
+        # optional dep, kept local so the core imports without the extra
+        import litellm  # noqa: PLC0415
 
         resp = await asyncio.to_thread(
             litellm.completion,
