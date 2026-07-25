@@ -515,7 +515,7 @@ def test_resolve_is_private_detects_a_private_resolution(monkeypatch):
 
 def test_resolve_is_private_treats_an_unreadable_address_as_private(monkeypatch):
     # An entry the policy cannot read must not be reported as public: it has not
-    # been shown to be safe, so the gate assumes the worse of the two.
+    # been shown to be safe, so the gate assumes the worst of the two.
     import socket as _socket
 
     def _unreadable(host, *a, **k):

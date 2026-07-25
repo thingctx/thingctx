@@ -110,9 +110,9 @@ def _resolved_addrs(host: str) -> list[str]:
     own policy for a failed resolution."""
     addrs: list[str] = []
     for info in socket.getaddrinfo(host, None):
-        # Shape first: a resolver that answers a short tuple would raise IndexError
-        # straight past this function, and an exception that is not PolicyError
-        # skips the fail-closed handling every caller wrote for it.
+        # Shape first. A resolver answering a short tuple raises IndexError here,
+        # and an exception that is not PolicyError would skip the fail-closed
+        # handling every caller wrote, so it is converted rather than allowed out.
         try:
             addr = info[4][0]
         except (TypeError, IndexError, KeyError) as exc:
