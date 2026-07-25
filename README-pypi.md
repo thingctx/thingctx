@@ -29,9 +29,13 @@ asyncio.run(main())
 Own the loop? Get tool specs and route calls yourself:
 
 ```python
-client = thingctx.ThingClient.from_registry(thingctx.from_arg("./registry/"))
-specs, invoke = client.as_tools()
-result = await invoke("pump__set_speed", {"rpm": 1500})
+async def main():
+    client = thingctx.ThingClient.from_registry(thingctx.from_arg("./registry/"))
+    specs, invoke = client.as_tools()
+    result = await invoke("pump__set_speed", {"rpm": 1500})
+
+
+asyncio.run(main())
 ```
 
 Closed agent (Claude Desktop, Copilot)? Bridge a registry of descriptions to MCP:
