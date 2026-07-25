@@ -35,3 +35,12 @@ id_ed25519
 
 # Agent contract / internal instructions, never public
 .claude/
+DOGFOOD-RUNBOOK.md
+packaging/_dogfood_local/
+packaging/mcpb-dogfood/
+packaging/dist/
+dist_build/
+auto.crt
+*.mcpb
+DESIGN.md
+tools/

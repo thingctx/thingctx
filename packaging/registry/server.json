@@ -17,7 +17,7 @@
       "transport": { "type": "stdio" },
       "runtimeHint": "uvx",
       "packageArguments": [
-        { "type": "named", "name": "--from", "value": "thingctx[mcp]" },
+        { "type": "named", "name": "--from", "value": "thingctx[mcp,http,mqtt,media,filesystem,authz]" },
         { "type": "positional", "value": "thingctx-mcp" },
         {
           "type": "positional",
@@ -30,14 +30,19 @@
       "environmentVariables": [
         {
           "name": "THINGCTX_POLICY",
-          "description": "What the agent may do: read-only | no-writes | full.",
-          "default": "no-writes",
+          "description": "What the agent may do: read-only | full.",
+          "default": "read-only",
           "isRequired": false
         },
         {
           "name": "THINGCTX_APPROVE_WHEN",
           "description": "When the agent asks before acting: declared | destructive | all | never.",
           "default": "destructive",
+          "isRequired": false
+        },
+        {
+          "name": "THINGCTX_FS_ROOT",
+          "description": "Sandbox directory for the filesystem Thing. Unset = refuse every filesystem call. Google OAuth: drop Desktop client JSON at ~/.config/thingctx/oauth-clients/oauth2.googleapis.com.json.",
           "isRequired": false
         }
       ]
