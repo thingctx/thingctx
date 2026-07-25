@@ -8,8 +8,9 @@ come from" is pluggable. Implement one method:
     class Registry(Protocol):
         def fetch(self) -> list[dict]: ...   # the current TDs
 
-Built in: FileRegistry (a dir or file), TDDRegistry (a W3C Thing
-Description Directory), and from_args() which picks per argument. Your own
+Built in: FileRegistry (a dir, a file, or a URL serving a TD or a catalog
+index), TDDRegistry (a W3C Thing Description Directory), and from_args()
+which picks per argument. Your own
 source (a database, an inventory service, mDNS) is just another class with
 a fetch().
 """
@@ -31,7 +32,7 @@ class Registry(Protocol):
 
 class FileRegistry:
     """TDs from a directory of *.td.json, a single file, or a URL that
-    returns one TD. Re-reads on each fetch."""
+    returns one TD or a catalog index of TDs. Re-reads on each fetch."""
 
     def __init__(self, source: str, timeout: float = 10.0) -> None:
         self.source = source
@@ -40,7 +41,7 @@ class FileRegistry:
     def fetch(self) -> list[dict]:
         s = self.source
         if s.startswith(("http://", "https://")):
-            return [_get_json(s, self.timeout)]
+            return _tds_from_url(s, self.timeout)
         if os.path.isdir(s):
             files = [
                 os.path.join(s, f)
@@ -82,8 +83,8 @@ class _Multi:
 
 def from_arg(arg: str) -> Registry:
     """Pick a registry from one argument: a `tdd:URL` or a `/things` URL is
-    a Thing Description Directory; anything else (a dir, file, or single-TD
-    URL) is a FileRegistry."""
+    a Thing Description Directory; anything else (a dir, a file, or a URL
+    serving a TD or a catalog index) is a FileRegistry."""
     if arg.startswith("tdd:"):
         return TDDRegistry(arg[4:])
     if arg.startswith(("http://", "https://")) and arg.rstrip("/").endswith("/things"):
@@ -185,10 +186,58 @@ def _get_json(url: str, timeout: float):
     req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         if limit is None:
-            return json.loads(r.read().decode())
-        # Read one byte past the cap so an oversized body is detected, not
-        # silently truncated into invalid JSON.
-        raw = r.read(limit + 1)
-    if len(raw) > limit:
-        raise ValueError(f"Thing Description at {url!r} exceeds the {limit}-byte limit")
-    return json.loads(raw.decode())
+            raw = r.read()
+        else:
+            # Read one byte past the cap so an oversized body is detected, not
+            # silently truncated into invalid JSON.
+            raw = r.read(limit + 1)
+            if len(raw) > limit:
+                raise ValueError(f"Thing Description at {url!r} exceeds the {limit}-byte limit")
+        headers = getattr(r, "headers", None)
+    ctype = (headers.get("Content-Type", "") if headers else "") or "unknown content type"
+    try:
+        return json.loads(raw.decode())
+    except ValueError as e:
+        raise ValueError(
+            f"{url} did not return JSON ({ctype}); "
+            "expected a Thing Description or a catalog index"
+        ) from e
+
+
+def _tds_from_url(url: str, timeout: float) -> list[dict]:
+    # A trailing slash names a directory of TDs; its index.json is the catalog.
+    if url.endswith("/"):
+        url += "index.json"
+    data = _get_json(url, timeout)
+    return _tds_from_payload(data, url, lambda u: _get_json(u, timeout))
+
+
+def _tds_from_payload(data, base_url: str, get) -> list[dict]:
+    """TDs from one fetched JSON payload.
+
+    Three shapes: a single TD (a dict; anything with an @context, or any
+    dict without a "things" list), a bare list of TDs, or a catalog index
+    (a dict whose "things" entries are inline TDs or references). A
+    reference names its TD in "served_at", "href", or "file", resolved
+    against the catalog URL, so a static registry needs only an index file
+    beside its TDs.
+    """
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    if not isinstance(data, dict):
+        raise ValueError(f"{base_url} did not return a TD or a catalog index")
+    if "@context" in data or not isinstance(data.get("things"), list):
+        return [data]
+    from urllib.parse import urljoin
+
+    out: list[dict] = []
+    for entry in data["things"]:
+        if not isinstance(entry, dict):
+            continue
+        if "@context" in entry:
+            out.append(entry)
+            continue
+        ref = entry.get("served_at") or entry.get("href") or entry.get("file")
+        if isinstance(ref, str) and ref:
+            out.append(get(urljoin(base_url, ref)))
+    return out
