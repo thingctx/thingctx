@@ -249,29 +249,15 @@ def _merge_href_query(url: str, params: dict | None) -> tuple[str, dict | None]:
 
 @implements(ProtocolBinding)
 class HttpBinding(AuthMixin):
-    """POST the action input as JSON to the form's http(s) URL.
+    """The HTTP(S) transport, covering the whole WoT TD 1.1 control plane:
+    invoke, read/write, bulk read/write, the async action lifecycle, and subscribe
+    over SSE. Auth resolves through :class:`AuthMixin` and applies via
+    ``apply_http``. ``digest`` and ``combo`` are parsed but not yet applied.
 
-    Honors declared security via the transport-neutral auth layer: it resolves
-    each owner's schemes into neutral credential material (see
-    :class:`AuthMixin`) and maps it onto the request with ``apply_http`` (headers,
-    query params, a client certificate, or request signing). No auth logic lives
-    in this transport.
-
-    Transient failures (connection errors, timeouts, 429, 5xx) are retried with
-    bounded exponential backoff, and any non-2xx outcome surfaces as a single
-    ``TransportError``. Retries are gated to idempotent methods unless
-    ``retry_non_idempotent`` is set, so a write is never silently re-sent. A
-    pooled client is reused across calls to keep connections warm.
-
-    The reference transport: it implements the whole control-plane contract, so
-    every optional WoT TD 1.1 capability is exercised here. ``invoke`` (incl.
-    ``contentCoding`` negotiation and the declared ``additionalResponses`` error
-    shape on failure); ``read`` / ``write``; bulk ``read_all`` / ``write_all``;
-    the async action lifecycle ``invoke_async`` / ``query_action`` /
-    ``cancel_action``; and ``subscribe`` over SSE. Auth covers the schemes
-    ``apply_http`` maps: bearer, basic, apikey, oauth2 (resolved to a bearer
-    token), mutual TLS, and request signing (``auto``, e.g. SigV4). ``digest`` and
-    ``combo`` are modeled by the parser but not yet applied here.
+    Transient failures (connection errors, timeouts, 429, 5xx) retry with bounded
+    exponential backoff; any non-2xx surfaces as one ``TransportError``. Retries
+    are gated to idempotent methods unless ``retry_non_idempotent`` is set, so a
+    write is never silently re-sent.
     """
 
     scheme = "http"
@@ -374,10 +360,9 @@ class HttpBinding(AuthMixin):
         return_response: bool = False,
         **kwargs: Any,
     ) -> Any:
-        """Build, sign, and send a request with retries, then normalize the
-        outcome: a non-2xx becomes a ``TransportError`` (the same shape a
-        transport-level failure raises), and the body is decoded by content
-        type. A request is rebuilt and re-signed on each attempt.
+        """Send a request with retries and normalize the outcome: a non-2xx
+        becomes a ``TransportError`` (the shape a transport-level failure raises),
+        the body is decoded by content type. Rebuilt and re-signed each attempt.
 
         ``retry=False`` forces a single attempt regardless of method, used when
         the body is a one-shot stream (a file or iterator) that a rebuilt

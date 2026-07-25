@@ -56,8 +56,7 @@ _POLL_INTERVAL = 0.1
 
 
 class ThingClient:
-    """List + invoke the actions of one or more WoT Things. Transport-
-    agnostic; no LLM."""
+    """List and invoke the actions of one or more WoT Things."""
 
     @classmethod
     def from_registry(
@@ -126,11 +125,9 @@ class ThingClient:
                     f"{_slug!r}; give them distinguishable ids"
                 )
             _slugs[_slug] = _t.id
-        # Bindings resolve a form to a transport. ``bindings`` is a
-        # BindingRegistry or a plain list; an explicitly supplied binding
-        # shadows a built-in for its scheme. When none is given, default to
-        # http + local so the documented quickstart routes without wiring; pass
-        # an empty list for a client that registers none.
+        # ``bindings`` is a BindingRegistry or a plain list; an explicit binding
+        # shadows a built-in for its scheme. Default to http + local so the
+        # quickstart routes without wiring; pass an empty list to register none.
         if isinstance(bindings, BindingRegistry):
             self._registry = bindings
         elif bindings is not None:
@@ -291,8 +288,7 @@ class ThingClient:
         await self.aclose()
 
     def list_actions(self) -> list[dict[str, Any]]:
-        """OpenAI-format tool specs for every exposed action. A fresh list, so a
-        caller cannot mutate the client's internal tool definitions in place."""
+        """OpenAI-format tool specs for every exposed action. A fresh list."""
         return list(self._tool_specs)
 
     def as_tools(self) -> tuple[list[dict[str, Any]], Callable[..., Awaitable[Any]]]:
@@ -305,8 +301,8 @@ class ThingClient:
         return self._tool_specs
 
     def tool_surface(self) -> list[dict[str, Any]]:
-        """The full set of callable tools a TD exposes, as a single list both
-        the LLM host and the MCP bridge project from (so they stay in step):
+        """The callable tools a TD exposes, the one list the LLM host and the MCP
+        bridge both project from:
 
         - every action (a long-running action blocks to completion), with an
           ``output_schema`` when the TD declares one;
@@ -426,8 +422,8 @@ class ThingClient:
         return self._things
 
     def gateway(self) -> GatewayProjection:
-        """A constant six-verb projection over this client, for fleets too large
-        for a flat one-tool-per-action surface. See :mod:`thingctx.gateway`."""
+        """A six-verb projection over this client, for fleets too large for a flat
+        one-tool-per-action surface. See :mod:`thingctx.gateway`."""
 
         return GatewayProjection(self)
 
@@ -443,8 +439,7 @@ class ThingClient:
 
         Returns an object exposing ``tool_specs`` and an async ``call_tool``;
         both modes share that shape, so a caller swaps modes without other
-        changes. Only one mode is ever active; a duplicated surface hurts
-        selection more than either mode alone.
+        changes. Only one mode is ever active.
         """
         if mode == "flat":
             return _FlatProjection(self)
@@ -483,11 +478,10 @@ class ThingClient:
         """Return a client that authorizes every device-reaching call against
         ``pdp`` for ``identity``. Sugar over the ``pdp=`` constructor param.
 
-        Not a proxy: it returns a ThingClient that shares this client's internal
-        state with only the authorization settings set. There is no second
-        dispatch surface to drift from and nothing to bypass; the returned
-        client's own dispatch methods enforce the check, exactly as if ``pdp=``
-        had been passed at construction.
+        Not a proxy: it returns a ThingClient sharing this one's state with the
+        authorization settings applied, so its own dispatch methods enforce the
+        check, exactly as if ``pdp=`` had been passed at construction. No second
+        dispatch surface to bypass.
         """
         clone = object.__new__(type(self))
         clone.__dict__ = dict(self.__dict__)
@@ -501,10 +495,9 @@ class ThingClient:
         sharing this client's internal state otherwise. The authorization gate
         (``pdp``) is untouched, so only the human-confirm step is affected.
 
-        The bypass is per-call state, not shared mutation: a caller replaying an
-        already-confirmed call runs it through the returned clone while the
-        original client's own gate is unchanged, so a concurrent unrelated call
-        on the shared client still faces the original approver.
+        Per-call state, not shared mutation: replaying an already-confirmed call
+        through the clone leaves the original client's gate unchanged, so a
+        concurrent unrelated call still faces the original approver.
         """
         clone = object.__new__(type(self))
         clone.__dict__ = dict(self.__dict__)
@@ -800,7 +793,7 @@ class ThingClient:
 
     def list_media(self) -> list[str]:
         """Names of media affordances (continuous audio/video streams). Consume
-        them with frames(); they are not in list_actions()."""
+        them with frames()."""
         return list(self._media)
 
     def media_form(self, name: str) -> WoTForm | None:
@@ -1148,9 +1141,8 @@ def to_text(value: Any) -> str:
 
 
 class _FlatProjection:
-    """The flat surface (one tool per action) behind the same
-    ``tool_specs`` / ``call_tool`` shape the gateway offers, so
-    :meth:`ThingClient.projection` returns one interface for either mode."""
+    """The flat surface (one tool per action) behind the ``tool_specs`` /
+    ``call_tool`` shape the gateway also offers."""
 
     def __init__(self, client: ThingClient) -> None:
         self._client = client
