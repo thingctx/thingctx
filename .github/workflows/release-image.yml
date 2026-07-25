@@ -1,0 +1,68 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Build, push, and SIGN the gateway image on a release tag. Release-only, never on push.
+# The image installs the SAME PyPI artifact everything else resolves to, so its trust
+# inherits from the signed/attested PyPI release; cosign + SBOM add image-level proof.
+name: release-image
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write   # push to GHCR
+  id-token: write   # cosign keyless (GitHub OIDC)
+  attestations: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Derive version from the tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (multi-arch)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/docker/Dockerfile
+          build-args: THINGCTX_VERSION=${{ steps.v.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          sbom: true          # buildkit attaches an SBOM attestation
+          provenance: mode=max # SLSA provenance
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the image (keyless, OIDC)
+        run: |
+          cosign sign --yes "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
+
+      # A consumer verifies with:
+      #   cosign verify ghcr.io/thingctx/thingctx:0.2.0 \
+      #     --certificate-identity-regexp 'https://github.com/thingctx/.*' \
+      #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
