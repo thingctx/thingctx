@@ -1,7 +1,7 @@
 # Contributing to thingctx
 
 thingctx is small on purpose, and built so you can add real value in one
-focused pull request. Two contributions matter most:
+focused pull request. The contribution that matters most:
 
 ## Add a transport (a binding)
 
@@ -25,12 +25,15 @@ under `src/thingctx/bindings/builtin/`, prove it with the conformance kit
 README. See the bindings section in `docs/USAGE.md`. A new transport reaches every device that speaks
 it, for a small amount of code.
 
-## Add a Thing Description
+## Describing your own device is not a contribution
 
-A TD describes a device or service so any agent can drive it. Contribute
-one to `examples/registry/` (or propose a shared catalog). No Python
-needed , a TD is JSON. The more TDs exist, the more useful thingctx is to
-everyone.
+That is the design working, not an omission. A Thing Description is a file you
+keep next to your own code, and thingctx reads it without knowing anything about
+your device, so nothing in this repository has to change for you to drive one.
+You never need to send us your hardware.
+
+The exception is teaching. If a description makes a point the docs miss, a worked
+example under `examples/` is welcome. The device stays yours.
 
 ## Ground rules
 
@@ -102,8 +105,8 @@ especially on a well-scoped issue that someone else already claimed.
 
 ## Where to start
 
-Adding a binding for a transport you use, or a TD for a device you own, is a
-scoped, testable, and immediately useful first contribution. See the open issues
+Adding a binding for a transport thingctx cannot yet speak is scoped, testable,
+and immediately useful. See the open issues
 labeled [`good first issue`](https://github.com/thingctx/thingctx/labels/good%20first%20issue)
 or [`help wanted`](https://github.com/thingctx/thingctx/labels/help%20wanted),
 claim one, and go.
