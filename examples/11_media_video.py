@@ -70,7 +70,7 @@ async def main() -> None:
     host = thingctx.from_td(VIDEO_TD, model=model, bindings=[HttpBinding(), MediaBinding()])
     # Parameterized: the clip URL is an argument, resolved through the TD's form
     # ("{+url}" is substituted verbatim); the same TD works for any video.
-    url, _ = host.client.media_form("understand.watch").fill({"url": CLIP_URL})
+    url, _ = host.client.media_form("understand__watch").fill({"url": CLIP_URL})
     print(f"model: {model}\nclip: {url}\n")
 
     # Inline the clip as bytes; more reliable than asking the provider to

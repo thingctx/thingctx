@@ -109,10 +109,10 @@ class LLMHost:
         these. A list is sent as a sequence of stills; a portable clip the
         model reads as motion over time, on any vision capable backend.
 
-            frame = await anext(await client.frames("cam-1.watch"))
+            frame = await anext(await client.frames("cam-1__watch"))
             print(await host.see(frame, "Is anyone at the door?"))
 
-            clip = await sample_frames(await client.frames("cam-1.watch"), count=6)
+            clip = await sample_frames(await client.frames("cam-1__watch"), count=6)
             print(await host.see(clip, "Describe what happens in this clip."))
         """
         images = list(image) if isinstance(image, list | tuple) else [image]

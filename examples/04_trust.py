@@ -66,11 +66,11 @@ async def main() -> None:
         )
 
         print("== Part A: the gate (no LLM) ==")
-        ok = await client.invoke("pump.set_speed", {"rpm": 900})
+        ok = await client.invoke("pump__set_speed", {"rpm": 900})
         print(f"set_speed(900)  -> {ok}")
         assert ok == {"ok": True, "rpm": 900}
 
-        blocked = await client.invoke("pump.estop", {"reason": "panic"})
+        blocked = await client.invoke("pump__estop", {"reason": "panic"})
         print(f"estop()         -> {blocked}")
         assert blocked["error"] == "approval denied"
         assert pump.stopped is False, "the device must NOT have stopped"

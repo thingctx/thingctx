@@ -142,12 +142,12 @@ async def run(base: str) -> None:
     print("actions:", [t["function"]["name"] for t in client.list_actions()])
 
     # First call: no token cached -> thingctx hits /token, then the API.
-    r1 = await client.invoke("demo-pump.set_speed", {"rpm": 1200})
+    r1 = await client.invoke("demo-pump__set_speed", {"rpm": 1200})
     print(f"set_speed(1200) -> {r1}   (tokens issued: {STATE['token_issued']})")
     assert r1 == {"ok": True, "rpm": 1200}
 
     # Second call: token is cached, so /token is NOT hit again.
-    r2 = await client.invoke("demo-pump.set_speed", {"rpm": 1800})
+    r2 = await client.invoke("demo-pump__set_speed", {"rpm": 1800})
     print(f"set_speed(1800) -> {r2}   (tokens issued: {STATE['token_issued']})")
     assert r2 == {"ok": True, "rpm": 1800}
     assert STATE["token_issued"] == 1, "token should have been cached, not re-fetched"
@@ -157,7 +157,7 @@ async def run(base: str) -> None:
     bad = thingctx.HttpBinding(credentials={"urn:thingctx:demo-pump": bad_creds})
     bad_client = thingctx.ThingClient(tds=[td], bindings=[bad])
     try:
-        await bad_client.invoke("demo-pump.set_speed", {"rpm": 9999})
+        await bad_client.invoke("demo-pump__set_speed", {"rpm": 9999})
         raise AssertionError("a bad secret should not have been able to set speed")
     except Exception as exc:  # noqa: BLE001 - any auth failure is the point
         print(f"bad secret refused: {type(exc).__name__}")

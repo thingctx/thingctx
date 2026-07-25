@@ -29,7 +29,7 @@ guard at that JWKS. The signature verification is the same code path a real
 Entra / Cloudflare token takes; only the key is ours instead of the IdP's. This
 mirrors the guard's own test setup (``tests/conftest.py``).
 
-Run (needs the ``authz`` extra: ``pip install -e .[authz]``)::
+Run (needs the ``authz`` extra: ``pip install -e '.[authz]'``)::
 
     python examples/15_authn_to_authz.py
 """
@@ -195,16 +195,16 @@ async def main() -> None:
         identity=claims,
     )
 
-    value = await client.read_property("pump.target_rpm")
+    value = await client.read_property("pump__target_rpm")
     print(f"\nREAD  target_rpm  -> ALLOWED, device returned {value}")
 
     try:
-        await client.write_property("pump.target_rpm", 3000)
+        await client.write_property("pump__target_rpm", 3000)
         print("WRITE target_rpm  -> ALLOWED (unexpected)")
     except AuthorizationDenied as denied:
         print(f"WRITE target_rpm  -> DENIED, {denied.reason}")
 
-    after = await client.read_property("pump.target_rpm")
+    after = await client.read_property("pump__target_rpm")
     assert after == value, "denied write must not change device state"
     print(f"\nRE-READ target_rpm -> {after}  (unchanged: the denied write never ran)")
     print("\nchain complete: real token -> validated claims -> authz enforced on that identity")

@@ -10,9 +10,10 @@ live in [examples/](../examples/).
 ## Mapping a TD to tools
 
 Each action projects to exactly one tool in OpenAI function format: the tool name
-is `<thing>.<action>`, the parameters are the action's `input` schema, and a call
-resolves back to a form invocation over the form's transport. So `createIssue` on
-`urn:svc:github` becomes the tool `github.createIssue`, and calling it issues
+is `<thing>__<action>` (a double underscore separator), the parameters are the
+action's `input` schema, and a call resolves back to a form invocation over the
+form's transport. So `createIssue` on `urn:svc:github` becomes the tool
+`github__createIssue`, and calling it issues
 `POST https://api.github.com/repos/{owner}/{repo}/issues`.
 
 The full rules (tool naming, parameter and description projection, property and

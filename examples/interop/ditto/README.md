@@ -38,8 +38,8 @@ thingctx, given only the generated TD, projected the twin to tools and
 round-tripped a property straight through to Ditto:
 
 ```
-actions exposed as tools: ['lamp-1.toggle', 'lamp-1.switch-on-for-duration']
-properties: ['lamp-1.on', 'lamp-1.color', 'lamp-1.dimmer-level']
+actions exposed as tools: ['lamp-1__toggle', 'lamp-1__switch-on-for-duration']
+properties: ['lamp-1__on', 'lamp-1__color', 'lamp-1__dimmer-level']
 
 read  dimmer-level -> 0.0
 write dimmer-level <- 0.42

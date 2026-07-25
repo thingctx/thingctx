@@ -44,8 +44,8 @@ python drive_nodewot_td.py
 
 ```
 counter TD: id=urn:dev:counter  title=counter
-actions exposed as tools: ['counter.increment', 'counter.decrement', 'counter.reset']
-properties: ['counter.count']
+actions exposed as tools: ['counter__increment', 'counter__decrement', 'counter__reset']
+properties: ['counter__count']
 
 read  count -> 0
 invoke increment

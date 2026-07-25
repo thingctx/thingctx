@@ -85,8 +85,8 @@ async def main() -> None:
 
     print("invoke tools (list_actions):", [t["function"]["name"] for t in client.list_actions()])
     print("media affordances (list_media):", client.list_media())
-    sample = "sample.watch"
-    pages = "pages.watch"
+    sample = "sample__watch"
+    pages = "pages__watch"
 
     # Media is a stream, not an action: invoke() refuses it and points to frames().
     print("invoke() on media ->", (await client.invoke(sample)).get("error"))
@@ -165,9 +165,9 @@ async def _run_authenticated() -> None:
         creds = {"private": (user, pw)}
 
     client = ThingClient(tds=[td], bindings=[HttpBinding(), MediaBinding(credentials=creds)])
-    print(f"\n[private.watch] authenticated source (url={url}):")
+    print(f"\n[private__watch] authenticated source (url={url}):")
     try:
-        frames = await _take(client, "private.watch", {"url": url}, track="video", n=3)
+        frames = await _take(client, "private__watch", {"url": url}, track="video", n=3)
         for i, fr in enumerate(frames):
             h, w = fr.data.shape[:2]
             print(f"  frame {i}: {w}x{h} {fr.encoding} pts={fr.pts}")

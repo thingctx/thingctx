@@ -42,7 +42,7 @@ async def main() -> None:
     before = await client.read_property(f"{slug}.count")
     print(f"\nread  count -> {before}")
 
-    await client.invoke(f"{slug}.increment", {})
+    await client.invoke(f"{slug}__increment", {})
     print("invoke increment")
 
     after = await client.read_property(f"{slug}.count")

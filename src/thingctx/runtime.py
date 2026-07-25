@@ -5,7 +5,7 @@ subscribe to events. No LLM.
 
     client = ThingClient(tds=[td], bindings=[HttpBinding()])
     client.list_actions()
-    await client.invoke("pump.set_speed", {"rpm": 1200})
+    await client.invoke("pump__set_speed", {"rpm": 1200})
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ class ThingClient:
             only_idempotent=self._only_idempotent,
         )
         # Telemetry name to (Thing, Property/Event) maps, keyed by the
-        # same short ``<slug>.<name>`` scheme as actions.
+        # same short ``<slug>__<name>`` scheme as actions.
         from thingctx.thing import _tool_name
 
         self._props: dict[str, Any] = {}
@@ -847,7 +847,7 @@ class ThingClient:
         iterator that yields each pushed value. ``args`` are subscribe-time
         parameters (an event's ``subscription`` schema), e.g. a filter.
 
-            async for reading in await client.subscribe("pump.telemetry"):
+            async for reading in await client.subscribe("pump__telemetry"):
                 ...
         """
         # WoT subscribe covers two ops: an event is subscribeevent, an
@@ -901,7 +901,7 @@ class ThingClient:
         """Open a media affordance and yield decoded frames. Returns an async
         iterator; ``track`` selects video or audio.
 
-            async for frame in await client.frames("cam-1.watch"):
+            async for frame in await client.frames("cam-1__watch"):
                 ...
         """
         entry = self._media.get(name)
@@ -949,9 +949,9 @@ class ThingClient:
         when the source is exhausted. With ``audio`` supplied, ``frames`` is the
         video track and ``audio`` is muxed alongside it into one A/V output.
 
-            await client.publish("studio.broadcast", frame_source())
+            await client.publish("studio__broadcast", frame_source())
             await client.publish(
-                "studio.broadcast", video, audio=await client.frames("cam.watch", track="audio")
+                "studio__broadcast", video, audio=await client.frames("cam__watch", track="audio")
             )
         """
         entry = self._media.get(name)
@@ -990,7 +990,7 @@ class ThingClient:
         for a transform. ``track`` (``video``/``audio``) limits the copy to one
         stream; by default every media stream is copied.
 
-            await client.save("cam.watch", "clip.mp4")
+            await client.save("cam__watch", "clip.mp4")
         """
         entry = self._media.get(name)
         if entry is None:

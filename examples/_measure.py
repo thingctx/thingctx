@@ -134,7 +134,7 @@ async def ttfc_mcp(pump, td) -> float:
 
 async def ttfc_mcp_stdio(_pump, td) -> float:
     """stdio MCP: the client SPAWNS the server per session, so every first
-    call pays process startup + the stdio handshake , the real cost to stand
+    call pays process startup + the stdio handshake, the real cost to stand
     up one stdio integration."""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -152,7 +152,7 @@ async def ttfc_mcp_stdio(_pump, td) -> float:
 
 async def ttfc_mcp_http(url: str) -> float:
     """streamable-HTTP MCP: the server is already running (a process you
-    operate). Time only connect + initialize + first call , the per-session
+    operate). Time only connect + initialize + first call, the per-session
     latency a client pays against a warm server."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -195,7 +195,7 @@ async def ttfc_thingctx(pump, td) -> float:
         ],
         validate=True,
     )
-    await client.invoke("pump.set_speed", {"rpm": 900})
+    await client.invoke("pump__set_speed", {"rpm": 900})
     return time.perf_counter() - t0
 
 
@@ -247,7 +247,7 @@ async def main() -> None:
     print(f"\n(Thing Description is data, shared by every consumer: {ltd} lines JSON.)")
     print("(stdio MCP spawns the server per session, so its first call pays process")
     print(" startup; http MCP is a warm long-running server, timed connect+init+call.")
-    print(f" In-memory MCP, no process or socket, is {mcp_mem_ms:.1f} ms , a floor.)")
+    print(f" In-memory MCP, no process or socket, is {mcp_mem_ms:.1f} ms: a floor.)")
 
 
 if __name__ == "__main__":

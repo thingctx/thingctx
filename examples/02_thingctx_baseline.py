@@ -10,11 +10,11 @@ line.
 
 01 (MCP)                              02 (thingctx)
   author+run a FastMCP server     ->    none, consume the TD
-  @tool set_speed / estop         ->    invoke("pump.set_speed", ...)
-  @tool read_sensor(id)           ->    invoke("pump.read_sensor", {id})  (uriVar)
-  @resource pump://status         ->    invoke("pump.status")  (gzip, idempotent -> GET)
+  @tool set_speed / estop         ->    invoke("pump__set_speed", ...)
+  @tool read_sensor(id)           ->    invoke("pump__read_sensor", {id})  (uriVar)
+  @resource pump://status         ->    invoke("pump__status")  (gzip, idempotent -> GET)
   get_/set_target_rpm TOOL PAIR   ->    read_property / write_property (typed)
-  poll pump://overheat/latest     ->    subscribe("pump.overheat")  (data inline)
+  poll pump://overheat/latest     ->    subscribe("pump__overheat")  (data inline)
 
 It then drives the rest of the invocable surface end to end: bulk property
 read/write and a subset read (the Thing-level forms), a filtered subscription
@@ -66,35 +66,35 @@ async def main() -> None:
 
         check(
             "COMMAND    set_speed(900)",
-            await client.invoke("pump.set_speed", {"rpm": 900}),
+            await client.invoke("pump__set_speed", {"rpm": 900}),
             oracle.set_speed(900),
         )
-        check("COMMAND    estop()", await client.invoke("pump.estop"), oracle.estop())
+        check("COMMAND    estop()", await client.invoke("pump__estop"), oracle.estop())
         check(
             "PATH-READ  read_sensor('temp-1')   [uriVar {id}, no hand-coded REST]",
-            await client.invoke("pump.read_sensor", {"id": "temp-1"}),
+            await client.invoke("pump__read_sensor", {"id": "temp-1"}),
             oracle.read_sensor("temp-1"),
         )
         check(
             "WRITE      target_rpm <- 1500       [a typed property, not a pair]",
-            await client.write_property("pump.target_rpm", 1500),
+            await client.write_property("pump__target_rpm", 1500),
             oracle.set_target_rpm(1500),
         )
         check(
             "READ       target_rpm",
-            await client.read_property("pump.target_rpm"),
+            await client.read_property("pump__target_rpm"),
             oracle.get_target_rpm(),
         )
         check(
             "READ-ONLY  rpm write rejected",
-            await client.write_property("pump.rpm", 5),
-            {"error": "property pump.rpm is read-only"},
+            await client.write_property("pump__rpm", 5),
+            {"error": "property pump__rpm is read-only"},
         )
-        check("STATE      status()", await client.invoke("pump.status"), oracle.status())
+        check("STATE      status()", await client.invoke("pump__status"), oracle.status())
         # MQTT, set_coolant routes over a real broker (the form is mqtt://)
         check(
             "MQTT       set_coolant(open=True)    [routed over real MQTT]",
-            await client.invoke("pump.set_coolant", {"open": True}),
+            await client.invoke("pump__set_coolant", {"open": True}),
             oracle.set_coolant(True),
         )
 
@@ -104,7 +104,7 @@ async def main() -> None:
         # method). The TD is self-sufficient.
         from thingctx.extensions.prompts import get_prompt
 
-        msgs = await get_prompt(client, "pump.diagnose", {"severity": "high"})
+        msgs = await get_prompt(client, "pump__diagnose", {"severity": "high"})
         check(
             "PROMPT     get_prompt(diagnose)     [tc:template, no device call]",
             msgs,
@@ -121,7 +121,7 @@ async def main() -> None:
         # Assert the pushed value is the device's event, not a URI.
         print(f"{'PUSH       subscribe(overheat)':<34}-> next 2 events, data inline:")
         n = 0
-        async for evt in await client.subscribe("pump.overheat"):
+        async for evt in await client.subscribe("pump__overheat"):
             assert "temp" in evt and "limit" in evt, "event must carry data inline"
             print(f"           {evt}  ok inline payload (not a URI)")
             n += 1
@@ -150,7 +150,7 @@ async def main() -> None:
         # above the threshold are delivered (the device honors ?threshold=).
         print(f"{'PUSH       subscribe(overheat>=90)':<34}-> filtered, data inline:")
         n = 0
-        async for evt in await client.subscribe("pump.overheat", {"threshold": 90}):
+        async for evt in await client.subscribe("pump__overheat", {"threshold": 90}):
             assert evt["temp"] >= 90, "filter must drop sub-threshold readings"
             print(f"           {evt}  ok >= threshold")
             n += 1
@@ -162,15 +162,15 @@ async def main() -> None:
         # cancel_action stops one in flight.
         check(
             "ASYNC      calibrate -> handle",
-            (await client.invoke("pump.calibrate", {"target": 1200})).status,
+            (await client.invoke("pump__calibrate", {"target": 1200})).status,
             "running",
         )
         check(
             "ASYNC      calibrate wait=True",
-            (await client.invoke("pump.calibrate", {"target": 1200}, wait=True)).output,
+            (await client.invoke("pump__calibrate", {"target": 1200}, wait=True)).output,
             {"calibrated_to": 1200},
         )
-        started = await client.invoke("pump.calibrate", {"target": 50})
+        started = await client.invoke("pump__calibrate", {"target": 50})
         cancelled = await client.cancel_action(started)
         check("ASYNC      calibrate -> cancel", cancelled.status, "cancelled")
 
@@ -178,7 +178,7 @@ async def main() -> None:
         # Force a fault and the runtime surfaces the declared error schema, not
         # a bare failure.
         pump.fault = True
-        err = await client.invoke("pump.status")
+        err = await client.invoke("pump__status")
         pump.fault = False
         check("ERROR      status 503 -> declared", err["response"]["schema"], "errorResponse")
 

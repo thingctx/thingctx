@@ -12,7 +12,7 @@ trip). Part B runs if `mediamtx` is on PATH (publish a live RTSP stream and
 consume it back). An ingest stream key is passed as a uriVariable at call time,
 so it stays out of the stored TD and is scrubbed from surfaced errors.
 
-Needs PyAV (`pip install thingctx[media]`), plus `mediamtx` for Part B.
+Needs PyAV (`pip install 'thingctx[media]'`), plus `mediamtx` for Part B.
 Run::  python examples/12_media_publish.py
 """
 
@@ -94,12 +94,12 @@ async def _part_a_file() -> None:
     client = ThingClient(tds=[_publish_td(str(out)), _view_td(str(out))], bindings=[MediaBinding()])
     try:
         print(f"A. publishing 60 frames to {out.name}")
-        await client.publish("studio.broadcast", _source(60))
+        await client.publish("studio__broadcast", _source(60))
         size = out.stat().st_size
         print(f"   wrote {size} bytes; reading it back ...")
 
         got = []
-        async for fr in await client.frames("viewer.watch"):
+        async for fr in await client.frames("viewer__watch"):
             got.append(fr)
         print(f"   decoded {len(got)} frames, {got[0].width}x{got[0].height} {got[0].encoding}")
         print("   OK: produce, file, consume round trip\n")
@@ -134,13 +134,13 @@ async def _part_b_rtsp() -> None:
             print("B. RTSP server did not come up on :8554")
             return
         print(f"B. publishing a live stream to {RTSP_URL}")
-        pub = asyncio.create_task(client.publish("studio.broadcast", _source(250, realtime=True)))
+        pub = asyncio.create_task(client.publish("studio__broadcast", _source(250, realtime=True)))
         await asyncio.sleep(2.0)  # let the stream register before reading
 
         got = []
 
         async def pull() -> None:
-            async for fr in await client.frames("viewer.watch"):
+            async for fr in await client.frames("viewer__watch"):
                 got.append(fr)
                 if len(got) >= 10:
                     break

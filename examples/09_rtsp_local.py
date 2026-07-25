@@ -156,7 +156,7 @@ async def main() -> None:
             bindings=[MediaBinding(credentials={"local": (USERNAME, "not-the-password")})],
         )
         try:
-            await _first_frames(wrong, "local.watch", 1, timeout=10.0)
+            await _first_frames(wrong, "local__watch", 1, timeout=10.0)
             print("  unexpected: read succeeded with the wrong password")
         except Exception as exc:  # noqa: BLE001 - any failure means it was refused
             # The error is a MediaError with the password scrubbed from the URL.
@@ -171,7 +171,7 @@ async def main() -> None:
             bindings=[HttpBinding(), MediaBinding(credentials={"local": (USERNAME, PASSWORD)})],
         )
         print(f"  correct login   -> consuming {client.list_media()[0]} ...\n")
-        frames = await _first_frames(client, "local.watch", 10)
+        frames = await _first_frames(client, "local__watch", 10)
         for i, fr in enumerate(frames, 1):
             print(f"    frame {i}: {fr.width}x{fr.height} {fr.encoding} pts={fr.pts}")
         await client.aclose()
