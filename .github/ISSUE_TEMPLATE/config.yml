@@ -2,7 +2,7 @@ blank_issues_enabled: true
 contact_links:
   - name: Looking for something to work on
     url: https://github.com/thingctx/thingctx/contribute
-    about: Issues tagged good first issue, each with the files to touch and what done looks like.
+    about: Issues tagged good first issue, each naming the files to touch and when it is finished.
   - name: Adding a transport binding
     url: https://github.com/thingctx/thingctx/blob/main/docs/BINDINGS.md
     about: The contract a binding implements, and how to register one from your own package.
