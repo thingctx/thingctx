@@ -259,6 +259,17 @@ class MediaBinding(AuthMixin):
             return rest
         return {k: v for k, v in rest.items() if k not in self._GUARDED_OPTIONS}
 
+    def _with_default_timeout(self, options: dict) -> dict:
+        """Ensure a media open carries a timeout. The backend passes
+        ``options["timeout"]`` straight to ``av.open`` / ``urlopen``, where a
+        missing (``None``) value means "block forever": a source that accepts the
+        connection then never sends a byte would wedge the worker thread with no
+        bound. Fall back to the binding's timeout so a media open always has a
+        deadline; a caller-declared timeout (hint or call arg) still wins."""
+        if options.get("timeout") is None:
+            options["timeout"] = self._timeout
+        return options
+
     def _confine_target(self, target: str) -> str:
         """Confine a local output target (a bare path or ``file://``): refuse a
         symlink, and keep it inside ``THINGCTX_DOWNLOAD_DIR`` when set. A network
@@ -305,7 +316,7 @@ class MediaBinding(AuthMixin):
         # TD can take per-call options without being mutated. The explicit
         # ``track`` and the resolved ``auth`` are reserved: they are set last so
         # an argument cannot override them.
-        options = {**hint, **self._guarded_rest(rest), "track": track}
+        options = self._with_default_timeout({**hint, **self._guarded_rest(rest), "track": track})
         # Resolve the owning Thing's declared security and hand the backend a
         # neutral auth plan; the backend maps it to its engine (URL userinfo for
         # a decoder, account login for the extractor). Absent declared security,
@@ -347,7 +358,7 @@ class MediaBinding(AuthMixin):
         # backend the same way they do for frames(): a static TD can take a
         # per-call format/codec/etc without mutation. ``track`` and ``auth`` are
         # reserved and set last.
-        options = {**hint, **self._guarded_rest(rest), "track": track}
+        options = self._with_default_timeout({**hint, **self._guarded_rest(rest), "track": track})
         creds = await self._resolve_credentials(getattr(action, "thing_id", None), form)
         if creds:
             plan = apply_media(creds)
@@ -392,7 +403,7 @@ class MediaBinding(AuthMixin):
         backend = self._pick(url, hint)
         if not hasattr(backend, "copy"):
             raise TypeError(f"{type(backend).__name__} has no copy; cannot remux")
-        options = {**hint}
+        options = self._with_default_timeout({**hint})
         if track is not None:
             options["track"] = track
         creds = await self._resolve_credentials(getattr(action, "thing_id", None), form)
