@@ -178,6 +178,32 @@ class _OneTdRegistry:
         return [self._td]
 
 
+async def test_missing_transport_dep_skips_its_binding(monkeypatch):
+    """A transport whose optional dependency is not installed must not register,
+    so a call over it returns a clean no-binding envelope, not a raw ImportError
+    from the dep failing to import mid-call. Simulate httpx absent via the probe."""
+    import importlib.util
+
+    from thingctx.integrations.mcp import client_from_registry
+
+    real_find_spec = importlib.util.find_spec
+
+    def _find_spec(name, *a, **k):
+        if name == "httpx":
+            return None  # report the http extra as not installed
+        return real_find_spec(name, *a, **k)
+
+    monkeypatch.setattr(importlib.util, "find_spec", _find_spec)
+    monkeypatch.delenv("THINGCTX_POLICY", raising=False)
+    monkeypatch.delenv("THINGCTX_IDENTITY", raising=False)
+    client = client_from_registry(_OneTdRegistry(_probe_td("http://device.local/probe")))
+    schemes = {s for b in client._bindings for s in getattr(b, "schemes", None) or (b.scheme,)}
+    assert "http" not in schemes  # the http binding was skipped
+    result = await client.invoke("probe__probe", {})
+    assert result["transport"] == "http"
+    assert "no binding for transport" in result["error"]  # clean, not an ImportError
+
+
 async def test_block_private_env_refuses_metadata_host(monkeypatch):
     """With THINGCTX_BLOCK_PRIVATE=1, the registry-built client's HTTP transport
     refuses a link-local (cloud metadata) target before any connection."""
