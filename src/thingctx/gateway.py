@@ -18,10 +18,10 @@ ever-larger tool list:
     write_property(thing_id, property, value)
     subscribe_event(thing_id, event)
 
-Six tools at ten Things, six at ten thousand. Each verb routes onto the existing
-:class:`~thingctx.runtime.ThingClient` surface (``call_tool`` / ``read_property``
-/ ``write_property`` / ``subscribe``), so transports, auth, and the approval gate
-are untouched. This is a projection mode, not a new execution path.
+Each verb routes onto the existing :class:`~thingctx.runtime.ThingClient` surface
+(``call_tool`` / ``read_property`` / ``write_property`` / ``subscribe``), so
+transports, auth, and the approval gate are untouched. It is a projection, not a
+new execution path.
 
 ``thing_id`` in every verb is the Thing's *slug* (``thing_slug``), the same short,
 already-collision-checked key the flat route uses. The Thing and the action are
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from thingctx.runtime import ThingClient
     from thingctx.thing import WoTThing
 
-# The six verbs. This list never grows with the fleet; that is the whole point.
+# The six verbs; this list never grows with the fleet.
 GATEWAY_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -165,8 +165,8 @@ GATEWAY_TOOL_NAMES = frozenset(t["function"]["name"] for t in GATEWAY_TOOLS)
 
 
 def _summary(thing: WoTThing) -> dict[str, Any]:
-    """A lean summary: enough to decide relevance, not the whole Thing. The
-    thing_id is the slug, the id every verb takes back as an argument."""
+    """A summary the model can weigh for relevance. The thing_id is the slug,
+    the id every verb takes back as an argument."""
     return {
         "thing_id": thing_slug(thing.id),
         "title": thing.title or thing.id,
@@ -211,12 +211,11 @@ def keyword_search(things: list[WoTThing], query: str, limit: int = 8) -> list[W
 
 
 class GatewayProjection:
-    """A constant six-verb surface over a :class:`ThingClient`.
+    """A six-verb surface over a :class:`ThingClient`.
 
-    The client already parses the TDs, resolves transports, binds auth, and holds
-    the approval gate. The gateway adds only the projection: the fixed tool specs
-    a model sees, and the routing from a generic verb call back onto the client's
-    real methods. It never grows the tool list with the fleet.
+    The client already does the real work (transports, auth, the approval gate).
+    The gateway adds only the projection: the fixed tool specs and the routing from
+    a generic verb call back onto the client's methods.
     """
 
     def __init__(self, client: ThingClient) -> None:
@@ -227,7 +226,7 @@ class GatewayProjection:
 
     @property
     def tool_specs(self) -> list[dict[str, Any]]:
-        """The six verbs. Constant for any fleet size."""
+        """The six verbs."""
         return GATEWAY_TOOLS
 
     def _resolve(self, thing_id: str) -> WoTThing:

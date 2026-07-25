@@ -31,11 +31,9 @@ Capabilities, advertised by presence (the anti-lowest-common-denominator rule):
 
 * ``GatewayBinding`` (base) and ``RequestReply``: MCP is request/reply. A tool call
   returns a result, so the engine may route reply-bearing ops here.
-* NOT ``EventMirroring``: the MCP bridge exposes actions + resources + prompts,
-  not a live event push. This driver does not wire native events to MCP
-  notifications, so it does NOT implement ``mirror_event``. The seam's whole
-  point is to advertise only what you actually do; claiming EventMirroring
-  without wiring it would be dishonest.
+* NOT ``EventMirroring``: the MCP bridge exposes actions, resources, and prompts,
+  not a live event push, so this driver does not implement ``mirror_event``
+  (advertise only what you wire).
 * NOT ``PubSubOnly`` (it replies), NOT ``QoSAware`` (MCP has no per-message QoS),
   NOT ``Announces`` (the MCP server's own list_tools/list_resources IS discovery).
 """
@@ -68,9 +66,8 @@ def _slug(thing: Any) -> str:
 
 
 class McpGatewayBinding:
-    """Serve a fleet to MCP clients. Implements GatewayBinding + RequestReply;
-    not EventMirroring, PubSubOnly, QoSAware, or Announces (see the module
-    docstring for why each is omitted).
+    """Serve a fleet to MCP clients (see the module docstring for the capabilities
+    it advertises and why).
 
     Args:
         server_name: the MCP server name a client sees; the projected ``mcp://``

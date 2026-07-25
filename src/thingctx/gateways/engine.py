@@ -199,10 +199,10 @@ class Authenticates(Protocol):
 class Gateway:
     """Serve a native ``ThingClient`` over a middleware, through a driver.
 
-    The engine is transport-neutral: it holds the fleet and resolves a neutral
-    ``ServeRequest`` to a native device call, and it drives the driver's lifecycle.
-    It references no topic, QoS, retain, observe, or partition. Point it at a
-    ``GatewayBinding`` and call :meth:`start`.
+    The engine is transport-neutral: it holds the fleet, resolves a neutral
+    ``ServeRequest`` to a native device call, and drives the driver's lifecycle. It
+    names no wire concept (topic, QoS, partition). Point it at a ``GatewayBinding``
+    and call :meth:`start`.
 
     If the native client was built with the authorization seam (``pdp``/
     ``identity``), every dispatched request is authorized before the device is
@@ -345,8 +345,7 @@ class Gateway:
 
     async def mirror(self, thing_slug: str, event: str, payload: Any) -> None:
         """Push a native event onto the driver's wire, if it mirrors events."""
-        # can_mirror already is isinstance(self._binding, EventMirroring); repeat it
-        # inline so the call narrows to the capability protocol that defines it.
+        # Repeat the isinstance inline so mypy narrows to EventMirroring.
         if self.can_mirror and isinstance(self._binding, EventMirroring):
             await self._binding.mirror_event(thing_slug, event, payload)
 
@@ -389,7 +388,7 @@ class Gateway:
 
     @property
     def projected_tds(self) -> dict[str, dict]:
-        """The re-served TDs by slug, each carrying the driver's own vocabulary."""
+        """The re-served TDs by slug."""
         return dict(self._projected)
 
 
