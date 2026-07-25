@@ -34,6 +34,7 @@ from thingctx.auth import AuthRegistry, AuthStrategy, apply_media, redact_url
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.bindings.builtin.media.frame import Frame, MediaBackend
 from thingctx.contracts import implements
+from thingctx.netpolicy import confine_path
 from thingctx.reliability import RetryPolicy, TransportError
 from thingctx.thing import WoTAction, WoTForm
 
@@ -275,7 +276,6 @@ class MediaBinding(AuthMixin):
         scheme = _up(str(target)).scheme
         if scheme not in ("", "file"):
             return target
-        from thingctx.netpolicy import confine_path
 
         path = target[len("file://") :] if str(target).startswith("file://") else target
         base = os.environ.get("THINGCTX_DOWNLOAD_DIR") or None

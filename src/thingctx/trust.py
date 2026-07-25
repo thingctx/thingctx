@@ -21,6 +21,8 @@ from collections.abc import Awaitable, Callable  # noqa
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from thingctx.thing import _tool_name
+
 if TYPE_CHECKING:
     from thingctx.thing import WoTAction
 
@@ -191,7 +193,6 @@ async def verify_thing(client: Any, thing: Any) -> VerifyReport:
     """Ground one Thing: read each readable property and check it answers and
     matches its declared scalar type. Actions are listed but never invoked
     (invoking has side effects), so grounding stays read-only and safe."""
-    from thingctx.thing import _tool_name
 
     checks: list[Check] = []
     for prop in thing.properties.values():

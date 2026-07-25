@@ -31,10 +31,12 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
+from thingctx import CredentialProvider
 from thingctx.bindings import (
     AsyncAction,
     BulkProperties,
     ContentRouted,
+    MediaBackend,
     MediaConsumer,
     MediaPublisher,
     ProtocolBinding,
@@ -43,6 +45,15 @@ from thingctx.bindings import (
     Writable,
     binding_schemes,
 )
+from thingctx.gateways import (
+    Announces,
+    EventMirroring,
+    GatewayBinding,
+    PubSubOnly,
+    QoSAware,
+    RequestReply,
+)
+from thingctx.registry import Registry
 
 # Capability -> (attribute name, expected to be a coroutine function).
 _ASYNC_CAPS = (
@@ -117,7 +128,6 @@ def assert_media_backend_contract(backend: Any) -> None:
     target. All three are synchronous: the binding runs them in a worker thread
     off the event loop, and ``read`` / ``write`` stop when the passed
     ``threading.Event`` is set. Raises ``AssertionError`` on a breach."""
-    from thingctx.bindings import MediaBackend
 
     assert isinstance(
         backend, MediaBackend
@@ -138,7 +148,6 @@ def assert_provider_contract(provider: Any) -> None:
     contract: a named provider that decides what it handles with a synchronous
     ``matches`` and resolves neutral credential material with an async
     ``resolve``. Raises ``AssertionError`` on a breach."""
-    from thingctx import CredentialProvider
 
     assert isinstance(
         provider, CredentialProvider
@@ -161,7 +170,6 @@ def assert_registry_contract(registry: Any, *, call: bool = True) -> None:
     of Thing Description dicts. With ``call=True`` (the default) it invokes
     ``fetch`` once and checks the shape; pass ``call=False`` to skip the call when
     fetching has a cost or side effect. Raises ``AssertionError`` on a breach."""
-    from thingctx.registry import Registry
 
     assert isinstance(registry, Registry), "a registry must expose fetch()"
     assert callable(registry.fetch), "fetch must be callable"
@@ -178,13 +186,6 @@ def gateway_binding_capabilities(binding: Any) -> dict[str, bool]:
     advertises. A driver opts into a capability by implementing its protocol, so
     the engine calls only what a driver declares (the anti-lowest-common-
     denominator rule)."""
-    from thingctx.gateways import (
-        Announces,
-        EventMirroring,
-        PubSubOnly,
-        QoSAware,
-        RequestReply,
-    )
 
     return {
         "request_reply": isinstance(binding, RequestReply),
@@ -206,13 +207,6 @@ def assert_gateway_binding_contract(binding: Any) -> None:
     capabilities (request/reply, event mirroring, QoS, announce) are checked for
     shape only when present, so a driver is never forced to support an operation
     its transport cannot carry."""
-    from thingctx.gateways import (
-        Announces,
-        EventMirroring,
-        GatewayBinding,
-        QoSAware,
-        RequestReply,
-    )
 
     assert isinstance(
         binding, GatewayBinding

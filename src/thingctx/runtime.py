@@ -15,13 +15,17 @@ from typing import TYPE_CHECKING, Any
 
 from thingctx.bindings import BindingRegistry, ProtocolBinding, default_bindings
 from thingctx.bindings.builtin.media import is_media_form
+from thingctx.gateway import GatewayProjection
+from thingctx.reliability import TransportError
 from thingctx.thing import (
     SCALAR_INPUT_KEY,
     TOOL_SEP,
     WoTAction,
     WoTEvent,
+    WoTForm,
     WoTProperty,
     WoTThing,
+    _tool_name,
     actions_to_tools,
     is_wrapped_input,
     parse_thing,
@@ -35,6 +39,7 @@ from thingctx.trust import (
     gate_write,
     verify_thing,
 )
+from thingctx.validate import TDValidationError, validate_support
 
 if TYPE_CHECKING:
     from thingctx.authz.pdp import AccessRequest, PolicyDecisionPoint
@@ -141,7 +146,6 @@ class ThingClient:
         )
         # Telemetry name to (Thing, Property/Event) maps, keyed by the
         # same short ``<slug>__<name>`` scheme as actions.
-        from thingctx.thing import _tool_name
 
         self._props: dict[str, Any] = {}
         self._events: dict[str, Any] = {}
@@ -192,8 +196,6 @@ class ThingClient:
             ]
 
     def _assert_supported(self, tds: list[dict[str, Any]]) -> None:
-        from thingctx.validate import TDValidationError, validate_support
-
         problems: list[str] = []
         for td in tds:
             problems.extend(validate_support(td))
@@ -404,7 +406,6 @@ class ThingClient:
     def gateway(self):
         """A constant six-verb projection over this client, for fleets too large
         for a flat one-tool-per-action surface. See :mod:`thingctx.gateway`."""
-        from thingctx.gateway import GatewayProjection
 
         return GatewayProjection(self)
 
@@ -444,7 +445,6 @@ class ThingClient:
         resumable upload helper use it to send follow-up requests and to resolve
         a Thing's declared auth the same way :meth:`invoke` does. Returns None
         when no http binding is registered."""
-        from thingctx.thing import WoTForm
 
         probe = WoTForm(href="https://thingctx.invalid/")
         return self._registry.resolve(probe)
@@ -578,8 +578,6 @@ class ThingClient:
             arguments = arguments.get(SCALAR_INPUT_KEY)
         # Resolve uriVariables: {id} fills from args and leaves the body.
         import dataclasses
-
-        from thingctx.reliability import TransportError
 
         if isinstance(arguments, dict):
             href, rest = form.fill(arguments)

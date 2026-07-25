@@ -9,6 +9,7 @@ import json
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_mqtt
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
+from thingctx.reliability import RetryPolicy, TransportError
 
 
 def _decode_mqtt(payload):
@@ -77,8 +78,6 @@ class MqttBinding(AuthMixin):
         connect_timeout: float = 10.0,
         client_factory=None,
     ) -> None:
-        from thingctx.reliability import RetryPolicy
-
         self._broker = broker
         self._init_auth(
             credentials=credentials,
@@ -193,8 +192,6 @@ class MqttBinding(AuthMixin):
         if it cannot connect within the retry budget."""
         import asyncio
 
-        from thingctx.reliability import TransportError
-
         loop = asyncio.get_running_loop()
         policy = self._connect_policy
         connect_kwargs = {"properties": props} if props else {}
@@ -242,8 +239,6 @@ class MqttBinding(AuthMixin):
         does not, fire-and-forget: publish, wait for PUBACK at QoS >= 1, return
         ``{"ok": True}`` without subscribing for a reply."""
         import asyncio
-
-        from thingctx.reliability import TransportError
 
         host, port, topic = self._endpoint(form, getattr(action, "name", "action"))
         expect_reply = bool(getattr(action, "output_schema", None))

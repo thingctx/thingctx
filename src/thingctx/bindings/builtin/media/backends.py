@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from urllib.parse import urlparse
 
 from thingctx.auth import redact_url
+from thingctx.bindings.builtin.media.binding import MediaError
 from thingctx.bindings.builtin.media.frame import Frame, MediaBackend
 from thingctx.contracts import implements
 
@@ -675,8 +676,6 @@ class ExtractorBackend(PyAVBackend):
         not; the file is fully written and closed before the mux opens it, so
         there is no live pipe between fetch and mux to break."""
         import yt_dlp
-
-        from thingctx.bindings.builtin.media.binding import MediaError
 
         def _abort(_d: dict) -> None:  # cooperative cancel from the worker's stop
             if stop.is_set():

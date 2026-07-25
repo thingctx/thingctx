@@ -11,6 +11,8 @@ from typing import Any
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_http
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
+from thingctx.lifecycle import status_from_body
+from thingctx.reliability import IDEMPOTENT_METHODS, RetryPolicy, TransportError, _retry_after
 
 
 def _decode(resp, empty=None):
@@ -272,8 +274,6 @@ class HttpBinding(AuthMixin):
         retry_non_idempotent: bool = False,
         block_private: bool = False,
     ) -> None:
-        from thingctx.reliability import RetryPolicy
-
         # Refuse requests whose host is, or resolves to, a private, loopback,
         # or link-local address (see thingctx.netpolicy). Off by default: a WoT
         # client legitimately drives LAN devices. A gateway processing
@@ -362,12 +362,6 @@ class HttpBinding(AuthMixin):
         import asyncio
 
         import httpx
-
-        from thingctx.reliability import (
-            IDEMPOTENT_METHODS,
-            TransportError,
-            _retry_after,
-        )
 
         # Keep any query the form href declares (httpx would drop it once
         # params= is passed). Layer call-time params on top.
@@ -516,7 +510,6 @@ class HttpBinding(AuthMixin):
     async def invoke_async(self, action, form, arguments):  # noqa: ANN001
         """Start a long-running action. POST returns 201/202 with a status body
         carrying the status resource ``href``; map it to an ``ActionStatus``."""
-        from thingctx.lifecycle import status_from_body
 
         owner = getattr(action, "thing_id", None)
         headers, params, signers, cert = await self._prepare(owner, form)
@@ -533,7 +526,6 @@ class HttpBinding(AuthMixin):
 
     async def query_action(self, status):  # noqa: ANN001
         """GET the action's status resource (the ``queryaction`` op)."""
-        from thingctx.lifecycle import status_from_body
 
         form = status.form
         owner = getattr(form, "thing_id", None)
@@ -545,7 +537,6 @@ class HttpBinding(AuthMixin):
 
     async def cancel_action(self, status):  # noqa: ANN001
         """DELETE the action's status resource (the ``cancelaction`` op)."""
-        from thingctx.lifecycle import status_from_body
 
         form = status.form
         owner = getattr(form, "thing_id", None)

@@ -9,6 +9,7 @@ from typing import Any
 
 from thingctx.bindings.base import ProtocolBinding
 from thingctx.contracts import implements
+from thingctx.thing import thing_slug
 
 
 @implements(ProtocolBinding)
@@ -66,7 +67,6 @@ class LocalBinding:
     def _sub_for(self, thing_id: Any):
         if not self._by_slug or thing_id is None:
             return None
-        from thingctx.thing import thing_slug
 
         return self._by_slug.get(thing_slug(thing_id))
 

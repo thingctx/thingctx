@@ -15,6 +15,8 @@ import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from thingctx.bindings.builtin.media import Frame
+from thingctx.bindings.builtin.media.encode import frame_to_data_url
 from thingctx.runtime import ThingClient, to_text
 
 
@@ -169,8 +171,6 @@ class LLMHost:
 
             payload = base64.b64encode(bytes(image)).decode("ascii")
             return "data:image/jpeg;base64," + payload
-        from thingctx.bindings.builtin.media import Frame
-        from thingctx.bindings.builtin.media.encode import frame_to_data_url
 
         if isinstance(image, Frame):
             return frame_to_data_url(image)
