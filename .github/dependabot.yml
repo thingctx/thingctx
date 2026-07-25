@@ -27,3 +27,13 @@ updates:
     groups:
       actions:
         update-types: ["minor", "patch"]
+
+  # The release image's base, pinned by digest in packaging/docker/Dockerfile.
+  # Without this the pin would freeze the image on a base that stops getting
+  # security updates, which is worse than tracking the tag.
+  - package-ecosystem: docker
+    directory: "/packaging/docker"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

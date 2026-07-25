@@ -4,11 +4,15 @@
 # Lean image for the thingctx gateway / MCP bridge. No media extra (av/numpy/pillow
 # are heavy compiled libs; a separate -all tag can add them). Installs the SAME PyPI
 # artifact everything else resolves to, so image trust inherits the signed/attested
-# PyPI release. Pin the base by DIGEST before shipping (placeholder below).
-# One arg for both stages: pinning the digest in two places invites pinning only
-# one, and a runtime base that does not match what the venv was built against.
-# TODO before release: pin by digest, e.g. python@sha256:<digest>
-ARG PYTHON_IMAGE=python:3.12-slim
+# PyPI release.
+#
+# The base is pinned by digest so a build is reproducible and cannot pick up a
+# silently republished tag. Dependabot bumps this (see .github/dependabot.yml), which
+# is what keeps a pin from rotting into an unpatched base. One arg feeds both stages:
+# naming it twice invites pinning one and leaving the runtime base out of step with
+# what the venv was built against. The digest is the multi-arch index, so arm64 and
+# amd64 both still resolve.
+ARG PYTHON_IMAGE=python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
 FROM ${PYTHON_IMAGE} AS build
 WORKDIR /app
 RUN python -m venv /venv
