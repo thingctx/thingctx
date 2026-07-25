@@ -250,7 +250,7 @@ select = [
     "B",      # bugbear: real bug shapes (mutable defaults, except-pass, loop closures)
     "RET",    # flake8-return: unreachable code and inconsistent return paths
     # --- Anti-slop ---
-    "PLC0415", # no in-function imports except the documented seams below
+    "PLC0415", # imports at module top; a forced local import carries a per-line noqa with its reason
     "ERA",    # no commented-out dead code left "just in case"
     "T20",    # no stray print/pprint in library code
     "SIM",    # collapse over-complex logic a senior dev would write once
