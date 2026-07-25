@@ -2,6 +2,8 @@
 
 Authorize every operation on a `ThingClient`, and reserve a fleet over a bus
 with the same control. For driving and parsing Things, see [USAGE.md](USAGE.md).
+Transport level hardening, including the SSRF controls, is in
+[Harden the transport](#harden-the-transport) at the end.
 
 ## Authorize the operation
 
@@ -191,3 +193,80 @@ Reference drivers:
   event mirroring; implements `RequestReply`, `EventMirroring`, `QoSAware`.
 - MCP (`thingctx.gateways.builtin.mcp.McpGatewayBinding`): a driver whose "topics"
   are MCP tools/resources/prompts.
+
+## Harden the transport
+
+Authorization decides who may call an operation. These controls decide what the
+process may do once a call is allowed. They are off or permissive by default,
+because the common case is a developer driving a device on their own LAN, and a
+default that blocks `192.168.1.50` would break it. Turn them on when the Things
+you load are not fully trusted, or when thingctx is reachable by anyone but you.
+
+### Refuse requests to private and metadata addresses
+
+`THINGCTX_BLOCK_PRIVATE=1` refuses outbound HTTP to loopback, private,
+link local, and cloud metadata addresses.
+
+A Thing Description is a document, and its `href` can point anywhere. A response
+chain can follow a URL that came back in a response. So an untrusted or
+attacker influenced TD can aim the client at `http://169.254.169.254/`, the
+cloud metadata endpoint that hands out instance credentials, or at an internal
+service whose security model is "only something inside can reach me". That is
+server side request forgery: the request is made by the process that has the
+access, on behalf of whoever supplied the URL.
+
+Set it when you load TDs you did not write, and whenever thingctx runs as a
+hosted or shared service:
+
+```bash
+THINGCTX_BLOCK_PRIVATE=1 thingctx-mcp ./tds/
+```
+
+The check resolves the host, validates every resolved address, then connects to
+that validated address, so a name that resolves to a public address on the first
+lookup and a private one at connect time (DNS rebinding) does not slip through.
+Encoded forms are canonicalized first: `2130706433`, `0x7f000001`, and the short
+and IPv4 mapped forms are all `127.0.0.1` and all blocked.
+
+The guarantee is that the check runs on every HTTP path when enabled, including
+every response chain follow mode. It is not a claim that SSRF is impossible.
+
+### Require inbound auth before binding a public interface
+
+`THINGCTX_REQUIRE_AUTH=1` turns the non loopback bind warning into a startup
+error. The streamable HTTP MCP endpoint performs no inbound authentication of
+its own, so binding it to `0.0.0.0` publishes every tool to the network. With
+this set, thingctx refuses to start rather than serve an open surface. Put an
+authenticating proxy in front and keep the flag on.
+
+### Bound what a call can consume
+
+Each of these caps a resource an untrusted document could otherwise exhaust.
+
+| Variable | Bounds |
+| --- | --- |
+| `THINGCTX_MAX_TD_BYTES` | Size of a fetched Thing Description |
+| `THINGCTX_MAX_DOWNLOAD_BYTES` | Size of a media or file download |
+| `THINGCTX_MAX_CHAIN_HOPS` | Follow steps in a response chain |
+| `THINGCTX_FS_MAX_BYTES` | Bytes a local filesystem handler may read or write |
+
+### Confine the filesystem
+
+`THINGCTX_FS_ROOT` bounds the sandboxed filesystem handler to one directory; the
+handler refuses every call until it is set. `THINGCTX_DOWNLOAD_DIR` does the same
+for downloads. With neither set, a relative path that traverses out of the
+working directory is refused; an absolute path is treated as operator intent and
+allowed, so set a root when the caller is not you.
+
+### Keep secrets out of swap
+
+`THINGCTX_MLOCK_SECRETS=1` asks the OS to pin secret buffers in memory so they
+are not written to swap. Best effort: it fails quietly where the platform or the
+process limits disallow it, and it does nothing about a process that can already
+read this process's memory.
+
+### What none of this defeats
+
+Root on the same machine, another process running as you, and physical access.
+These controls raise the cost of reaching your network and your files from a
+document you did not write. They are not a boundary against a local adversary.
