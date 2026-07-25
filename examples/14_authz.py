@@ -1,3 +1,5 @@
+# Copyright 2026 The thingctx Authors
+# SPDX-License-Identifier: Apache-2.0
 """Authorization on core only: read allowed, write denied, end to end.
 
 The authorization check lives INSIDE ``ThingClient``. You pass a ``pdp`` and an
@@ -9,14 +11,14 @@ extra: ``LocalPolicyGrantSource`` is the dependency-free reference grant source,
 and the device is an in-process object behind a ``LocalBinding``.
 
 Where does the identity come from? A claims dict, exactly like a token guard's
-``validate()`` returns. In a real deployment an upstream gateway (or the
-``thingctx-identity`` guard) validates the caller's bearer token and hands you
-these claims; core takes it as given. Core does NOT validate tokens, and that is
-the point of the split: authn (prove who the caller is) lives in the guard
-package, authz (decide what that caller may do) lives here in core with no
-crypto and no network. This demo writes the claims inline so it needs neither.
-For the full chain (a real RS256 token validated into these claims), see
-``thingctx-identity/examples/authn_to_authz.py``.
+``validate()`` returns. In a real deployment an upstream gateway, or the guard in
+``thingctx.identity``, validates the caller's bearer token and hands you these
+claims; core takes it as given. Core does NOT validate tokens, and that is the
+point of the split: authn (prove who the caller is) verifies a signature against
+a key, authz (decide what that caller may do) is a decision over names and needs
+no crypto at all. This demo writes the claims inline, so it does no signature
+work. For the full chain (a real RS256 token validated into these claims), see
+``examples/15_authn_to_authz.py``.
 
 The pieces, smallest first:
 
@@ -105,7 +107,7 @@ async def main() -> None:
     pdp = PolicyDecisionPoint(vocabulary=vocabulary, grant_source=grant_source)
 
     # 5. The identity: a claims dict, exactly what a token guard's validate()
-    #    returns. Assume an upstream gateway (or the thingctx-identity guard)
+    #    returns. Assume an upstream gateway (or the thingctx.identity guard)
     #    already validated the caller's bearer token and handed us these claims;
     #    core takes the identity as given and never checks a signature. Written
     #    inline here so the demo runs on core alone (no guard, no IdP, no token).

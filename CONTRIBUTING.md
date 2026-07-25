@@ -6,9 +6,9 @@ focused pull request. The contribution that matters most is this one:
 ## Add a transport (a binding)
 
 A binding teaches thingctx to speak one transport. The built-in bindings are
-Local, HTTP, MQTT, and media. CoAP, WebSocket, OPC-UA, Modbus, gRPC, serial ,
-each is one self-contained class against the `ProtocolBinding` contract that no
-one has to coordinate on:
+Local, HTTP, MQTT, exec, and media. CoAP, WebSocket, OPC-UA, Modbus, gRPC and
+serial are all wanted. Each is one self-contained class against the
+`ProtocolBinding` contract that no one has to coordinate on:
 
 ```python
 class CoapBinding:

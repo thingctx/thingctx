@@ -1,6 +1,6 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""The built-in bindings thingctx ships: http, mqtt, media, and local.
+"""The built-in bindings thingctx ships: http, mqtt, media, local, and exec.
 
 Each is an implementation of the :class:`~thingctx.bindings.base.ProtocolBinding`
 contract, privileged only by being bundled. An adopter can replace any of

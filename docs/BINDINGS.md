@@ -23,7 +23,7 @@ Every part is the same pattern: a `typing.Protocol` is the contract, `@implement
 checks it at import, an optional base saves boilerplate, and a conformance kit
 asserts behaviour. One example covers all four:
 [13_custom_stack.py](../examples/13_custom_stack.py). Auth is transport-neutral, so
-one provider works across every transport (see [AUTH.md](AUTH.md)). The media engine
+one provider works across every transport (see [Credentials](USAGE.md#credentials)). The media engine
 is a sub-contract *behind* the media binding, covered below. Discovery sources and
 media engines are constructed explicitly rather than auto-discovered, because they
 are not standalone installable transports; the entry-point path is for bindings and
@@ -69,7 +69,7 @@ protocols in `thingctx.bindings` name them:
 `invoke`, `read`, `write`, `subscribe`, and `publish` are coroutines; `handles`
 and `frames` are synchronous (`frames` returns an async iterator). Auth never
 lives in a binding: implement `with_things` and resolve credentials through the
-shared auth layer (see [AUTH.md](AUTH.md)).
+shared auth layer (see [Credentials](USAGE.md#credentials)).
 
 ## Registering a binding
 
@@ -129,7 +129,7 @@ itself is supplied at runtime via `credentials=` (keyed by id, slug, or scheme),
 never in the TD. Pass the `form` so a form's own security overrides the Thing's for
 that affordance (WoT form-level security), letting one Thing use a different scheme
 per plane. Custom auth *methods* are a separate, already-extensible part: register a
-provider (see [AUTH.md](AUTH.md) and `examples/13_custom_stack.py`); a binding
+provider (see [Credentials](USAGE.md#credentials) and `examples/13_custom_stack.py`); a binding
 consumes whatever providers resolve, transport-neutrally. A binding that needs no
 auth (like the local one) simply does not inherit `AuthMixin`.
 

@@ -11,6 +11,8 @@ Run from the repo root with `PYTHONPATH=src`.
 | [05_oauth2.py](05_oauth2.py) | A full OAuth2 client-credentials flow, offline: local token server + protected API, driven from a TD. |
 | [13_custom_stack.py](13_custom_stack.py) | **Extending thingctx.** All four parts you can extend, in one programming model: a custom transport (`ProtocolBinding` + `AuthMixin`), auth scheme (`CredentialProvider`/`BaseAuth`), discovery source (`Registry`), and media engine (`MediaBackend`), each `@implements`-checked and run through its conformance kit. Offline. See [docs/USAGE.md](../docs/USAGE.md). |
 | [registry/](registry/) | Standalone TDs. Point `thingctx-mcp` or `from_registry` here. |
+| [interop/](interop/) | Drive TDs produced by other stacks (node-wot, Eclipse Ditto), not hand written fixtures. |
+| [oauth_connect/](oauth_connect/) | A minimal Thing with an `oauth2` / `code` scheme, so the connect flow has something to run against. |
 
 01 and 02 need no model. The pump device is [_pump.py](_pump.py) (HTTP + SSE + MQTT).
 

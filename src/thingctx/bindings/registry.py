@@ -3,7 +3,7 @@
 """The binding registry: how the built-in bindings are assembled and how an
 adopter replaces one or adds a new protocol.
 
-http, mqtt, media, and local are the built-in bindings; each is only an
+http, mqtt, media, local, and exec are the built-in bindings; each is only an
 implementation of the :class:`~thingctx.bindings.base.ProtocolBinding` contract.
 
     reg = BindingRegistry.default()   # http + local, the safe default
@@ -82,7 +82,9 @@ class BindingRegistry:
     ) -> BindingRegistry:
         """The default registry of built-in bindings. http and local match the
         default client (the documented quickstart); mqtt and media are opt in
-        because they pull optional dependencies."""
+        because they pull optional dependencies. exec has no switch here: it
+        refuses every command until it is given an allowlist, so it is built
+        directly and registered rather than enabled by a flag."""
         reg = cls()
         for name, want in (
             ("http", http),

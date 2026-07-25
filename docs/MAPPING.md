@@ -173,8 +173,9 @@ The scheme of a form's `href` selects its binding: `http://` and `https://` are
 bound over HTTP, `mqtt://` over MQTT, and an `href` with no scheme is handled
 locally. A single Thing may combine transports, for example reading a property over
 HTTP while subscribing to an event over MQTT within one description. Binding is
-determined per form. Further bindings ship as separate protocols (a shell transport,
-a media plane); a new transport is registered without changing this mapping.
+determined per form. thingctx also ships a subprocess transport (`exec://`) and a media
+plane, the latter behind the `media` extra; a new transport is registered without changing
+this mapping.
 
 ## Limitations
 
@@ -191,7 +192,7 @@ state.
   and property reads but not property writes or subscriptions.
 - Template variables are bound by name from the argument object; their individual
   schemas are not separately enforced at this layer.
-- The HTTP, MQTT, local, shell, and media bindings are mapped. Other bindings,
+- The HTTP, MQTT, local, exec, and media bindings are mapped. Other bindings,
   including CoAP and WebSocket, are not yet implemented.
 
 ## Status

@@ -57,7 +57,7 @@ from thingctx.auth import (
     sigv4_sign,
 )
 
-# Binding contract: built-in transports (http, mqtt, media, local) implement it;
+# Binding contract: built-in transports (http, mqtt, media, local, exec) implement it;
 # an adopter registers their own binding to replace one or add a new protocol.
 from thingctx.bindings import (
     BUILTIN_BINDINGS,

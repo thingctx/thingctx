@@ -31,7 +31,8 @@ contract.
 
 ```bash
 # 1. Start the node-wot producer (needs Node 18+)
-npm init -y && npm install @node-wot/core @node-wot/binding-http
+cd examples/interop/nodewot
+npm install               # deps are declared in package.json
 node producer.js          # serves http://localhost:8080/counter
 
 # 2. In another shell, drive it with thingctx
@@ -57,4 +58,4 @@ read  count -> 1
 node-wot defaults a Thing's `id` to a random `urn:uuid:...`, and thingctx derives
 the address prefix (slug) from that id. Either set a stable `id` in the producer
 (this demo uses `urn:dev:counter`) or derive the prefix at runtime (the binding
-does `client.list_properties()[0].split(".")[0]`), which works for any producer.
+does `client.list_properties()[0].split("__", 1)[0]`), which works for any producer.

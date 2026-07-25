@@ -4,8 +4,8 @@
 
 A binding speaks one transport scheme and answers the runtime through the
 :class:`ProtocolBinding` contract (a ``scheme`` plus an async ``invoke``, with
-optional read / write / subscribe / media capabilities). http, mqtt, media, and
-local are the built-in bindings, shipped under :mod:`thingctx.bindings.builtin`;
+optional read / write / subscribe / media capabilities). http, mqtt, media, local,
+and exec are the built-in bindings, shipped under :mod:`thingctx.bindings.builtin`;
 each is only an implementation of the contract. Register your own binding to add
 a protocol thingctx has never heard of, or to replace a built-in, with no fork.
 
