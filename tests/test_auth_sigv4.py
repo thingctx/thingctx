@@ -150,7 +150,7 @@ AWS_SCHEME = {"scheme": "auto", "x-thingctx-auth": "aws-sigv4", "service": "sts"
 
 
 def test_canonical_aws_td_is_w3c_valid():
-    validate_td = pytest.importorskip("thingctx__validate").validate_td
+    validate_td = pytest.importorskip("thingctx.validate").validate_td
     assert validate_td(_aws_td("sts.amazonaws.com", AWS_SCHEME)) == []
 
 
