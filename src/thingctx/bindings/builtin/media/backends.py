@@ -110,9 +110,9 @@ def _install_libav_redaction() -> None:
 
 @implements(MediaBackend)
 class PyAVBackend:
-    """Decode RTSP / HLS / RTMP / HTTP / MJPEG / SRT to frames via FFmpeg
-    (PyAV), video (RGB) or audio (PCM) per the ``track`` option. Cannot handle
-    WebRTC or GigE, those need a gateway or Aravis."""
+    """Decode the FFmpeg-reachable schemes (see ``_PYAV_SCHEMES``) to frames via
+    PyAV, video (RGB) or audio (PCM) per the ``track`` option. Cannot handle WebRTC
+    or GigE, those need a gateway or Aravis."""
 
     def can_open(self, url: str, hint: dict) -> bool:
         if hint.get("source") in _NOT_PYAV_SOURCES:
@@ -423,16 +423,13 @@ class PyAVBackend:
                 container.mux(packet)
 
     def copy(self, url: str, target: str, *, options: dict, stop: threading.Event) -> None:
-        """Remux (stream copy) the source to ``target`` without decoding: the
-        compressed packets are written through unchanged, so the output is bit
-        exact (same codecs, frame rate, A/V sync). ``track`` (``video``/``audio``)
-        limits the copy to one stream; by default every video and audio stream is
-        copied.
+        """Remux (stream copy) the source to ``target`` without decoding: packets
+        pass through unchanged, so the output is bit exact. ``track`` limits the
+        copy to one stream; by default every video and audio stream is copied.
 
-        The target container must accept the source codecs (``.webm`` for
-        vp9/opus, ``.mp4`` for h264/aac); an incompatible target raises. A
-        transform (not a plain save) goes through the re-encode path
-        (``write_av``)."""
+        The target container must accept the source codecs (``.webm`` for vp9/opus,
+        ``.mp4`` for h264/aac), else it raises; a transform goes through the
+        re-encode path (``write_av``)."""
         # ``format`` in a media hint is the resolver's (yt-dlp) stream selector,
         # not a PyAV container; on a direct open it must never reach
         # ``av.open(format=...)``. The output container is derived from the
@@ -519,10 +516,9 @@ class PyAVBackend:
         options: dict,
         stop: threading.Event,
     ) -> None:
-        """Open each source and copy its packets into one ``target`` container.
-        Each source is a ``(url, http_headers)`` pair; the headers are applied
-        when opening that input. Packets are interleaved across inputs by
-        presentation time, and every stream is copied (no decode/encode)."""
+        """Mux several sources into one ``target`` container. Each source is a
+        ``(url, http_headers)`` pair. Packets are interleaved across inputs by
+        presentation time, every stream copied (no decode/encode)."""
         # optional dep, kept local so the core imports without the extra
         import av  # noqa: PLC0415
 

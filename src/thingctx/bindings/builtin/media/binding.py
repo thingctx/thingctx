@@ -2,21 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Media binding: pull frames from a stream, or push frames to one.
 
-The continuous-binary plane (audio/video), distinct from the request/response
-bindings and from the event/subscription plane (MQTT, SSE, Pub/Sub). Event
-subscriptions are also streams, but they carry discrete structured messages and
-are bindable WoT Events. Media is continuous, encoded, session oriented, and
-reached by reference; the runtime never binds it as a property value. This
-binding opens the session off the event loop and yields decoded frames as an
-async iterator (consume), or pushes frames to an ingest target (produce). The
-control around a stream (generate stream, get ingest uri) stays on the
-request/response plane.
+The continuous-binary plane (audio/video). Unlike an event subscription (discrete
+structured messages, a bindable WoT Event), media is continuous and reached by
+reference, so the runtime never binds it as a property value. This binding opens
+the session off the event loop and yields decoded frames as an async iterator
+(consume), or pushes frames to an ingest target (produce). The control around a
+stream (generate stream, get ingest uri) stays on the request/response plane.
 
-Backends are blocking (FFmpeg/PyAV). The binding runs them in a worker thread and
-bridges frames back through a bounded queue. Backpressure is a policy: ``latest``
-sheds all but the newest frame (live video, low latency), ``all`` paces the
-source to the consumer (lossless). The surface is the same for one source or
-many: drive a fleet with ``asyncio.gather`` over several ``frames()`` iterators.
+Backends are blocking (FFmpeg/PyAV), so the binding runs them in a worker thread
+and bridges frames through a bounded queue. Backpressure is a policy: ``latest``
+sheds all but the newest frame (live video, low latency), ``all`` paces the source
+to the consumer (lossless).
 """
 
 from __future__ import annotations
@@ -152,20 +148,14 @@ def is_media_form(form: WoTForm) -> bool:
 
 @implements(ProtocolBinding)
 class MediaBinding(AuthMixin):
-    """Drives media forms. Selected for the media schemes, or for any form
-    carrying a media hint. Exposes ``frames()`` (consume) and ``publish()``
-    (produce), for both video and audio tracks.
+    """Drives media forms, for both video and audio tracks. Exposes ``frames()``
+    (consume) and ``publish()`` (produce). Auth resolves through :class:`AuthMixin`
+    and applies via ``apply_media``.
 
-    Honors declared security through the transport neutral auth layer: it
-    resolves each owner's schemes into neutral credential material (see
-    :class:`AuthMixin`) and maps it onto the source with ``apply_media`` (URL
-    userinfo, request headers, query tokens, or TLS). No auth logic lives in this
-    transport.
-
-    A media-plane binding, not a control-plane one. It deliberately does not
-    implement the control-plane methods (``read`` / ``write`` / ``subscribe`` /
-    bulk / async lifecycle); a continuous stream has no request/response surface,
-    so ``invoke`` raises and directs callers to ``frames()`` / ``publish()``."""
+    A media-plane binding, not a control-plane one: a continuous stream has no
+    request/response surface, so it implements none of ``read`` / ``write`` /
+    ``subscribe`` / bulk / async lifecycle, and ``invoke`` raises and directs
+    callers to ``frames()`` / ``publish()``."""
 
     scheme = "rtsp"
     schemes = MEDIA_SCHEMES
@@ -302,9 +292,7 @@ class MediaBinding(AuthMixin):
         track: str = "video",
     ) -> AsyncIterator[Frame]:
         """Open the form's media source and yield decoded frames for ``track``
-        (``video`` or ``audio``). Blocking decode runs in a worker thread;
-        frames cross back through a bounded queue under the backpressure
-        policy."""
+        (``video`` or ``audio``)."""
         if track not in ("video", "audio"):
             raise ValueError("track must be 'video' or 'audio'")
         url, rest = form.fill(arguments or {})
@@ -418,9 +406,8 @@ class MediaBinding(AuthMixin):
         self, copy: Callable[..., None], url: str, target: str, options: dict
     ) -> None:
         """Run a blocking stream-copy in a worker thread. No frame queue bridge
-        is needed (the copy is a single blocking call, not a per-frame handoff);
-        a worker error is re-raised on the event loop with credentials scrubbed,
-        and a cancellation asks the copy to stop."""
+        (the copy is one blocking call, not a per-frame handoff); a cancellation
+        asks the copy to stop."""
         loop = asyncio.get_running_loop()
         stop = threading.Event()
         error: list[BaseException] = []
@@ -455,10 +442,8 @@ class MediaBinding(AuthMixin):
     ) -> None:
         """Bridge an async frame source to a blocking writer thread.
 
-        Frames cross through a bounded queue; when it fills, the producer awaits
-        a free slot, so the encoder paces the source and no frame is dropped. A
-        worker error is re-raised on the event loop with credentials scrubbed
-        from the message.
+        Frames cross a bounded queue; when it fills the producer awaits a free
+        slot, so the encoder paces the source and no frame is dropped.
         """
 
         loop = asyncio.get_running_loop()
@@ -530,10 +515,9 @@ class MediaBinding(AuthMixin):
         audio: AsyncIterator[Frame] | None,
     ) -> None:
         """Bridge two async frame sources (video, audio; either may be None) to a
-        single blocking ``write_av`` that muxes both into one container. Each
-        track crosses on its own bounded queue; the worker pulls from both and
-        interleaves by pts. A worker error is re-raised on the event loop with
-        credentials scrubbed from the message."""
+        single blocking ``write_av`` that muxes both into one container. Each track
+        crosses on its own bounded queue; the worker pulls from both and
+        interleaves by pts."""
 
         loop = asyncio.get_running_loop()
         stop = threading.Event()
@@ -611,8 +595,7 @@ class MediaBinding(AuthMixin):
     async def _pump(
         self, read: Callable[..., Iterator[Frame]], url: str, options: dict
     ) -> AsyncIterator[Frame]:
-        """Run a blocking frame generator in a thread and yield its frames on
-        the event loop.
+        """Run a blocking frame generator in a thread and yield on the event loop.
 
         With ``backpressure="latest"`` the oldest queued frame is dropped when
         the consumer falls behind. With ``"all"`` a free-slot semaphore paces the
