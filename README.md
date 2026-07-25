@@ -197,9 +197,14 @@ thingctx-mcp ./examples/registry/        # a folder, a URL, or a TD Directory
 ```
 
 ```json
-{ "mcpServers": { "things": { "command": "thingctx-mcp",
-  "args": ["./examples/registry/"] } } }
+{ "mcpServers": { "things": {
+  "command": "uvx",
+  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "./examples/registry/"] } } }
 ```
+
+That runs with only [uv](https://docs.astral.sh/uv/) on the machine; no prior install,
+no PATH setup. If you have already `pip install thingctx[mcp]`, the command is just
+`thingctx-mcp` with the same args.
 
 Risky tools are gated here too (see [Safe by default](#safe-by-default-approval--grounding)
 above): the bridge sends MCP destructive hints and asks the client to confirm a
@@ -208,7 +213,9 @@ Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
 `destructive` / `all` / `never`):
 
 ```json
-{ "mcpServers": { "things": { "command": "thingctx-mcp", "args": ["./examples/registry/"],
+{ "mcpServers": { "things": {
+  "command": "uvx",
+  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "./examples/registry/"],
   "env": { "THINGCTX_APPROVE_WHEN": "destructive" } } } }
 ```
 
@@ -239,6 +246,26 @@ the driver owns the wire. If the client carries the authorization seam
 gateway is not a bypass. MQTT and MCP ship as drivers; a new middleware is one
 `GatewayBinding` class and the engine never changes. See
 [`docs/SECURITY.md`](docs/SECURITY.md).
+
+### Serve it remotely: one gateway, reached by URL
+
+Run the bridge over streamable HTTP so many callers, or an agent runtime that only
+takes a remote MCP URL, reach one gateway instead of each running a local copy:
+
+```
+thingctx-mcp --http --host 0.0.0.0 --port 8080 ./examples/registry/
+```
+
+A client points at `http://host:8080/`. This is the central-gateway shape: one process
+serves the fleet, the per-operation authorization and approval gate apply to every
+caller, and no one holds the raw credentials. Run it in a container:
+
+```
+docker run -p 8080:8080 -v $PWD/things:/things ghcr.io/thingctx/thingctx:0.2.0
+```
+
+A Kubernetes example (stateless Deployment + Service, credentials from a mounted
+Secret) is in [`packaging/k8s/`](packaging/k8s/).
 
 ## Where MCP fits
 

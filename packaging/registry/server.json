@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "com.thingctx/thingctx",
+  "description": "Drive any agent against any W3C WoT Thing from its description. The agent never holds your keys; you gate what it is allowed to do.",
+  "repository": {
+    "url": "https://github.com/thingctx/thingctx",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "websiteUrl": "https://thingctx.com",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "thingctx",
+      "version": "0.2.0",
+      "transport": { "type": "stdio" },
+      "runtimeHint": "uvx",
+      "packageArguments": [
+        { "type": "named", "name": "--from", "value": "thingctx[mcp]" },
+        { "type": "positional", "value": "thingctx-mcp" },
+        {
+          "type": "positional",
+          "valueHint": "tds",
+          "description": "A folder of Thing Descriptions, a TD file, or a TD Directory URL.",
+          "isRequired": true,
+          "default": "./examples/registry/"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "THINGCTX_APPROVE_WHEN",
+          "description": "When the agent asks before acting: declared | destructive | all | never.",
+          "default": "destructive",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
