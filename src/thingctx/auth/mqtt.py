@@ -7,12 +7,6 @@ this produces a connect-time plan: username/password, a TLS client certificate,
 and, for MQTT v5, enhanced-authentication method/data. The binding feeds the
 plan to paho before ``connect()``; it holds no auth logic. Kinds with no MQTT
 meaning (``SignatureCredential``, ``RequestSigner``) are ignored.
-
-Mapping choices:
-* ``BasicCredential`` -> username + password.
-* ``BearerToken`` / ``ApiKeyCredential`` -> password (token-as-password).
-* ``ClientCertificate`` -> mutual TLS.
-* ``EnhancedAuth`` -> MQTT v5 enhanced authentication.
 """
 
 from __future__ import annotations

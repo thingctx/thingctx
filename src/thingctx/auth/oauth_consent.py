@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """One-time, interactive OAuth2 authorization-code consent (RFC 6749 + PKCE).
 
-This is the out-of-band half of user-authorized OAuth: a human grants access in
-a browser once, and the resulting refresh token is persisted so every later run
-refreshes silently. It is deliberately separate from the provider's ``resolve``
-path; nothing here ever runs as a side effect of invoking a Thing.
+A human grants access in a browser once and the resulting refresh token is
+persisted so every later run refreshes silently. It is deliberately separate
+from the provider's ``resolve`` path; nothing here ever runs as a side effect of
+invoking a Thing.
 
 Desktop consent follows RFC 8252: a public client redirects to a loopback
 address (``127.0.0.1`` on an ephemeral port) and proves possession with PKCE

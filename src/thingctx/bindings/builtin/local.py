@@ -25,14 +25,12 @@ class LocalBinding:
     A form with no scheme (or ``local://name``) routes here. You can also
     ``.register(name, fn)`` after construction.
 
-    Capability coverage: ``invoke``, property ``read`` / ``write``, and
-    ``subscribe`` (the device pushes via :meth:`emit`). No authentication: this
-    is in-process, so security is a transport concern that does not apply. No
-    dedicated bulk or async-lifecycle methods, but both stay functional through
-    the runtime's fallbacks: bulk read/write loops over per-property ``read`` /
-    ``write``, and a long-running action falls back to a synchronous ``invoke``
-    (the handler runs to completion and the result is returned directly, with no
-    separate ``query`` / ``cancel`` handle).
+    Implements ``invoke``, property ``read`` / ``write``, and ``subscribe`` (the
+    device pushes via :meth:`emit`). No authentication: this is in-process, so
+    security is a transport concern that does not apply. Bulk and async-lifecycle
+    ops stay functional through the runtime's fallbacks: bulk loops over
+    per-property ``read`` / ``write``, and a long-running action falls back to a
+    synchronous ``invoke`` (no separate ``query`` / ``cancel`` handle).
     """
 
     scheme = "local"

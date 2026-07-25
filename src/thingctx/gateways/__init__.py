@@ -9,14 +9,10 @@ so any consumer on that middleware drives the fleet uniformly.
 
 A :class:`~thingctx.gateways.engine.Gateway` joins the two: it holds a
 ``ThingClient`` to reach the devices, and a
-:class:`~thingctx.gateways.engine.GatewayBinding` to serve them on the bus.
-
-A gateway binding declares what its transport can do by IMPLEMENTING optional
-capability protocols (``RequestReply``, ``EventMirroring``, ``PubSubOnly``,
-``Announces``, ``QoSAware``); the engine calls only what a driver advertises, so a
-protocol's specific features are used, never flattened. Protocol-specific options
-ride in the projected TD form as namespaced vocabulary (``mqv:``/``mcpv:``), which
-the engine passes through opaquely.
+:class:`~thingctx.gateways.engine.GatewayBinding` to serve them on the bus. A
+driver declares what its transport can do by implementing optional capability
+protocols; the engine calls only what a driver advertises (see the engine module
+for the full model).
 
 New gateway bindings ship as ``pip install``-able packages and register through
 the ``thingctx.gateways`` entry-point group (see :func:`discover_gateway_bindings`),

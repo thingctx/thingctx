@@ -4,14 +4,12 @@
 neutral :class:`~thingctx.auth.credentials.Credential` material.
 
 A provider knows *one* kind of scheme. It never touches a request or a
-connection; it only produces material. Token-minting providers (OAuth2
-client-credentials, JWT-bearer) call their IdP over HTTPS and return a
-:class:`BearerToken`; the AWS provider returns signing material. How that
-material is attached is the transport applier's job, not the provider's.
+connection; it only produces material. Attaching that material is the transport
+applier's job.
 
 Providers are looked up in an :class:`AuthRegistry`; the first whose
 ``matches(scheme, credential)`` returns true wins, so a user-registered provider
-can override a built-in or teach thingctx a brand-new scheme.
+can override a built-in.
 """
 
 from __future__ import annotations
@@ -65,11 +63,10 @@ class CredentialProvider(Protocol):
 
 
 class BaseAuth:
-    """Optional public base for a custom credential provider: it supplies no-op
+    """Optional base for a custom credential provider: supplies no-op
     ``matches``/``resolve`` defaults so a concrete provider implements only what it
     needs. The contract is the :class:`CredentialProvider` protocol; inheriting
-    this is convenience, not a requirement, and it is the same base the built-in
-    providers use."""
+    this is convenience, not a requirement."""
 
     name = "base"
 
@@ -421,9 +418,8 @@ class OAuth2JwtBearerAuth(BaseAuth):
 
 
 class OAuth2AuthorizationCodeAuth(BaseAuth):
-    """OAuth2 authorization-code grant for *user*-authorized APIs (YouTube,
-    Google, most SaaS): the access token is minted on behalf of a user, not the
-    client itself.
+    """OAuth2 authorization-code grant for *user*-authorized APIs: the access
+    token is minted on behalf of a user, not the client itself.
 
     This provider only refreshes silently. The one-time browser consent that
     issues the first refresh token is an explicit, out-of-band step
@@ -434,9 +430,7 @@ class OAuth2AuthorizationCodeAuth(BaseAuth):
 
     The refresh token (a long-lived secret) is read from a :class:`TokenStore`
     so it survives restarts; the short-lived access token is cached in
-    ``ctx.cache`` like the other OAuth providers. Matches an ``oauth2`` scheme
-    whose ``flow`` is ``code``, which keeps it distinct from the
-    client-credentials provider.
+    ``ctx.cache``. Matches an ``oauth2`` scheme whose ``flow`` is ``code``.
     """
 
     name = "oauth2-authorization-code"

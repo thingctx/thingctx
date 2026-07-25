@@ -22,7 +22,7 @@ def default_model() -> str:
     """The model the convenience helpers use when the caller names none. Reads
     ``THINGCTX_MODEL`` so a deployment picks its own provider and version without
     a code change; the fallback is a small, widely available tool-calling model.
-    A litellm-style ``provider/model`` string."""
+    Returns a litellm-style ``provider/model`` string."""
     return os.environ.get("THINGCTX_MODEL", "openai/gpt-4o-mini")
 
 
@@ -128,11 +128,10 @@ class LLMHost:
         path or bytes is inlined as a data URL (more reliable than asking the
         provider to fetch a remote URL).
 
-        Unlike :meth:`see`, the model receives the clip itself (it samples
-        frames and decodes audio on its side), so this needs a provider with
-        native video input (for example a hosted or self hosted multimodal
-        model). Image only backends do not accept it; use :meth:`see` with a
-        list of frames there.
+        Unlike :meth:`see`, the model receives the clip itself, so this needs a
+        provider with native video input (a hosted or self hosted multimodal
+        model). Image only backends do not accept it; use :meth:`see` with a list
+        of frames there.
 
             print(await host.see_video(url, "Summarize this clip."))
         """

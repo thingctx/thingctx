@@ -2,28 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 """Transport-neutral authentication for thingctx.
 
-The layer is split cleanly in two so auth never leaks into a transport:
+The layer is split in two so auth never leaks into a transport:
 
-* **Providers** (``providers``) resolve a security scheme + runtime secret
-  into neutral :class:`Credential` material: a bearer token, a username/
-  password, an API key, AWS signing material, a client certificate, enhanced
-  auth, or a custom request signer. Token-minting (OAuth2, JWT-bearer) lives
-  here. Providers know nothing about HTTP/MQTT/etc.
+* **Providers** (``providers``) resolve a security scheme + runtime secret into
+  neutral :class:`Credential` material and know nothing about HTTP/MQTT/etc.
 * **Appliers** (``http``, ``mqtt``, ...) map that neutral material onto one
-  protocol. Adding a transport is one more applier file; existing providers are
-  reused unchanged. Adding an auth method is one more provider; existing
-  appliers decide whether/how to apply it.
+  protocol. A new transport is one more applier; a new auth method is one more
+  provider.
 
 ``resolve_credentials`` is the single primitive every binding shares to turn an
 owner's declared security into :class:`Credential` material. A scheme is only
 *named*; the secret is supplied at runtime, keyed by owner id / slug / scheme
 name, and never lives in the description document.
 
-Custom auth: write a provider (subclass :class:`BaseAuth` for no-op defaults, the
-same base the built-ins use) whose ``resolve`` returns a built-in
-:class:`Credential` (works on every transport) or a :class:`RequestSigner`
-(transport-specific signing), and register it via :func:`register_auth` or
-``HttpBinding(extra_auth=[...])``.
+Custom auth: write a provider (subclass :class:`BaseAuth` for no-op defaults)
+whose ``resolve`` returns a built-in :class:`Credential` (works on every
+transport) or a :class:`RequestSigner` (transport-specific signing), and register
+it via :func:`register_auth` or ``HttpBinding(extra_auth=[...])``.
 """
 
 from __future__ import annotations

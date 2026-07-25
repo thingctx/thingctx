@@ -3,8 +3,8 @@
 """Sample a few frames from a media stream.
 
 Image-only models (and MCP, which has no video content type) can't take a clip
-directly. Sampling a handful of frames spaced over time is the portable stand-in:
-the model sees motion across stills, on any vision-capable backend.
+directly. A handful of frames spaced over time is the portable stand-in: the
+model sees motion across stills, on any vision-capable backend.
 """
 
 from __future__ import annotations

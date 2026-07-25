@@ -17,8 +17,7 @@ thingctx does NOT compute the score. The judgment is irreducibly the
 capability's: a generic "repetition is bad" rule would false-positive on
 legitimately repetitive output and miss domain-specific failure modes. The
 capability fills the slot; this module only defines its key and shape so any
-consumer (the driver skill today, the chaining engine later) reads a verdict
-uniformly.
+consumer reads a verdict uniformly.
 
 Shape (only ``verdict`` is required)::
 

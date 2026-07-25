@@ -3,21 +3,20 @@
 """Media binding: pull frames from a stream, or push frames to one.
 
 The continuous-binary plane (audio/video), distinct from the request/response
-bindings and from the event/subscription plane (MQTT, SSE, Pub/Sub). "Stream"
-is overloaded: event subscriptions are streams too, but they carry discrete
-structured messages and are bindable WoT Events. Media is continuous, encoded,
-session oriented, and reached by reference; the runtime never binds it as a
-property value. This binding opens the session off the event loop and yields
-decoded frames as an async iterator (consume), or pushes frames to an ingest
-target (produce). The control around a stream (generate stream, get ingest uri)
-stays on the request/response plane.
+bindings and from the event/subscription plane (MQTT, SSE, Pub/Sub). Event
+subscriptions are also streams, but they carry discrete structured messages and
+are bindable WoT Events. Media is continuous, encoded, session oriented, and
+reached by reference; the runtime never binds it as a property value. This
+binding opens the session off the event loop and yields decoded frames as an
+async iterator (consume), or pushes frames to an ingest target (produce). The
+control around a stream (generate stream, get ingest uri) stays on the
+request/response plane.
 
-Backends are blocking (FFmpeg/PyAV, later GStreamer). The binding runs them in a
-worker thread and bridges frames back through a bounded queue. Backpressure is a
-policy: ``latest`` sheds all but the newest frame (live video, low latency),
-``all`` paces the source to the consumer (lossless). The surface is the same for
-one source or many: drive a fleet with ``asyncio.gather`` over several
-``frames()`` iterators.
+Backends are blocking (FFmpeg/PyAV). The binding runs them in a worker thread and
+bridges frames back through a bounded queue. Backpressure is a policy: ``latest``
+sheds all but the newest frame (live video, low latency), ``all`` paces the
+source to the consumer (lossless). The surface is the same for one source or
+many: drive a fleet with ``asyncio.gather`` over several ``frames()`` iterators.
 """
 
 from __future__ import annotations
@@ -95,12 +94,12 @@ _LIVE_SOURCES = ("webrtc", "genicam")
 
 def _is_live_source(url: str, options: dict) -> bool:
     """Whether the source produces in real time. A live transport cannot be
-    paced (if the reader falls behind it must shed to stay current), so the
-    ``latest`` policy drops frames there. A finite or seekable source (a file, or
-    VOD over http(s)) can always be paced, so it is read losslessly even under
-    ``latest`` -- dropping a finite source's frames is pure loss (it decimates an
-    ingest's fps) with no real-time benefit. An explicit ``live`` hint forces the
-    live treatment for the rare live-over-http(s) case (HLS/DASH live)."""
+    paced, so the ``latest`` policy drops frames there. A finite or seekable
+    source (a file, or VOD over http(s)) can always be paced, so it is read
+    losslessly even under ``latest``: dropping a finite source's frames is pure
+    loss (it decimates an ingest's fps) with no real-time benefit. An explicit
+    ``live`` hint forces the live treatment for the rare live-over-http(s) case
+    (HLS/DASH live)."""
     if options.get("live"):
         return True
     if urlparse(url).scheme in MEDIA_SCHEMES:
@@ -118,8 +117,7 @@ def _clean_source(url: str) -> str:
     """Strip and validate a media source, raising a clear :class:`MediaError`
     before it reaches yt-dlp or av. Accepts any scheme'd URL or a local path
     (spaces allowed); rejects an empty value, an embedded control character (a
-    multi-line paste), or a hosted-scheme URL with no host. This is the media
-    plane's own up-front hygiene, so a caller passes a raw URL straight through."""
+    multi-line paste), or a hosted-scheme URL with no host."""
     if not isinstance(url, str) or not url.strip():
         raise MediaError("media source is empty; expected a URL or a file path")
     cleaned = url.strip()
@@ -153,19 +151,15 @@ def is_media_form(form: WoTForm) -> bool:
 class MediaBinding(AuthMixin):
     """Drives media forms. Selected for the media schemes, or for any form
     carrying a media hint. Exposes ``frames()`` (consume) and ``publish()``
-    (produce), for both video and audio tracks; ``invoke`` is not the media
-    surface and is rejected.
+    (produce), for both video and audio tracks.
 
     Honors declared security through the transport neutral auth layer: it
     resolves each owner's schemes into neutral credential material (see
-    :class:`AuthMixin`) and maps it onto the source with ``apply_media``;
-    URL userinfo, request headers, query tokens, or TLS. No auth logic lives in
-    this transport.
+    :class:`AuthMixin`) and maps it onto the source with ``apply_media`` (URL
+    userinfo, request headers, query tokens, or TLS). No auth logic lives in this
+    transport.
 
-    Capability coverage: a media-plane binding, not a control-plane one. It
-    implements ``handles`` (claims media schemes and media-hinted forms),
-    ``frames`` (consume a video/audio stream), and ``publish`` (produce one),
-    with the shared auth layer for the stream endpoint. It deliberately does not
+    A media-plane binding, not a control-plane one. It deliberately does not
     implement the control-plane methods (``read`` / ``write`` / ``subscribe`` /
     bulk / async lifecycle); a continuous stream has no request/response surface,
     so ``invoke`` raises and directs callers to ``frames()`` / ``publish()``."""
@@ -348,13 +342,12 @@ class MediaBinding(AuthMixin):
     ) -> None:
         """Push frames to the form's ingest target (a URL or a file), the mirror
         of ``frames()``. The consumer produces frames on the event loop; a worker
-        thread encodes and muxes them off it; the two are paced through a bounded
-        queue.
+        thread encodes and muxes them off it, paced through a bounded queue.
 
         With ``audio`` supplied, ``frames`` is the video track and ``audio`` is
         muxed alongside it into one A/V output (passthrough the source's audio,
-        or a dubbed track); the streams are synced by pts at the writer. A single
-        track publishes on its own with ``track`` (``video`` or ``audio``)."""
+        or a dubbed track), synced by pts at the writer. A single track publishes
+        on its own with ``track`` (``video`` or ``audio``)."""
         if track not in ("video", "audio"):
             raise ValueError("track must be 'video' or 'audio'")
         url, rest = form.fill(arguments or {})
@@ -395,11 +388,11 @@ class MediaBinding(AuthMixin):
         """Remux the form's media source to ``target`` (a file) by stream copy:
         the source's compressed packets are written through unchanged, so the
         file is bit exact (same codecs, frame rate, A/V sync) with no re-encode.
-        This is the clean "save the source to a local file"; ``publish`` is the
-        re-encode path for a transform. ``track`` (``video``/``audio``) limits
-        the copy to one stream; by default every media stream is copied.
+        ``publish`` is the re-encode path for a transform. ``track``
+        (``video``/``audio``) limits the copy to one stream; by default every
+        media stream is copied.
 
-        The target container must accept the source codecs (keep ``.webm`` for
+        The target container must accept the source codecs (``.webm`` for
         vp9/opus, ``.mp4`` for h264/aac); an incompatible target raises."""
         if track not in (None, "video", "audio"):
             raise ValueError("track must be 'video', 'audio', or None")
@@ -454,10 +447,10 @@ class MediaBinding(AuthMixin):
     async def _drain(self, write, target: str, options: dict, source: AsyncIterator[Frame]) -> None:
         """Bridge an async frame source to a blocking writer thread.
 
-        Frames cross to the worker through a bounded queue; when it fills, the
-        producer awaits a free slot, so the encoder paces the source (no frame
-        is dropped). A worker error is re-raised on the event loop with
-        credentials scrubbed from the message.
+        Frames cross through a bounded queue; when it fills, the producer awaits
+        a free slot, so the encoder paces the source and no frame is dropped. A
+        worker error is re-raised on the event loop with credentials scrubbed
+        from the message.
         """
         import queue as _queue
 
@@ -525,7 +518,7 @@ class MediaBinding(AuthMixin):
         single blocking ``write_av`` that muxes both into one container. Each
         track crosses on its own bounded queue; the worker pulls from both and
         interleaves by pts. A worker error is re-raised on the event loop with
-        credentials scrubbed."""
+        credentials scrubbed from the message."""
         import queue as _queue
 
         loop = asyncio.get_running_loop()
@@ -603,9 +596,9 @@ class MediaBinding(AuthMixin):
         the event loop.
 
         With ``backpressure="latest"`` the oldest queued frame is dropped when
-        the consumer falls behind. With ``"all"`` a free-slot semaphore paces
-        the worker to the consumer so no frame is lost. Errors and
-        end-of-stream are control items that always reach the consumer.
+        the consumer falls behind. With ``"all"`` a free-slot semaphore paces the
+        worker to the consumer so no frame is lost. Errors and end-of-stream are
+        control items that always reach the consumer.
         """
         loop = asyncio.get_running_loop()
         # Shed only for a live source that cannot be paced; a finite/seekable

@@ -3,9 +3,8 @@
 """Microsoft Entra ID provider for the pluggable gateway guard.
 
 :class:`EntraGatewayGuard` is a thin subclass of
-:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard`. Everything real (JWKS fetch,
-RS256 verification, iss/aud/exp checks, the non-leaking errors) lives in the
-base; this class only supplies the three Entra-specific things:
+:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard` supplying the three
+Entra-specific things:
 
 1. the issuers: ``login.microsoftonline.com/{tenant}/v2.0`` (v2 access tokens)
    and ``sts.windows.net/{tenant}/`` (v1 access tokens);
@@ -122,11 +121,5 @@ class EntraGatewayGuard(JwtGatewayGuard):
 
 
 def make_entra_guard() -> type[EntraGatewayGuard]:
-    """Zero-arg factory for the ``thingctx.guards`` entry point.
-
-    A guard needs per-deployment config (tenant, audience), so unlike an
-    outbound credential provider it cannot be a ready-to-use instance. The
-    factory therefore returns the guard CLASS; a gateway calls it with its own
-    tenant/audience. ``discover_guards`` keys the class by its ``provider`` name.
-    """
+    """Zero-arg factory for the ``thingctx.guards`` entry point."""
     return EntraGatewayGuard

@@ -6,10 +6,8 @@ A binding has two sides. The CONSUMER side (``ProtocolBinding`` in
 ``thingctx.bindings``) drives a device: it speaks one transport outbound. The
 SERVER side, defined here, is the mirror: it re-serves a fleet of Things onto a
 middleware (an MQTT bus, a CoAP server, MCP, DDS), so any consumer on that
-middleware drives the fleet uniformly.
-
-The split follows how OPC-UA Part 14, W3C WoT, and DDS all separate a neutral
-capability model from a swappable transport:
+middleware drives the fleet uniformly. The split separates a neutral capability
+model from a swappable transport, as OPC-UA Part 14, W3C WoT, and DDS all do:
 
 * The ENGINE (:class:`Gateway`) owns the neutral model and verbs: it holds a
   native ``ThingClient``, and the invariant loop is subscribe-inbound -> invoke
@@ -19,14 +17,13 @@ capability model from a swappable transport:
   re-served TD carrying its OWN protocol vocabulary, maps the neutral verbs to its
   wire, and applies its transport's specific features.
 
-Capability richness, the rule that avoids a lowest-common-denominator seam: a
-driver declares what it can do by IMPLEMENTING optional capability protocols
-(below), exactly as a consumer-side binding opts into ``Readable``/``Writable``.
-The engine feature-detects with ``isinstance`` and calls only what a driver
-advertises. Protocol-specific options ride in the projected TD form as namespaced,
+Capability richness avoids a lowest-common-denominator seam: a driver declares
+what it can do by IMPLEMENTING optional capability protocols (below). The engine
+feature-detects with ``isinstance`` and calls only what a driver advertises.
+Protocol-specific options ride in the projected TD form as namespaced,
 ignore-if-unknown vocabulary (``mqv:``/``covv:``/``mcpv:``), and the engine passes
-that form through opaquely, the analog of OPC-UA's per-transport settings struct.
-No union of every protocol's options ever lands on the engine.
+that form through opaquely. No union of every protocol's options ever lands on
+the engine.
 """
 
 from __future__ import annotations
@@ -46,11 +43,10 @@ SUBSCRIBE = "subscribeevent"
 
 
 class ServeRequest:
-    """One neutral inbound request the engine hands a driver's reply to. The
-    driver builds these from its wire and the engine resolves them against the
-    native fleet. ``correlation`` is the engine's neutral request id; a driver
-    maps it to its own reply mechanism (MQTT v5 correlation-data, a reply topic,
-    DDS-RPC).
+    """One neutral inbound request the driver builds from its wire and the engine
+    resolves against the native fleet. ``correlation`` is the engine's neutral
+    request id; a driver maps it to its own reply mechanism (MQTT v5
+    correlation-data, a reply topic, DDS-RPC).
 
     ``identity`` is the validated claims of the CALLER who sent this request, when
     the driver could authenticate it (the :class:`Authenticates` capability). It

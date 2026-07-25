@@ -20,11 +20,8 @@ This module is now just the compatibility seam:
   ``guard_client(client, pdp, identity=...)`` gets the same enforcement with no
   second dispatch surface to bypass.
 
-Why the change: two security reviews found the wrapper-bypass class, where an
-external proxy around ``ThingClient`` drifts from the real dispatch surface (the
-``as_tools`` raw-invoke bypass, a new device-reaching method that is not
-wrapped, a default-forward hole). Native enforcement in the dispatch methods has
-no wrapper to bypass.
+Native enforcement in the dispatch methods has no external proxy to drift from
+the real dispatch surface, so there is no wrapper to bypass.
 """
 
 from __future__ import annotations

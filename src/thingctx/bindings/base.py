@@ -25,8 +25,7 @@ from thingctx.thing import WoTAction, WoTForm
 # decoding is transport-specific and lives with each binding (HTTP's content-type
 # decoder is in builtin/http.py). Do not add a shared decoder here; a binding
 # returns its own native result shape. The HTTP decoder is re-exported lazily
-# below (import-on-access, no module-level cycle) so callers reaching it through
-# the binding layer resolve one implementation.
+# below (import-on-access, no module-level cycle).
 
 
 def __getattr__(name: str) -> Any:
@@ -58,21 +57,14 @@ class AuthMixin:
     bindings and available to a custom one on the same terms.
 
     A binding that needs auth inherits this, calls ``self._init_auth(...)`` in its
-    constructor, and ``await self._resolve_credentials(owner_id)`` per call; it
-    then hands the material to its own transport applier. This is exactly how
-    ``HttpBinding`` / ``MqttBinding`` / ``MediaBinding`` work, so an extension uses
-    the same path as a built-in. A binding that needs no auth (like the local one)
-    does not inherit it.
+    constructor, and ``await self._resolve_credentials(owner_id)`` per call, then
+    hands the material to its own transport applier (``apply_http`` /
+    ``apply_mqtt`` / ...), so no auth logic lives in the transport. A binding that
+    needs none (like the local one) does not inherit it.
 
-    Holds the auth registry, the runtime secrets, and the schemes each owning
-    resource declares; ``resolve_credentials`` (the transport-neutral primitive)
-    turns those into :class:`~thingctx.auth.credentials.Credential` material.
-    Each binding then hands the material to its own transport applier
-    (``apply_http`` / ``apply_mqtt`` / ...), so no auth logic lives in the
-    transport. Bind one resource with ``with_security`` or many with
-    ``with_things``; supply secrets in ``credentials`` keyed by id, slug, or
-    scheme name (looked up in that order). A scheme is only named; you supply
-    the secret.
+    Bind one resource with ``with_security`` or many with ``with_things``; supply
+    secrets in ``credentials`` keyed by id, slug, or scheme name (looked up in
+    that order). A scheme is only named; you supply the secret.
     """
 
     def _init_auth(

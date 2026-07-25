@@ -37,28 +37,23 @@ class MqttBinding(AuthMixin):
     Built on ``paho-mqtt``. The form's ``href`` is ``mqtt://broker[:port]/<topic>``;
     a request/reply ``invoke`` awaits the reply on ``<topic>/reply``.
 
-    Authentication is the *same* transport-neutral layer the HTTP binding uses:
+    Authentication is the same transport-neutral layer the HTTP binding uses:
     bind resources with ``with_security``/``with_things`` and pass
-    ``credentials``; the shared primitive resolves them into neutral material and
-    ``apply_mqtt`` maps it onto the CONNECT (username/password, mutual TLS, or v5
-    enhanced auth). A username/password scheme becomes username/password; a token
-    becomes the password (token-as-password).
+    ``credentials``; ``apply_mqtt`` maps the resolved material onto the CONNECT
+    (username/password, mutual TLS, or v5 enhanced auth). A token becomes the
+    password (token-as-password).
 
     Reliability is built in: the connect is retried with backoff,
     publishes/subscribes use QoS 1 by default, the subscription is
     **re-established on every reconnect** (paho does not resubscribe for you),
     and connect/reply failures surface as the same ``TransportError`` the HTTP
-    binding raises. Pass ``client_factory`` to supply your own configured client
-    (or a fake, in tests).
+    binding raises. Pass ``client_factory`` to supply your own configured client.
 
-    Capability coverage: ``invoke`` (request/reply over a topic) and ``subscribe``
-    (a long-lived topic subscription for events / observable properties), with the
-    shared auth layer (username/password, mutual TLS, or v5 enhanced auth).
-    Not implemented, because they do not map cleanly to pub/sub: property
-    ``read`` / ``write`` (a TD routing a property read over MQTT gets no readable
-    transport), bulk property ops (the runtime's per-property fallback then also
-    has no MQTT read/write to call), and the async action lifecycle
-    (``queryaction`` / ``cancelaction``) -- a long-running action over MQTT falls
+    Implements ``invoke`` (request/reply over a topic) and ``subscribe`` (a
+    long-lived topic subscription for events / observable properties). Not
+    implemented, because they do not map cleanly to pub/sub: property ``read`` /
+    ``write``, bulk property ops, and the async action lifecycle
+    (``queryaction`` / ``cancelaction``); a long-running action over MQTT falls
     back to a plain request/reply ``invoke``, which returns the reply rather than
     an ``ActionStatus`` handle to poll or cancel.
     """

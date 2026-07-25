@@ -168,30 +168,20 @@ def build_mcp_server(
     import mcp.types as types
     from mcp.server.lowlevel import Server
 
-    # Tool projection mode. The flat surface (one tool per action) is correct for
-    # a handful of Things but grows with the fleet, both the tool count and the
-    # context they cost every turn. The gateway surface is a constant set of
-    # generic verbs (search_things / describe / invoke_action / read_property /
-    # write_property) that reach the fleet through arguments, so the count never
-    # grows. Events are read only through the start/read/stop background trio (a
-    # tool cannot hold a live stream), which forwards a parameterized event's
-    # uriVariables (e.g. mqtt broker/topic).
+    # Tool projection mode. The flat surface (one tool per action) grows with the
+    # fleet: both the tool count and the context they cost every turn. The gateway
+    # surface is a constant set of generic verbs (search_things / describe /
+    # invoke_action / read_property / write_property) that reach the fleet through
+    # arguments, so the count never grows. Events are read only through the
+    # start/read/stop background trio (a tool cannot hold a live stream), which
+    # forwards a parameterized event's uriVariables (e.g. mqtt broker/topic).
     #
-    # DEFAULT IS "auto": flat for a small fleet, gateway once the flat surface
-    # would exceed FLAT_MAX tools. Rationale: flat's per-Thing names (mqtt__publish)
-    # match user intent, so they WIN tool selection against a client's own code
-    # sandbox (an agent asked to "publish to mqtt" reaches mqtt__publish, not a
-    # mosquitto_pub script); the gateway's generic invoke_action does not, so it is
-    # bypass-prone in an open agent. A large registry, though, sprawls under flat,
-    # so it flips to the constant gateway surface. Auto picks the right one by size
-    # without the user thinking about modes. Force either with THINGCTX_TOOL_MODE.
-    #
-    # FLAT_MAX is calibrated to keep the COMMON case flat (a hand-curated set of
-    # Things is tens of tools — the demo set is ~31 — where flat's intent-matching
-    # names win selection and cost little context) while a large directory (the
-    # full registry is ~215 tools) flips to gateway. 60 sits cleanly between: it is
-    # not the context-cost ceiling (modern models handle far more) but the point
-    # past which a flat list stops being worth its selection-accuracy cost.
+    # DEFAULT IS "auto": flat while the flat surface stays at or under FLAT_MAX
+    # tools, gateway once it would exceed it. Flat's per-Thing names (mqtt__publish)
+    # match user intent, so they win tool selection against a client's own code
+    # sandbox; the gateway's generic invoke_action does not, so it is bypass-prone
+    # in an open agent. A large surface, though, sprawls under flat, so it flips to
+    # the constant gateway surface. Force either with THINGCTX_TOOL_MODE.
     FLAT_MAX = 60
     tool_mode = (tool_mode or os.environ.get("THINGCTX_TOOL_MODE") or "auto").strip().lower()
     if tool_mode not in ("gateway", "flat", "auto"):

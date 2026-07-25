@@ -24,40 +24,19 @@ Six tools at ten Things, six at ten thousand. Each verb routes onto the existing
 are untouched. This is a projection mode, not a new execution path.
 
 ``thing_id`` in every verb is the Thing's *slug* (``thing_slug``), the same short,
-already-collision-checked key the flat route uses. Because the Thing and the action
-are separate arguments, the gateway never flattens many Things into one namespace,
-so the per-Thing name uniqueness TD 1.1 already guarantees is exactly enough.
+already-collision-checked key the flat route uses. The Thing and the action are
+separate arguments, so the gateway never flattens many Things into one namespace.
 
-Why these verbs, and not the WoT operation vocabulary 1:1
----------------------------------------------------------
-WoT defines a full operation set: ``readproperty``/``writeproperty``/
-``observeproperty``/``unobserveproperty``, ``invokeaction``/``queryaction``/
-``cancelaction``, ``subscribeevent``/``unsubscribeevent``, plus bulk ops. A gateway
-could expose one verb per op (~13). It should not. **WoT ops are transport-level; the
-gateway is intent-level.** The distinction that matters:
+The six verbs are intent-level, not the WoT operation vocabulary 1:1. Every verb
+dispatches to a WoT-op-authorized call: the authorization layer keys grants on WoT
+ops exactly (``(thing, affordance, invokeaction)``), and the gateway maps onto
+those ops without being them. One ``subscribe_event`` folds ``observeproperty`` and
+``subscribeevent``; the teardown ops (``unsubscribeevent`` / ``cancelaction``) and
+bulk ops are runtime bookkeeping the verb set does not surface.
 
-- *A model reasons in intents, not wire operations.* Whether "watch this and tell me
-  when it changes" is backed by ``observeproperty`` (a property) or ``subscribeevent``
-  (an event) is a transport detail. Exposing both as separate verbs leaks that detail
-  into the model's decision, for no gain. One subscribe intent folds both.
-- *Several WoT ops are lifecycle bookkeeping the runtime owns.* ``unsubscribeevent`` /
-  ``unobserveproperty`` / ``cancelaction`` are the teardown halves of pairs. A start
-  returns a handle; a stop cancels. The model should not track wire-level un-ops.
-- *Bulk ops are an optimization, not a distinct intent.* "read all properties" is
-  ``describe`` plus reads, not a new thing to reason about.
-
-The 1:1 vocabulary IS the right granularity, one layer down: the **authorization**
-layer keys its grants on WoT ops exactly (``(thing, affordance, invokeaction)``),
-where precision and the standards anchor matter. So the gateway *maps onto* WoT ops
-(every verb dispatches to a WoT-op-authorized call) without *being* them, the same way
-a REST API maps onto, but is not, its database's opcodes. A projection's job is to sit
-at the right altitude for its consumer; the model's altitude is intent.
-
-This is also why, over MCP, there is one event-read model (the background
-subscription trio), not a second collect verb: two verbs for one intent ("watch this
-event") is exactly the transport-vs-intent leak this surface exists to avoid. (The
-direct-Python gateway keeps ``subscribe_event`` returning a live stream, which a
-Python caller can iterate; MCP cannot carry a stream, so the bridge drops it.)
+Over MCP the ``subscribe_event`` stream is dropped (MCP cannot carry a live
+stream); events are read through the background subscription trio instead. The
+direct-Python gateway keeps ``subscribe_event`` returning an iterable stream.
 """
 
 from __future__ import annotations
@@ -212,11 +191,9 @@ def _haystack(thing: WoTThing) -> str:
 def keyword_search(things: list[WoTThing], query: str, limit: int = 8) -> list[WoTThing]:
     """Rank Things by how many query terms appear in their searchable text.
 
-    Deliberately simple: title/description/@type/affordance-name keyword match.
-    The whole point of pulling it behind one function is that a Thing Description
-    Directory's own search (JSONPath, SPARQL, semantic) can replace it without
-    touching the verbs. Retrieval quality gates everything downstream, so this is
-    the piece to measure and, later, upgrade.
+    Simple title/description/@type/affordance-name keyword match. Behind one
+    function so a Thing Description Directory's own search (JSONPath, SPARQL,
+    semantic) can replace it without touching the verbs.
     """
     terms = [t for t in query.lower().split() if t]
     if not terms:

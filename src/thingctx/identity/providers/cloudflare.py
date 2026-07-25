@@ -11,8 +11,8 @@ base; this class supplies only the three Cloudflare-specific things:
 2. the JWKS URL: ``https://<team_domain>.cloudflareaccess.com/cdn-cgi/access/certs``
    (Cloudflare publishes two keys there, current + previously rotated, so the
    base's kid match is what selects the right one);
-3. the authorization grant. Cloudflare has NO equivalent of Entra app roles, so
-   the honest mapping is spelled out below.
+3. the authorization grant. Cloudflare has no equivalent of Entra app roles, so
+   the mapping is spelled out below.
 
 Cloudflare Access token facts (RS256 JWTs):
   * ``iss`` is ``https://<team>.cloudflareaccess.com``;
@@ -24,37 +24,30 @@ Cloudflare Access token facts (RS256 JWTs):
     Cloudflare validates at its edge) carries ``common_name`` (the service
     token's name, e.g. ``"my-agent.access"``) and ``sub`` empty.
 
-Authorization mapping (be honest, this is the load-bearing design decision):
+Authorization mapping:
 
-Cloudflare Access does authorization at its EDGE via Access policies: if the
-caller is allowed to reach the application, the token is minted at all. So the
-FLOOR of authorization is "holding a valid token for this AUD means the policy
-let you in", coarser than Entra, where the app role in the token names the
-exact permission. To get a grant per device or per action (the
-equivalent of ``Thing1.Write``) INTO the token, a real deployment has two paths,
-and this guard supports both through the generic grant machinery:
+Cloudflare Access authorizes at its EDGE via Access policies: a token is minted
+only if the caller may reach the application. So the FLOOR of authorization is
+"a valid token for this AUD means the policy let you in", coarser than Entra,
+where the app role in the token names the exact permission. To get a grant per
+device or action (the equivalent of ``Thing1.Write``) into the decision, a
+deployment has two paths, both supported through the generic grant machinery:
 
-  * SERVICE-TOKEN MAPPING (``service_token_permissions=``): the guard is
-    configured with a mapping from each service token's ``common_name`` to the
-    permissions that token holder may exercise, and ``required_permissions=``
-    names what this gateway requires. The guard synthesizes the caller's
-    permissions from ``common_name`` and checks them. The mapping lives in the
-    gateway config, NOT in the token, because Cloudflare will not put an
-    arbitrary permission list in a service-token JWT. This is the honest
-    difference from Entra: Entra's app-role IS in the token (Cloudflare's
-    per-action grant is derived by the gateway from the token's identity).
+  * SERVICE-TOKEN MAPPING (``service_token_permissions=``): a mapping from each
+    service token's ``common_name`` to the permissions that holder may exercise,
+    with ``required_permissions=`` naming what this gateway requires. The guard
+    synthesizes the caller's permissions from ``common_name`` and checks them.
+    The mapping lives in the gateway config, NOT in the token, because Cloudflare
+    will not put an arbitrary permission list in a service-token JWT.
 
-  * CUSTOM-CLAIM MAPPING (``permission_claim=`` + ``required_permissions=``):
-    if the deployment configures an Access policy / OIDC IdP to stamp a custom
-    claim (e.g. ``"groups"`` or a bespoke ``"permissions"`` claim) into the
-    token, the guard reads that claim directly, exactly like Entra's ``roles``.
-    This is the closest Cloudflare gets to Entra app roles, and it requires the
-    upstream IdP to emit the claim; Access's own service tokens do not.
+  * CUSTOM-CLAIM MAPPING (``permission_claim=`` + ``required_permissions=``): if
+    the deployment configures an Access policy / OIDC IdP to stamp a custom claim
+    (e.g. ``"groups"`` or a bespoke ``"permissions"`` claim) into the token, the
+    guard reads that claim directly, exactly like Entra's ``roles``. It requires
+    the upstream IdP to emit the claim; Access's own service tokens do not.
 
 If neither is configured, the guard is authentication-only: a valid token for
-the AUD passes (the Access policy at the edge was the authorization). That is a
-legitimate and common Cloudflare posture; it is just coarser than a per-action
-role, and this docstring says so plainly rather than pretending otherwise.
+the AUD passes, the edge Access policy being the authorization.
 """
 
 from __future__ import annotations
@@ -190,10 +183,9 @@ class CloudflareAccessGuard(JwtGatewayGuard):
 
         When the permission source is a service-token mapping (no custom claim),
         the caller's effective permissions are DERIVED from the token's
-        ``common_name`` against the gateway-configured map, then checked. This is
-        the honest Cloudflare shape: the grant is not in the token, the gateway
-        resolves it from the token's identity. When a custom claim is configured
-        instead, the base's grant check (already set up in __init__) handles it.
+        ``common_name`` against the gateway-configured map, then checked. When a
+        custom claim is configured instead, the base's grant check (set up in
+        __init__) handles it.
         """
         if self.required_permissions and not self.permission_claim:
             common_name = str(claims.get("common_name", "") or "")
@@ -211,9 +203,5 @@ class CloudflareAccessGuard(JwtGatewayGuard):
 
 
 def make_cloudflare_guard() -> type[CloudflareAccessGuard]:
-    """Zero-arg factory for the ``thingctx.guards`` entry point.
-
-    Like the Entra factory, this returns the guard CLASS (a guard needs
-    per-deployment config: team domain, AUD tag), which a gateway instantiates.
-    ``discover_guards`` keys it by ``provider`` (``"cloudflare"``)."""
+    """Zero-arg factory for the ``thingctx.guards`` entry point."""
     return CloudflareAccessGuard

@@ -18,8 +18,6 @@ __all__ = ["AuthContext"]
 
 @dataclass
 class AuthContext:
-    """Everything a provider needs to resolve credential material for one owner."""
-
     scheme: Any  # a security scheme (.scheme, .token, .scopes, .in_, .key_name, .raw)
     credential: Any  # the runtime secret(s) for this owner/scheme
     owner_id: str | None = None
