@@ -211,8 +211,8 @@ APIs and devices from a versioned file, with one policy gate on every call.
 
 Write a description for your system and point the runtime at it. That is the
 whole integration. thingctx does not need to know your device exists, so you
-never fork it and never wait for a pull request. A thousand descriptions run the
-same way one does.
+never fork it and never wait for a pull request. A thousand descriptions cost no
+more to run than one.
 
 There is one exception: a transport thingctx cannot speak yet. Then you write a
 binding, which is a single class. It names the scheme it handles and implements
@@ -227,11 +227,11 @@ class CoapBinding:
     async def read(self, prop, form): ...                  # add what it supports
 ```
 
-`scheme` and `invoke` are the only required parts. Add `read`, `write`,
-`subscribe` or the media methods if your transport supports them, and leave out
-the ones it does not. The runtime checks which methods exist before it calls
-them, so a pub/sub transport with no way to do a read simply does not have one.
-See [docs/BINDINGS.md](docs/BINDINGS.md).
+The scheme and `invoke` are the contract. Add `read`, `write`, `subscribe` or
+the media methods if your transport supports them, and leave out the ones it
+does not. The runtime checks which methods exist before it calls them, so a
+pub/sub transport with no way to do a read simply does not have one. See
+[docs/BINDINGS.md](docs/BINDINGS.md).
 
 Then you pick one of two things, and both are fully supported.
 
