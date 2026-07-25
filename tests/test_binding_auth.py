@@ -129,6 +129,59 @@ async def test_ownerless_path_stays_unauthed_when_ambiguous():
     assert "Authorization" not in headers
 
 
+def _async_td(slug: str) -> dict:
+    """TD with a long-running `calibrate` action (queryaction/cancelaction ops)."""
+    return {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": f"urn:thingctx:{slug}",
+        "title": slug,
+        "securityDefinitions": {"sc": {"scheme": "bearer"}},
+        "security": ["sc"],
+        "actions": {
+            "calibrate": {
+                "synchronous": False,
+                "forms": [
+                    {
+                        "href": f"https://api.example/{slug}/actions/calibrate",
+                        "op": ["invokeaction", "queryaction", "cancelaction"],
+                    }
+                ],
+            }
+        },
+    }
+
+
+async def test_query_and_cancel_authenticate_as_the_action_owner():
+    """A long-running action's poll and cancel must carry the owning Thing's
+    credential, not none. In a multi-Thing fleet the owner cannot be inferred
+    from the sole Thing, so the ActionStatus carries its owner through, and
+    query/cancel re-authenticate as it."""
+    sent: list[tuple[str, dict]] = []
+
+    async def _fake_send(method, url, **kwargs):
+        sent.append((method, kwargs.get("headers") or {}))
+        # A status body naming the resource to poll/cancel.
+        return {"status": "running", "href": url}
+
+    http = HttpBinding(credentials={"alpha": "AAA", "beta": "BBB"})
+    client = ThingClient(tds=[_async_td("alpha"), _async_td("beta")], bindings=[http])
+    http._send = _fake_send  # type: ignore[method-assign]  # capture the auth headers offline
+    action = client.action_for("alpha__calibrate")
+    form = action.primary_form()
+
+    handle = await http.invoke_async(action, form, {})
+    assert handle.thing_id == "urn:thingctx:alpha"  # owner carried on the handle
+    await http.query_action(handle)
+    await http.cancel_action(handle)
+
+    methods = [m for m, _ in sent]
+    assert methods == ["POST", "GET", "DELETE"]  # invoke, query, cancel
+    # Every leg authenticates as alpha, never falling back to no-auth (the bug
+    # sent query/cancel with owner=None -> a 401 in a real fleet).
+    for _method, headers in sent:
+        assert headers.get("Authorization") == "Bearer AAA"
+
+
 async def test_form_level_security_overrides_thing_security():
     # One Thing, two affordances, two schemes: the Thing defaults to bearer, but
     # the admin form overrides with basic (WoT form-level security). The binding

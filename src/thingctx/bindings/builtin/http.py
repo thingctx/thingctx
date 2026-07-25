@@ -543,7 +543,7 @@ class HttpBinding(AuthMixin):
         """Start a long-running action. POST returns 201/202 with a status body
         carrying the status resource ``href``; map it to an ``ActionStatus``."""
 
-        owner = getattr(action, "thing_id", None)
+        owner = action.thing_id
         headers, params, signers, cert = await self._prepare(owner, form)
         body = await self._send(
             "POST",
@@ -554,24 +554,24 @@ class HttpBinding(AuthMixin):
             params=params,
             json=arguments,
         )
-        return status_from_body(body, form)
+        return status_from_body(body, form, thing_id=owner)
 
     async def query_action(self, status: Any) -> ActionStatus:
         """GET the action's status resource (the ``queryaction`` op)."""
 
         form = status.form
-        owner = getattr(form, "thing_id", None)
+        owner = status.thing_id
         headers, params, signers, cert = await self._prepare(owner, form)
         body = await self._send(
             "GET", status.href, signers=signers, cert=cert, headers=headers, params=params
         )
-        return status_from_body(body, form, href=status.href)
+        return status_from_body(body, form, href=status.href, thing_id=owner)
 
     async def cancel_action(self, status: Any) -> ActionStatus:
         """DELETE the action's status resource (the ``cancelaction`` op)."""
 
         form = status.form
-        owner = getattr(form, "thing_id", None)
+        owner = status.thing_id
         headers, params, signers, cert = await self._prepare(owner, form)
         body = await self._send(
             "DELETE",
@@ -582,7 +582,7 @@ class HttpBinding(AuthMixin):
             params=params,
             empty={"status": "cancelled"},
         )
-        return status_from_body(body, form, href=status.href)
+        return status_from_body(body, form, href=status.href, thing_id=owner)
 
     async def subscribe(
         self, target: Any, form: WoTForm, args: dict[str, Any] | None = None
