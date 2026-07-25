@@ -14,10 +14,11 @@ Where does the identity come from? A claims dict, exactly like a token guard's
 ``validate()`` returns. In a real deployment an upstream gateway, or the guard in
 ``thingctx.identity``, validates the caller's bearer token and hands you these
 claims; core takes it as given. Core does NOT validate tokens, and that is the
-point of the split: authn (prove who the caller is) needs crypto and a network,
-authz (decide what that caller may do) needs neither and lives here. This demo
-writes the claims inline so it needs neither either. For the full chain (a real
-RS256 token validated into these claims), see ``examples/15_authn_to_authz.py``.
+point of the split: authn (prove who the caller is) verifies a signature against
+a key, authz (decide what that caller may do) is a decision over names and needs
+no crypto at all. This demo writes the claims inline, so it does no signature
+work. For the full chain (a real RS256 token validated into these claims), see
+``examples/15_authn_to_authz.py``.
 
 The pieces, smallest first:
 
