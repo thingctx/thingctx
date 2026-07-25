@@ -43,30 +43,19 @@ def _connack_ok(rc: Any) -> bool:
 
 @implements(ProtocolBinding)
 class MqttBinding(AuthMixin):
-    """Publish the action input to the form's mqtt topic, await a reply.
+    """The MQTT transport, on ``paho-mqtt``. The form's ``href`` is
+    ``mqtt://broker[:port]/<topic>``; a request/reply ``invoke`` awaits the reply
+    on ``<topic>/reply``. Auth resolves through :class:`AuthMixin` and applies via
+    ``apply_mqtt``; a token becomes the password.
 
-    Built on ``paho-mqtt``. The form's ``href`` is ``mqtt://broker[:port]/<topic>``;
-    a request/reply ``invoke`` awaits the reply on ``<topic>/reply``.
+    The connect is retried with backoff, ops default to QoS 1, and the
+    subscription is re-established on every reconnect, because paho does not
+    resubscribe for you. Pass ``client_factory`` to supply your own client.
 
-    Authentication is the same transport-neutral layer the HTTP binding uses:
-    bind resources with ``with_security``/``with_things`` and pass
-    ``credentials``; ``apply_mqtt`` maps the resolved material onto the CONNECT
-    (username/password, mutual TLS, or v5 enhanced auth). A token becomes the
-    password (token-as-password).
-
-    Reliability is built in: the connect is retried with backoff,
-    publishes/subscribes use QoS 1 by default, the subscription is
-    **re-established on every reconnect** (paho does not resubscribe for you),
-    and connect/reply failures surface as the same ``TransportError`` the HTTP
-    binding raises. Pass ``client_factory`` to supply your own configured client.
-
-    Implements ``invoke`` (request/reply over a topic) and ``subscribe`` (a
-    long-lived topic subscription for events / observable properties). Not
-    implemented, because they do not map cleanly to pub/sub: property ``read`` /
-    ``write``, bulk property ops, and the async action lifecycle
-    (``queryaction`` / ``cancelaction``); a long-running action over MQTT falls
-    back to a plain request/reply ``invoke``, which returns the reply rather than
-    an ``ActionStatus`` handle to poll or cancel.
+    Implements ``invoke`` and ``subscribe`` only. Property ``read`` / ``write``,
+    bulk ops, and the async action lifecycle do not map cleanly to pub/sub; a
+    long-running action falls back to a plain ``invoke`` that returns the reply,
+    not an ``ActionStatus`` handle to poll or cancel.
     """
 
     scheme = "mqtt"

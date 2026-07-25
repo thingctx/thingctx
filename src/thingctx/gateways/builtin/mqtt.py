@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """MQTT gateway binding: serve a WoT fleet onto an MQTT bus.
 
-Implements the ``GatewayBinding`` contract (project forms, serve, teardown) plus
-the ``RequestReply``, ``EventMirroring``, and ``QoSAware`` capabilities, because
-an MQTT broker can carry a reply, mirror events, and honor per-message QoS. A
-pub/sub-only or one-shot transport would implement fewer of these, and the engine
-would call only what it advertises.
+Implements the ``GatewayBinding`` contract plus ``RequestReply``,
+``EventMirroring``, and ``QoSAware``, because an MQTT broker can carry a reply,
+mirror events, and honor per-message QoS. The engine calls only what a driver
+advertises.
 
 Protocol-specific richness rides in the projected form's own ``mqv:`` vocabulary
 (the MQTT binding-template namespace), so the engine never sees a topic, a QoS, or
@@ -49,8 +48,7 @@ def _slug(thing: Any) -> str:
 
 
 class MqttGatewayBinding:
-    """Serve a fleet onto an MQTT broker. Implements GatewayBinding + RequestReply +
-    EventMirroring + QoSAware.
+    """Serve a fleet onto an MQTT broker.
 
     Args:
         broker: the ``host[:port]`` a consumer's MqttBinding connects to; the
