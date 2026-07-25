@@ -552,3 +552,16 @@ def test_resolve_and_pin_refuses_a_resolved_name_that_is_not_an_address(monkeypa
     monkeypatch.setattr(_socket, "getaddrinfo", _name_back)
     with pytest.raises(PolicyError, match="URL host .* unreadable address"):
         resolve_and_pin("sneaky.example")
+
+
+def test_resolve_and_pin_refuses_a_malformed_getaddrinfo_tuple(monkeypatch):
+    # A resolver answering the wrong shape must still fail closed as PolicyError:
+    # an IndexError here would skip the handling every caller wrote for this gate.
+    import socket as _socket
+
+    def _short(host, *a, **k):
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 6, "")]  # no sockaddr at all
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _short)
+    with pytest.raises(PolicyError, match="URL host .* unreadable address"):
+        resolve_and_pin("malformed.example")

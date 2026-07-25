@@ -110,11 +110,17 @@ def _resolved_addrs(host: str) -> list[str]:
     own policy for a failed resolution."""
     addrs: list[str] = []
     for info in socket.getaddrinfo(host, None):
-        addr = info[4][0]
-        # Must be a string AND parse as an IP. A str that is not an address, say a
-        # name a patched resolver handed back, would sail through is_private_host
-        # as "not private" and read as public, which is the failure this whole
-        # function exists to prevent.
+        # Shape first: a resolver that answers a short tuple would raise IndexError
+        # straight past this function, and an exception that is not PolicyError
+        # skips the fail-closed handling every caller wrote for it.
+        try:
+            addr = info[4][0]
+        except (TypeError, IndexError, KeyError) as exc:
+            raise PolicyError(f"host {host!r} resolved to an unreadable address entry") from exc
+        # Then content: it must be a string AND parse as an IP. A str that is not an
+        # address, say a name a patched resolver handed back, would sail through
+        # is_private_host as "not private" and read as public, which is the failure
+        # this whole function exists to prevent.
         if not isinstance(addr, str) or _as_ip(addr) is None:
             raise PolicyError(f"host {host!r} resolved to an unreadable address entry")
         addrs.append(addr)
