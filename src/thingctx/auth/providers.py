@@ -465,16 +465,15 @@ class OAuth2AuthorizationCodeAuth(BaseAuth):
         if not token_url:
             return None
         scopes = tuple(sorted(getattr(scheme, "scopes", ()) or ()))
-        _cid, _sec = OAuth2ClientCredentialsAuth._creds(cred)
+        cid, secret = OAuth2ClientCredentialsAuth._creds(cred)
         _rt = cred.get("refresh_token") if isinstance(cred, dict) else None
         # Key the cached access token to the client and to a runtime-supplied
         # refresh token, so a changed credential does not reuse a stale token.
-        key = ("ac", ctx.owner_id or scheme.name, token_url, scopes, _cid, _secret_fp(_rt or _sec))
+        key = ("ac", ctx.owner_id or scheme.name, token_url, scopes, cid, _secret_fp(_rt or secret))
         cached = _cache_get(ctx.cache, key)
         if cached:
             return BearerToken(token=Secret(cached))
 
-        cid, secret = OAuth2ClientCredentialsAuth._creds(cred)
         skey = token_key(ctx.owner_id, token_url, scopes)
         record = self.store.get(skey) or {}
         # An explicit refresh token in the credential wins; else the one consent

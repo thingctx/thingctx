@@ -44,7 +44,7 @@ def validate_td(td: dict[str, Any]) -> list[str]:
     """
     try:
         from jsonschema import Draft7Validator
-    except ImportError as e:  # noqa: F841
+    except ImportError:
         raise ImportError(
             "validate_td needs jsonschema, `pip install thingctx[validate]`"
         ) from None
