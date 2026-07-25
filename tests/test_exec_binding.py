@@ -42,7 +42,7 @@ def test_conforms_to_binding_contract():
 @pytest.mark.asyncio
 async def test_runs_command_and_captures_output():
     client = _client([sys.executable, "-c", "print('hello')"])
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert res["exit_code"] == 0
     assert res["stdout"] == "hello"
     assert "error" not in res
@@ -54,7 +54,7 @@ async def test_argument_fills_one_argv_token_no_shell_split():
     # it is echoed verbatim, never split or interpreted by a shell.
     client = _client([sys.executable, "-c", "import sys; print(sys.argv[1])", "{msg}"])
     payload = "a; rm -rf /  &&  echo $HOME"
-    res = await client.invoke("host.run", {"msg": payload})
+    res = await client.invoke("host__run", {"msg": payload})
     assert res["stdout"] == payload
     assert res["exit_code"] == 0
 
@@ -62,7 +62,7 @@ async def test_argument_fills_one_argv_token_no_shell_split():
 @pytest.mark.asyncio
 async def test_nonzero_exit_is_flagged_as_error():
     client = _client([sys.executable, "-c", "import sys; sys.exit(3)"])
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert res["exit_code"] == 3
     assert "error" in res
 
@@ -70,28 +70,28 @@ async def test_nonzero_exit_is_flagged_as_error():
 @pytest.mark.asyncio
 async def test_missing_argument_is_reported():
     client = _client([sys.executable, "-c", "print('x')", "{msg}"])
-    res = await client.invoke("host.run", {})
+    res = await client.invoke("host__run", {})
     assert "missing argument" in res["error"]
 
 
 @pytest.mark.asyncio
 async def test_allowlist_blocks_unlisted_program():
     client = _client([sys.executable, "-c", "print(1)"], allow=["systemctl"])
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert "not allowed" in res["error"]
 
 
 @pytest.mark.asyncio
 async def test_program_not_found():
     client = _client(["this-program-does-not-exist-xyz"])
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert "not found" in res["error"]
 
 
 @pytest.mark.asyncio
 async def test_timeout_kills_a_slow_command():
     client = _client([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.3)
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert res.get("timeout") is True
     assert "timed out" in res["error"]
 
@@ -104,7 +104,7 @@ async def test_no_allowlist_refuses_by_default():
         bindings=[ExecBinding()],
         approve_when="never",
     )
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert "no allow list" in res["error"]
 
 
@@ -113,7 +113,7 @@ async def test_allowlisted_interpreter_inline_code_is_refused():
     # Allowlisting the interpreter must not let a TD run arbitrary inline code.
     base = __import__("os").path.basename(sys.executable)
     client = _client([sys.executable, "-c", "print('pwned')"], allow=[base], allow_any=False)
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert "bypass the allow list" in res["error"]
 
 
@@ -123,5 +123,5 @@ async def test_child_env_is_scrubbed_of_secrets(monkeypatch):
     client = _client(
         [sys.executable, "-c", "import os; print(os.environ.get('THINGCTX_FAKE_SECRET', 'ABSENT'))"]
     )
-    res = await client.invoke("host.run")
+    res = await client.invoke("host__run")
     assert res["stdout"] == "ABSENT"
