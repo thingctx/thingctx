@@ -495,6 +495,21 @@ class ThingClient:
         clone._authz_raise = authz_raise
         return clone
 
+    def approving(self, approve: Approver) -> ThingClient:
+        """Return a client that answers the approve gate with ``approve``,
+        sharing this client's internal state otherwise. The authorization gate
+        (``pdp``) is untouched, so only the human-confirm step is affected.
+
+        The bypass is per-call state, not shared mutation: a caller replaying an
+        already-confirmed call runs it through the returned clone while the
+        original client's own gate is unchanged, so a concurrent unrelated call
+        on the shared client still faces the original approver.
+        """
+        clone = object.__new__(type(self))
+        clone.__dict__ = dict(self.__dict__)
+        clone._approve = approve
+        return clone
+
     async def _authorize(self, affordance: Any, op: str) -> dict[str, Any] | None:
         """Authorize ``op`` on a resolved affordance object. Returns None to
         proceed; raises :class:`AuthorizationDenied` (or, when

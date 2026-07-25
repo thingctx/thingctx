@@ -808,23 +808,27 @@ def build_mcp_server(
         token and a needs_approval envelope is returned, so the user can confirm
         via the approve tool (works on clients with no elicitation dialog).
 
-        ``bypass_approval`` runs the call with the approval gate temporarily off,
-        used only to replay a call the user already approved via the approve tool.
-        The policy/authorization gate is NOT bypassed; only the human confirm is."""
-        prior = None
+        ``bypass_approval`` runs the call with the approval gate satisfied for
+        THIS call only, used to replay a call the user already approved via the
+        approve tool. The policy/authorization gate is NOT bypassed; only the
+        human confirm is. The bypass is scoped to a per-call client clone, never
+        the shared client, so a concurrent unrelated gated call on the same
+        transport still faces the real approver."""
+        call_client = client
+        call_gateway = gateway
         if bypass_approval:
-            # Swap in an always-yes approver for this one call, then restore. The
-            # PDP (policy) still runs; only the human-confirm step is satisfied.
-            prior = client._approve
-
+            # Route this one call through a clone whose approver auto-confirms;
+            # the shared client's gate is untouched. The PDP (policy) still runs.
             async def _yes(_req: Any) -> bool:
                 return True
 
-            client.set_approval(_yes)
+            call_client = client.approving(_yes)
+            if gateway is not None:
+                call_gateway = call_client.gateway()
         try:
-            if gateway is not None and tool in _gateway_names:
-                return _tool_result(await gateway.call_tool(tool, args))
-            return _tool_result(await client.call_tool(tool, args))
+            if call_gateway is not None and tool in _gateway_names:
+                return _tool_result(await call_gateway.call_tool(tool, args))
+            return _tool_result(await call_client.call_tool(tool, args))
         except _NeedsManualApproval:
             if not _approvals_on:
                 # Shouldn't happen (gate off => no approver raises), but fail safe.
@@ -846,9 +850,6 @@ def build_mcp_server(
                     ),
                 }
             )
-        finally:
-            if bypass_approval:
-                client.set_approval(prior)
 
     @server.call_tool()
     async def call_tool(tool: str, args: dict) -> Any:
