@@ -155,3 +155,82 @@ async def test_external_pdp_drives_the_client_the_same_as_local():
     assert await client.read_property("pump__target_rpm") == 1200
     with pytest.raises(AuthorizationDenied):
         await client.write_property("pump__target_rpm", 3000)
+
+
+# --------------------------------------------------------------------------- #
+# GATE-6: the outbound AuthZEN PDP fails closed. These exercise the REAL
+# AuthZenPDP.decide network path (a timeout, a non-2xx, a malformed body) that
+# the parity tests stub out, so a regression that failed open would surface here.
+# --------------------------------------------------------------------------- #
+
+
+def _authzen_with_fake_httpx(monkeypatch, *, get_resp):
+    """Point AuthZenPDP.decide's one httpx POST at a fake response/exception."""
+    import httpx
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return get_resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    return AuthZenPDP("https://pdp.internal")
+
+
+@pytest.mark.asyncio
+async def test_authzen_network_error_denies(monkeypatch):
+    # invariant GATE-6: a network error reaching the external PDP denies, never
+    # falls open (authorization must not depend on the PDP being reachable).
+    import httpx
+
+    def boom():
+        raise httpx.ConnectTimeout("PDP unreachable")
+
+    pdp = _authzen_with_fake_httpx(monkeypatch, get_resp=boom)
+    req = AccessRequest(thing_id=THING_ID, affordance="target_rpm", op="readproperty")
+    decision = await pdp.decide(OPERATOR, req)
+    assert decision.permit is False
+
+
+@pytest.mark.asyncio
+async def test_authzen_non_2xx_denies(monkeypatch):
+    # invariant GATE-6: a non-2xx PDP response denies (raise_for_status raising
+    # must not fall through to an allow).
+    import httpx
+
+    class Resp:
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("500", request=None, response=None)
+
+        def json(self):  # pragma: no cover - never reached; status check raises first
+            return {"decision": True}
+
+    pdp = _authzen_with_fake_httpx(monkeypatch, get_resp=Resp)
+    req = AccessRequest(thing_id=THING_ID, affordance="target_rpm", op="readproperty")
+    decision = await pdp.decide(OPERATOR, req)
+    assert decision.permit is False
+
+
+@pytest.mark.asyncio
+async def test_authzen_malformed_body_denies(monkeypatch):
+    # invariant GATE-6: a 2xx with a non-object / non-{"decision":true} body denies
+    # (only an explicit allow permits).
+    class Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return "not-an-object"
+
+    pdp = _authzen_with_fake_httpx(monkeypatch, get_resp=Resp)
+    req = AccessRequest(thing_id=THING_ID, affordance="target_rpm", op="readproperty")
+    decision = await pdp.decide(OPERATOR, req)
+    assert decision.permit is False
