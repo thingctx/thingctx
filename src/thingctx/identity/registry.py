@@ -15,11 +15,9 @@ opt-in. A new IdP is one provider class + one entry point:
     guards = discover_guards(register=True)
     guard = guards["cognito"](user_pool_id=..., audience=...)
 
-The one difference from ``discover_auth``: a guard needs per-deployment config
-(a tenant, a team domain, an audience), so an entry point cannot return a
-ready-to-use instance the way an outbound provider does. Each factory returns
-the guard CLASS instead; the registry keys it by the class's ``provider``
-attribute and the gateway constructs it with its own config.
+Unlike ``discover_auth``, a guard needs per-deployment config (a tenant, an
+audience), so a factory returns the guard CLASS, not a ready instance. The
+registry keys it by the class's ``provider`` and the gateway constructs it.
 """
 
 from __future__ import annotations

@@ -3,19 +3,14 @@
 """Outbound: authenticate the agent as an Entra identity to any target.
 
 ``EntraAuth`` is a thingctx :class:`~thingctx.CredentialProvider`. It claims an
-``oauth2`` security scheme flagged as Entra, mints an access token via
-``azure-identity``, and returns a :class:`~thingctx.BearerToken`.
+Entra-flagged ``oauth2`` scheme, mints an access token via ``azure-identity``, and
+returns a :class:`~thingctx.BearerToken`. The whole Entra chain is reachable
+through one scheme: ``DefaultAzureCredential`` by default, or an explicit
+``ClientSecretCredential`` / ``CertificateCredential`` when the secret names one.
 
-The whole Entra credential chain is reachable through one scheme:
-``DefaultAzureCredential`` by default (client secret, certificate, managed
-identity, workload identity federation, Azure CLI login), or an explicit
-``ClientSecretCredential`` / ``CertificateCredential`` when the TD / runtime
-secret names one.
-
-The Entra gotcha this provider hides: v2 tokens are minted against a **resource
-scope** of the form ``<resource>/.default``. A caller who writes a bare
-resource URI, an app id uri, or (mistakenly) Graph-style delegated scopes gets
-normalized to the one ``.default`` scope Entra's client-credentials flow wants.
+The gotcha this hides: v2 tokens mint against a ``<resource>/.default`` scope. A
+bare resource URI, an app id uri, or (wrongly) Graph-style delegated scopes are
+all normalized to the one ``.default`` scope the client-credentials flow wants.
 """
 
 from __future__ import annotations
@@ -51,19 +46,13 @@ def _host_of(url: str) -> str:
 
 
 def is_entra_scheme(scheme: Any) -> bool:
-    """True if ``scheme`` is an oauth2 scheme that should be driven by Entra.
+    """True if ``scheme`` is an oauth2 scheme that Entra should drive.
 
-    Two explicit signals, either is enough:
-
-    * the token endpoint host is a Microsoft identity host
-      (``login.microsoftonline.com`` and its sovereign siblings), or
-    * a raw / extension marker on the security definition:
-      ``{"x-thingctx-auth": "entra"}`` or a bare ``tenant`` / ``tenantId`` /
-      ``authority`` field.
-
-    Lenient about *how* Entra is declared, strict that it must be declared: a
-    generic oauth2 scheme pointing at some other IdP is left to the built-in
-    OAuth2 providers.
+    Either signal is enough: the token endpoint host is a Microsoft identity host,
+    or the security definition carries an Entra marker (``x-thingctx-auth: entra``,
+    or a ``tenant`` / ``tenantId`` / ``authority`` field). Lenient about how Entra
+    is declared, strict that it must be: a generic oauth2 scheme pointing at
+    another IdP is left to the built-in OAuth2 providers.
     """
     if getattr(scheme, "scheme", None) != "oauth2":
         return False
@@ -84,18 +73,16 @@ def is_entra_scheme(scheme: Any) -> bool:
 def normalize_default_scope(scope: str) -> str:
     """Return the ``<resource>/.default`` scope Entra's app-only flow expects.
 
-    Handles the four shapes a caller writes:
+    Handles the shapes a caller writes:
 
-    * ``https://graph.microsoft.com/.default`` -> unchanged (already correct);
+    * ``https://graph.microsoft.com/.default`` -> unchanged;
     * ``https://graph.microsoft.com`` (a resource URI) -> append ``/.default``;
     * ``api://<app-id>`` (an app id uri) -> append ``/.default``;
-    * ``https://graph.microsoft.com/User.Read`` (a delegated scope, a misconfig
-      for client credentials) -> resolve the resource and use its ``.default``.
+    * ``https://graph.microsoft.com/User.Read`` (a delegated scope, wrong for
+      client credentials) -> reduce to the resource, then ``.default``.
 
-    A bare resource identifier (``https://graph.microsoft.com`` with no path)
-    and an app id uri both just gain ``/.default``. A URI that already carries a
-    delegated permission path is reduced to its resource and re-defaulted, which
-    is the correct behavior for an app-only token.
+    Reducing a delegated-permission URI to its resource and re-defaulting it is
+    the right token for an app-only flow.
     """
     s = (scope or "").strip()
     if not s:
