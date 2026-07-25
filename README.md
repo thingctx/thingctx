@@ -507,6 +507,17 @@ client can carry a different secret per Thing.
 thingctx.HttpBinding(credentials={"weather": "secret"})  # by Thing id/slug, or scheme name
 ```
 
+## Contributing
+
+Adding a transport, or a description for a device you own, is a scoped and
+immediately useful first change. Start at the issues labeled
+[`good first issue`](https://github.com/thingctx/thingctx/labels/good%20first%20issue),
+and see [CONTRIBUTING.md](CONTRIBUTING.md) for how a binding is put together.
+
+Questions do not need an issue.
+[Discussions](https://github.com/thingctx/thingctx/discussions) is for "does this
+already do X", "would you take a PR for Y", and how to reach a device you have.
+
 ## License
 
 Apache-2.0. Copyright 2026 The thingctx Authors.
