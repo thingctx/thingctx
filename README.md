@@ -1,8 +1,15 @@
 # thingctx
 
-**The integration is a document, not a server you run: point thingctx at a
-W3C Thing Description (a JSON file) and your agent calls that system over the
-system's own transport, HTTP, MQTT, or local. No server per integration.**
+<!-- HERO DIAGRAM: document in, per-operation authorization, any transport out -->
+
+**You want your agent to read your inbox but never send, to read a pump's
+temperature but never touch its setpoint. Describe the system in a document;
+thingctx drives it and gates every operation, read yes, write no, on the same
+resource. The agent never holds your keys.**
+
+The integration is a document: point thingctx at a W3C Thing Description (a
+JSON file) and your agent calls that system over its own transport, HTTP,
+MQTT, or local. No server per integration.
 
 [**thingctx.com**](https://thingctx.com): browse real services (GitHub, Stripe,
 Slack, and more) as ready-to-use Thing Descriptions.
@@ -318,9 +325,6 @@ Two more environment knobs the bridge and CLI honor:
 - `THINGCTX_FS_ROOT`: enables the sandboxed filesystem Thing by naming the one
   directory it may touch; unset (the default) refuses every filesystem call.
 
-MCP is just one way to deliver the description, for agents where direct tool
-calling isn't available.
-
 ## Serve a whole fleet: the gateway
 
 The MCP bridge and the direct client both REACH devices. A gateway goes the other
@@ -369,62 +373,21 @@ the latest published tag.)
 A Kubernetes example (stateless Deployment + Service, credentials from a mounted
 Secret) is in [`packaging/k8s/`](packaging/k8s/).
 
-## Where MCP fits
+## Write or generate a description
 
-MCP is a way to deliver tools to an agent you cannot hand them to directly. It is
-a delivery channel, not the integration itself. The integration, what a system
-does, how to reach it, who may call it, is the description. thingctx reads that
-description and drives the system client-side; when an agent is closed and only
-takes tools through MCP, the same description is delivered over the bridge (see
-above). The document is the durable part; the channel is the agent vendor's choice,
-and it can change without touching a Thing Description.
-
-To expose a system over MCP you write a server, deploy it, and keep it running,
-one per integration. N systems means N processes to operate. A Thing Description
-is a static file: write it, or generate one from an existing spec
-(`thingctx import openapi <spec>` compiles an OpenAPI file or URL into a TD), then
-check it into git or serve it from a URL. There is nothing to run, nothing to keep
-alive. Integration becomes data, not a service, and data scales to a fleet for free.
+A Thing Description is a static file: write it by hand, or compile one from an
+existing spec (`thingctx import openapi <spec>` turns an OpenAPI file or URL
+into a TD), then check it into git or serve it from a URL. The same document
+is read by the direct client, the LLM loop, and the MCP bridge.
 
 A messy device (binary protocol, a session dance) gets one thin connector that
 exposes a clean WoT face; the TD describes *that*. The connector is consumed
 the same way by an LLM, an MCP client, or anything else.
 
-A fair split:
-
-- **Use thingctx when** the system already has a callable interface (a REST
-  API, an MQTT device, a fleet of either) and you want the integration to be a
-  document you check in, not a process you operate. It is strongest in
-  brownfield IoT, industrial, and building systems, where the devices already
-  speak HTTP or MQTT and nobody wants a server per machine.
-- **MCP is fine when** the tool is genuinely custom code with its own logic
-  (not a mapping onto existing endpoints), when the vendor already maintains a
-  good MCP server for the service, or when your platform only takes MCP and
-  running a server is no burden.
-
-The table below measures one axis: what you build and operate per integration, not
-what each approach can do. thingctx wins on operational weight and cold-start; it
-says nothing about auth depth, policy, or ecosystem, which are their own questions.
-
-See [`examples/01_mcp_baseline.py`](examples/01_mcp_baseline.py) (a server per
-integration) and
-[`examples/02_thingctx_baseline.py`](examples/02_thingctx_baseline.py) (no
-server). Both drive the same pump; every result is asserted equal to calling
-the system directly.
-
-| per integration      | MCP (stdio) | MCP (http)   | thingctx |
-| -------------------- | ----------- | ------------ | -------- |
-| server process       | per session | 1, long-run  | 0        |
-| hand-written lines   | 142         | 142          | 10       |
-| time to first call   | 540 ms      | 13 ms        | 2 ms     |
-
-thingctx calls in milliseconds because there is no server to start. MCP needs
-one, and the transport sets the cost: stdio spawns it per session (the first
-call pays process startup, 540 ms), streamable-HTTP is a server you keep running
-and connect to (13 ms, warm). Once connected, per-call latency is small for all
-three; the difference is the server you build and run to get there. The Thing
-Description is data, about 240 lines of JSON, written once and read by every
-consumer. Reproduce with `python examples/_measure.py`.
+A full worked Thing lives at
+[`examples/02_thingctx_baseline.py`](examples/02_thingctx_baseline.py): one
+pump TD spanning four transports (local, HTTP, MQTT, SSE), driven end to end
+with every result asserted against the device.
 
 ## Interoperability
 
@@ -443,13 +406,10 @@ by standards-compliant producers, not just hand-written ones. Two demos under
 Same consumer, different producers, zero glue: any conformant TD producer →
 thingctx.
 
-## And UTCP
+## Built on a ratified standard
 
-[UTCP](https://www.utcp.io/) shares thingctx's thesis: the integration is a
-description the client reads, not a server you operate. The difference is the
-description. UTCP defines its own *manual* format and ships SDKs in several
-languages today. thingctx builds on the **ratified [W3C Web of Things](https://www.w3.org/WoT/)
-Thing Description** instead, which buys four things a bespoke manual does not:
+thingctx builds on the ratified [W3C Web of Things](https://www.w3.org/WoT/)
+Thing Description:
 
 - **One format for devices and APIs.** A TD describes a REST endpoint, an MQTT
   topic, an SSE event stream, or a piece of hardware in the same document, so an
@@ -457,17 +417,11 @@ Thing Description** instead, which buys four things a bespoke manual does not:
 - **Discovery built in.** The [WoT Thing Description Directory](https://www.w3.org/TR/wot-discovery/)
   is a standard for serving and searching a whole fleet of Things; thingctx reads
   any compliant TDD.
-- **Vendor-neutral and stable.** It is a W3C Recommendation, not a single
-  project's schema, so a TD you write is portable across consumers.
+- **Vendor neutral and stable.** It is a W3C Recommendation, so a TD you write
+  is portable across consumers.
 - **Built for device interaction patterns.** A TD models properties, actions,
-  and **events** as first-class affordances, so a consumer can observe a property
-  or subscribe to a stream of readings straight from the description. UTCP's
-  manual centers on describing callable tools; event subscription is not part of
-  what it defines.
-
-The trade-off: UTCP's manual is lighter to hand-write and UTCP ships more
-language clients today. thingctx bets that a ratified standard, read the same way
-by an LLM, an MCP client, and a factory gateway, is worth that.
+  and **events** as first-class affordances, so a consumer can observe a
+  property or subscribe to a stream of readings straight from the description.
 
 ## Reference
 
