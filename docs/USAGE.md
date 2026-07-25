@@ -151,7 +151,9 @@ to do the task and approve when prompted.
 The OAuth client (the app's id and secret) is yours, supplied once at
 `~/.config/thingctx/oauth-clients/<token-host>.json` (for Google,
 `oauth2.googleapis.com.json`), never in a TD or the agent config. One file per
-provider. To sign in from the shell instead:
+provider. Google's Desktop client download (`{"installed":{...}}`) drops in
+unchanged. One Google file covers every Thing on that token host (Gmail and
+YouTube share it). To sign in from the shell instead:
 
 ```
 thingctx auth login --td service.td.json --client-secrets-file client.json

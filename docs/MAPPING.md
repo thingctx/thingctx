@@ -38,11 +38,23 @@ document adopts the OpenAI function format for tool specifications.
 
 Each action is projected to exactly one tool.
 
-**Name.** The tool name is `<thing>.<action>`, where `<thing>` is the final
-significant segment of the Thing's `id` with a trailing version token (for example
-`v1` or `2`) removed. Thus action `setSpeed` on `urn:demo:pump:v1` projects to
-`pump.setSpeed`, and action `createIssue` on `urn:svc:github` projects to
-`github.createIssue`. Namespacing by Thing prevents collisions across a fleet.
+**Name.** The tool name is `<thing>__<action>` (a double-underscore separator),
+where `<thing>` is the final significant segment of the Thing's `id` with a trailing
+version token (for example `v1` or `2`) removed and reduced to the name-safe charset.
+Thus action `setSpeed` on `urn:demo:pump:v1` projects to `pump__setSpeed`, and action
+`createIssue` on `urn:svc:github` projects to `github__createIssue`. Namespacing by
+Thing prevents collisions across a fleet.
+
+The name uses only `[A-Za-z0-9_-]` and is at most 64 characters. This is the charset
+every agent runtime accepts, and it is deliberately the intersection, not a superset.
+A single `.` is accepted by the OpenAI/Anthropic function-name charset but is REJECTED
+by strict MCP clients (which enforce `^[a-zA-Z0-9_-]{1,64}$`; `.`, `:`, and `/` all
+fail it). A single `_` is left free for use inside a slug or an action name, so `__`
+reads unambiguously as the namespace boundary. The recovery of the `(Thing, action)`
+split is not by re-splitting the string (an action name may itself contain `_`); a
+consumer that needs the mapping keeps it from projection. Where a slug and action
+would collide into an existing name, or the joined name would exceed 64 characters, an
+implementation appends a short deterministic suffix to keep the name unique and legal.
 
 **Parameters.** The tool's parameters are the action's `input` JSON Schema,
 unmodified. An action without an `input` schema accepts no arguments.

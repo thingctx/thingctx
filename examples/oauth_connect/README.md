@@ -27,7 +27,10 @@ with a loopback redirect), then drop its client-secrets JSON at:
 ```
 
 Keyed by the provider's token host, so one file serves every Thing on that
-provider. To sign in from the shell instead of the bridge:
+provider. For Google, drop the Desktop client JSON Google gives you at
+`~/.config/thingctx/oauth-clients/oauth2.googleapis.com.json` (the nested
+`installed` shape is fine unchanged). To sign in from the shell instead of the
+bridge:
 
 ```
 thingctx auth login --td example.td.json --client-secrets-file client.json
