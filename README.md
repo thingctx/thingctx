@@ -1,38 +1,59 @@
 # thingctx
 
-<!-- HERO DIAGRAM: document in, per-operation authorization, any transport out -->
+[![PyPI](https://img.shields.io/pypi/v/thingctx?style=flat-square&label=PyPI&color=3775A9)](https://pypi.org/project/thingctx/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square)](https://pypi.org/project/thingctx/)
+[![License](https://img.shields.io/badge/License-Apache--2.0-4c9a2a?style=flat-square)](LICENSE)
+&nbsp;
+![W3C WoT](https://img.shields.io/badge/W3C_WoT-TD_1.1-005a9c?style=flat-square)
+![WoT Discovery](https://img.shields.io/badge/W3C_WoT-Discovery_(TDD)-005a9c?style=flat-square)
+![MCP](https://img.shields.io/badge/MCP-ready-6f42c1?style=flat-square)
+![OpenAPI](https://img.shields.io/badge/OpenAPI-3.x_import-6ba539?style=flat-square)
+&nbsp;
+![Microsoft Entra](https://img.shields.io/badge/Microsoft_Entra-compatible-0078d4?style=flat-square)
+![Cloudflare Access](https://img.shields.io/badge/Cloudflare_Access-compatible-f38020?style=flat-square)
+![AWS SigV4](https://img.shields.io/badge/AWS_SigV4-signing-ff9900?style=flat-square)
+![OAuth2](https://img.shields.io/badge/OAuth2-PKCE-eb5424?style=flat-square)
+![AuthZEN](https://img.shields.io/badge/AuthZEN-authorization-005a9c?style=flat-square)
 
-**You want your agent to read your inbox but never send, to read a pump's
-temperature but never touch its setpoint. Describe the system in a document;
-thingctx drives it and gates every operation, read yes, write no, on the same
-resource. The agent never holds your keys.**
+![How thingctx drives a gated tool call from a Thing Description over the system's own transport.](assets/hero.gif)
 
-The integration is a document: point thingctx at a W3C Thing Description (a
-JSON file) and your agent calls that system over its own transport, HTTP,
-MQTT, or local. No server per integration.
+**thingctx drives an AI agent's tool calls against real systems from a
+document that describes each system.** Point it at a description and your agent
+calls that system over its own transport. Browse ready made descriptions at
+[td.thingctx.com](https://td.thingctx.com): apps like Gmail, GitHub, Slack, and
+Notion; developer tools like Git, GitLab, and Sentry; and devices like Home
+Assistant, Hue, Nest, and MQTT and RTSP hardware. 32 today, growing.
 
-[**thingctx.com**](https://thingctx.com): browse real services (GitHub, Stripe,
-Slack, and more) as ready-to-use Thing Descriptions.
+Use it as a Python library in your own app; from a coding agent over the
+command line; or as an MCP server for Claude Desktop, VS Code, or any MCP
+client. Same descriptions, same policy gate, every path. No server per integration.
 
-thingctx uses the [W3C Web of Things](https://www.w3.org/WoT/) standard as a
-uniform interface between an AI app and the systems it reaches: SaaS APIs, and
-equally the brownfield of devices and industrial systems that already speak
-HTTP or MQTT on a plant, building, or lab network. Point it at a Thing
-Description and it drives the actual Thing the description names, over that
-Thing's own transport.
+Jump to [Install](#install), [first run](#first-run-no-keys-no-network),
+[Claude Desktop and VS Code](#reach-a-closed-agent-the-mcp-bridge), or
+[authorization](#authorization-who-may-do-what).
 
-A "Thing" is anything with a callable interface, not just hardware: a sensor
-or a robot, but equally a REST API, a database, a SaaS product, an internal
-service. A Thing Description (TD) is plain JSON that names that system's
-`actions` (things to do), `properties` (state to read or write), and `events`
-(things to subscribe to), plus the transport for each (HTTP, MQTT, local, and
-more). thingctx reads it, hands the actions to your model as tools, and calls
+The description is a document: a [W3C Web of Things](https://www.w3.org/WoT/)
+Thing Description, a plain JSON file. A "Thing" is anything with a callable
+interface:
+a REST API, a database, an app, an internal service, a sensor, a robot.
+The description names that system's `actions` (things to do), `properties`
+(state to read or write), and `events` (things to subscribe to), plus the
+transport for each (HTTP, MQTT, local, and more). One description can span
+several transports at once: a media server that takes commands over HTTP and
+streams over RTSP, a device controlled over HTTP whose events arrive over
+WebSocket, one hardware Thing that reads over MQTT and acts over a local call.
+That whole multi protocol system is one description and one tool set to the
+agent. thingctx reads it, hands the actions to your model as tools, and calls
 each against the real system. The system's own endpoints are the server; you
-write nothing server-side.
+write nothing server side.
+
+Every call passes a policy gate keyed on the operation and the caller. Grant
+read on a resource and deny write on that same resource. The credential stays
+in the binding, refreshed when it expires; the model never sees it.
 
 ## First run: no keys, no network
 
-The repo ships a clock Thing: a TD over the in-process time handler bundled
+The repo ships a clock Thing: a TD over the in process time handler bundled
 with thingctx. Paste this into a file and run it from the repo root (after
 `pip install thingctx`; nothing else is needed):
 
@@ -64,32 +85,44 @@ works the same way; only the form's `href` changes.
 
 ## The document
 
-A whole TD can be this small (a weather API, no hardware in sight):
+A whole TD can be this small. This one drives the live, no key
+[Open-Meteo](https://open-meteo.com) forecast API, so it runs as is:
 
 ```json
 {
   "@context": "https://www.w3.org/2022/wot/td/v1.1",
   "id": "urn:example:weather:v1",
   "title": "Weather",
-  "securityDefinitions": { "bearer_sc": { "scheme": "bearer" } },
-  "security": ["bearer_sc"],
-  "properties": {
-    "temperature": { "type": "number", "readOnly": true,
-      "forms": [{ "href": "https://api.example.com/temp" }] }
-  },
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
   "actions": {
     "forecast": {
-      "input": { "type": "object", "properties": { "city": { "type": "string" } } },
-      "forms": [{ "href": "https://api.example.com/forecast", "htv:methodName": "POST" }]
+      "input": {
+        "type": "object",
+        "properties": {
+          "latitude": { "type": "number" },
+          "longitude": { "type": "number" },
+          "current": { "type": "string" }
+        },
+        "required": ["latitude", "longitude"]
+      },
+      "forms": [{ "href": "https://api.open-meteo.com/v1/forecast", "htv:methodName": "GET" }]
     }
   }
 }
 ```
 
-Point an agent at it. The LLM loop needs the `[llm]` extra, your provider's
-API key in its usual env var (for example `OPENAI_API_KEY`), and a model via
-`THINGCTX_MODEL` (a litellm `provider/model` string; the default is
-`openai/gpt-4o-mini`):
+A description also scales up. Each affordance names its own `href`, so one TD
+can drive a whole multi protocol system: the `mediamtx` TD in the registry
+controls a media server over HTTP and pulls its stream over RTSP; a
+`home-assistant` TD calls actions over HTTP and receives events over WebSocket;
+the `pump` example reads over MQTT and runs a local action, all in one file.
+The agent sees one tool set; thingctx routes each call to the right transport.
+
+Point an agent at it. The weather API needs no key (it is `nosec`); the LLM loop
+needs the `[llm]` extra, your provider's API key in its usual env var (for
+example `OPENAI_API_KEY`), and a model via `THINGCTX_MODEL` (a litellm
+`provider/model` string; the default is `openai/gpt-4o-mini`):
 
 ```python
 import asyncio
@@ -98,8 +131,8 @@ import thingctx
 
 
 async def main():
-    host = await thingctx.from_url("https://api.example.com/.well-known/wot")
-    print(await host.chat("what's the forecast for Cairo, and the current temperature?"))
+    host = thingctx.from_file("weather.td.json")        # the TD above, saved to a file
+    print(await host.chat("what's the forecast for Cairo? Use latitude 30.0, longitude 31.2."))
 
 
 asyncio.run(main())
@@ -115,9 +148,9 @@ pip install 'thingctx[llm,http,validate]'   # the recommended start: LLM loop + 
 ```
 
 Quote the argument; unquoted brackets fail in zsh (macOS default) with
-`no matches found`. The base `pip install thingctx` is dependency-free,
+`no matches found`. The base `pip install thingctx` has no dependencies,
 including the authorization seam (`thingctx.authz`). Everything else is an
-opt-in extra; add only what you use:
+optional extra; add only what you use:
 
 - `llm`: the agent loop, any provider via litellm.
 - `http`: the HTTP(S) transport (httpx).
@@ -126,7 +159,7 @@ opt-in extra; add only what you use:
 - `mcp`: the MCP bridge for closed agents (Claude Desktop, Copilot).
 - `mcp-http`: serve the MCP bridge over streamable HTTP (adds uvicorn).
 - `openapi`: import OpenAPI specs as TDs (YAML support; JSON needs nothing).
-- `cloud`: OAuth2 JWT-bearer assertions for cloud APIs (pyjwt).
+- `cloud`: OAuth2 JWT bearer assertions for cloud APIs (pyjwt).
 - `authz`: the inbound token guard, JWT to claims (pyjwt + httpx).
 - `entra`: Microsoft Entra identity provider and guard (azure-identity).
 - `media`: continuous audio/video streams (PyAV/FFmpeg, numpy, pillow; heavy).
@@ -153,9 +186,30 @@ await client.read_property("pump__rpm")
 
 Add a Thing by pointing at one more description.
 
+## Just a TD runtime: no agent, no LLM, no MCP
+
+Under the agent surfaces, thingctx is a runtime that executes a Thing
+Description. Any code can drive it. `ThingClient` is stdlib only, with no LLM
+and no opinion on what chose the action. It reads properties, writes them, and
+streams events, routing each call to the transport the TD's form names, so one
+client reads over HTTP and subscribes over MQTT without you wiring either:
+
+```python
+import thingctx
+
+client = thingctx.ThingClient.from_registry(thingctx.from_arg("./descriptions/"))
+await client.read_property("pump__rpm")               # e.g. an HTTP GET
+await client.write_property("pump__target_rpm", 1500) # gated like every call
+async for evt in await client.subscribe("pump__overheat"):  # e.g. an MQTT topic
+    ...                                # evt is the payload, e.g. {"temp": 98}
+```
+
+So thingctx is useful with no agent in sight: a declarative way to drive your
+APIs and devices from a versioned file, with one policy gate on every call.
+
 ## Safe by default: approval + grounding
 
-Two opt-in layers stand between an agent and a real system.
+Two optional layers stand between an agent and a real system.
 
 **Approval** gates risky calls behind a human or a policy. Risk is read from the
 TD (`tc:requiresApproval`, or `@type tc:Destructive`) and from a policy you pick:
@@ -170,7 +224,7 @@ client = thingctx.ThingClient(
 await client.invoke("pump__estop")     # asks approve() first; if denied, never runs
 ```
 
-`approve_when` is `declared` (default, only TD-marked risky actions),
+`approve_when` is `declared` (default, only TD marked risky actions),
 `destructive` (the above plus any non-idempotent action and every property
 write), `all`, or `never`. A gated call with no approver is **denied**: a gate
 with nobody to open it stays shut. The check sits in `ThingClient.invoke`, so it
@@ -202,15 +256,15 @@ usually blurred together:
   token into a claims dict. It needs crypto, so it lives in `thingctx.identity`
   behind the `authz` extra (or an upstream gateway does it for you).
 - **Authorization (authz)** decides *what* that caller may do. It runs on the
-  dependency-free core (`thingctx.authz`): no crypto, no network. It takes an
-  already-validated identity and answers permit or deny for each
+  dependency free core (`thingctx.authz`): no crypto, no network. It takes an
+  already validated identity and answers permit or deny for each
   `(thing, affordance, operation)`.
 
-That split is why the core stays dependency-free while still enforcing: it never
+That split is why the core stays dependency free while still enforcing: it never
 validates a token, it consumes an identity someone already validated.
 
 Authorization is native to `ThingClient`. Pass a `pdp` and an `identity`, and
-every device-reaching call authorizes before it selects a transport:
+every device reaching call authorizes before it selects a transport:
 
 ```python
 from thingctx import LocalBinding, ThingClient
@@ -226,10 +280,10 @@ await client.read_property("pump__target_rpm")    # ALLOWED
 await client.write_property("pump__target_rpm", 3000)  # AuthorizationDenied, device untouched
 ```
 
-The decision is TD-closed: a grant is honored only if the TD's forms actually
+The decision is closed to the TD: a grant is honored only if the TD's forms actually
 declare that operation, so a wildcard grant can never permit an operation no form
 exposes, and a read-only property can never be written. The check is at the
-dispatch layer, below the transport, so a multi-transport Thing cannot be reached
+dispatch layer, below the transport, so a multi transport Thing cannot be reached
 around it, and streams (observe, event, media) are authorized at subscribe time
 *and* per delivery, so a stream stops the moment the token expires.
 
@@ -258,7 +312,7 @@ Some agents are closed: you can't hand their model tools directly, only
 through MCP (Claude Desktop, the Claude CLI, Copilot). For those, thingctx
 ships one generic MCP server that turns a registry of descriptions (a folder,
 a URL, or a W3C Thing Description Directory) into MCP tools, with no
-per-integration server.
+per integration server.
 
 ```bash
 pip install "thingctx[mcp,http]"
@@ -297,13 +351,13 @@ Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
 ```
 
 `THINGCTX_POLICY` is `read-only` (reads and TD-declared safe actions only;
-writes and state-changing actions are denied) or `full`. Edit the same config
+writes and state changing actions are denied) or `full`. Edit the same config
 file as above and restart Claude Desktop after a change.
 
 ### Add your keys
 
 A TD names its security scheme but never carries a secret. The bridge reads
-per-Thing secrets from the environment: `THINGCTX_TOKEN_<SLUG>` binds a secret
+per Thing secrets from the environment: `THINGCTX_TOKEN_<SLUG>` binds a secret
 to the Thing whose slug is `<SLUG>` (lowercased, `_` maps to `-`, so
 `THINGCTX_TOKEN_GOOGLE_MAPS` serves `google-maps`). The slug is the same one
 used in tool names. To let the agent act on GitHub:
@@ -345,7 +399,7 @@ await gateway.start()
 A request arrives on a topic, the gateway resolves it against the native device,
 and the reply goes back on the bus. The engine names only the five WoT operations;
 the driver owns the wire. If the client carries the authorization seam
-(`pdp`/`identity`), the same per-operation check runs for a bus request, so the
+(`pdp`/`identity`), the same per operation check runs for a bus request, so the
 gateway is not a bypass. MQTT and MCP ship as drivers; a new middleware is one
 `GatewayBinding` class and the engine never changes. See
 [`docs/SECURITY.md`](docs/SECURITY.md).
@@ -360,7 +414,7 @@ thingctx-mcp --http --host 0.0.0.0 --port 8080 ./examples/registry/
 ```
 
 A client points at `http://host:8080/`. This is the central-gateway shape: one process
-serves the fleet, the per-operation authorization and approval gate apply to every
+serves the fleet, the per operation authorization and approval gate apply to every
 caller, and no one holds the raw credentials. Run it in a container:
 
 ```
@@ -392,7 +446,7 @@ with every result asserted against the device.
 ## Interoperability
 
 thingctx consumes a Thing Description no matter who wrote it, including TDs emitted
-by standards-compliant producers, not just hand-written ones. Two demos under
+by standards compliant producers, not just hand written ones. Two demos under
 [`examples/interop/`](examples/interop/) prove it end to end:
 
 - [**node-wot**](examples/interop/nodewot/): the
@@ -413,35 +467,17 @@ Thing Description:
 
 - **One format for devices and APIs.** A TD describes a REST endpoint, an MQTT
   topic, an SSE event stream, or a piece of hardware in the same document, so an
-  agent reaches an industrial gateway and a SaaS API through one interface.
+  agent reaches an industrial gateway and a cloud API through one interface.
 - **Discovery built in.** The [WoT Thing Description Directory](https://www.w3.org/TR/wot-discovery/)
   is a standard for serving and searching a whole fleet of Things; thingctx reads
   any compliant TDD.
 - **Vendor neutral and stable.** It is a W3C Recommendation, so a TD you write
   is portable across consumers.
 - **Built for device interaction patterns.** A TD models properties, actions,
-  and **events** as first-class affordances, so a consumer can observe a
+  and **events** as first class affordances, so a consumer can observe a
   property or subscribe to a stream of readings straight from the description.
 
 ## Reference
-
-### ThingClient: the core
-
-Stdlib only, with no dependency on any agent framework. `ThingClient` has no
-LLM and no opinion on what chose the action. It reads properties, writes them,
-and streams events, and routes each call to the transport the TD's form names,
-so one client can read over HTTP and subscribe over MQTT without you wiring
-either:
-
-```python
-await client.read_property("pump__rpm")         # e.g. an HTTP GET
-await client.write_property("pump__target_rpm", 1500)
-async for evt in await client.subscribe("pump__overheat"):  # e.g. an MQTT topic
-    ...                              # evt is the payload, e.g. {"temp": 98}
-```
-
-(`thingctx.from_url(...)` returns a ready `LLMHost` if you just want a loop out
-of the box.)
 
 ### Registry
 
