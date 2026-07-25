@@ -88,4 +88,4 @@ def test_time_td_is_schema_valid():
     from thingctx import validate_td
 
     td = json.loads((EXAMPLES / "registry" / "time.td.json").read_text())
-    validate_td(td)
+    assert validate_td(td) == []
