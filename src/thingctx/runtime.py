@@ -10,7 +10,10 @@ subscribe to events. No LLM.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from thingctx.bindings import BindingRegistry, ProtocolBinding, default_bindings
@@ -25,6 +28,7 @@ from thingctx.thing import (
     WoTForm,
     WoTProperty,
     WoTThing,
+    _filled_form,
     _tool_name,
     actions_to_tools,
     is_wrapped_input,
@@ -45,6 +49,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from thingctx.authz.pdp import AccessRequest, PolicyDecisionPoint
+
+# How often a blocking wait polls a long-running action's status.
+_POLL_INTERVAL = 0.1
 
 
 class ThingClient:
@@ -377,15 +384,21 @@ class ThingClient:
         long-running action blocks to completion (its terminal status as a
         dict); an ``<action>.cancel`` stops the most recent in-flight run."""
         args = args or {}
-        if name.endswith(f"{TOOL_SEP}cancel") and (name[: -(len(TOOL_SEP) + 6)] in self._route):
-            handle = self._inflight.get(name[: -(len(TOOL_SEP) + 6)])
+        if name.endswith(f"{TOOL_SEP}cancel") and (
+            (base := name.removesuffix(f"{TOOL_SEP}cancel")) in self._route
+        ):
+            handle = self._inflight.get(base)
             if handle is None:
-                return {"error": f"no in-flight {name[: -(len(TOOL_SEP) + 6)]} to cancel"}
+                return {"error": f"no in-flight {base} to cancel"}
             return (await self.cancel_action(handle)).as_dict()
-        if name.endswith(f"{TOOL_SEP}set") and (name[: -(len(TOOL_SEP) + 3)] in self._props):
-            return await self.write_property(name[: -(len(TOOL_SEP) + 3)], args.get("value"))
-        if name.endswith(f"{TOOL_SEP}get") and (name[: -(len(TOOL_SEP) + 3)] in self._props):
-            return await self.read_property(name[: -(len(TOOL_SEP) + 3)])
+        if name.endswith(f"{TOOL_SEP}set") and (
+            (base := name.removesuffix(f"{TOOL_SEP}set")) in self._props
+        ):
+            return await self.write_property(base, args.get("value"))
+        if name.endswith(f"{TOOL_SEP}get") and (
+            (base := name.removesuffix(f"{TOOL_SEP}get")) in self._props
+        ):
+            return await self.read_property(base)
         if name == "properties.read_all":
             return await self.read_all_properties()
         action = self._route.get(name)
@@ -591,13 +604,10 @@ class ThingClient:
         if is_wrapped_input(action.input_schema) and isinstance(arguments, dict):
             arguments = arguments.get(SCALAR_INPUT_KEY)
         # Resolve uriVariables: {id} fills from args and leaves the body.
-        import dataclasses
-
         filled: WoTForm
         rest: Any
         if isinstance(arguments, dict):
-            href, rest = form.fill(arguments)
-            filled = dataclasses.replace(form, href=href) if href != form.href else form
+            filled, rest = _filled_form(form, arguments)
         else:
             # An unwrapped scalar/array body has no uriVariables to fill.
             filled, rest = form, arguments
@@ -667,16 +677,10 @@ class ThingClient:
             # No lifecycle-capable transport: fall back to a plain invoke so the
             # call still completes (returns the raw result, not a handle).
             if binding is not None and hasattr(binding, "invoke") and form is not None:
-                import dataclasses
-
-                href, rest = form.fill(arguments or {})
-                filled = dataclasses.replace(form, href=href) if href != form.href else form
+                filled, rest = _filled_form(form, arguments or {})
                 return await binding.invoke(action, filled, rest)
             return {"error": f"action {tool_name} has no lifecycle transport"}
-        import dataclasses
-
-        href, rest = form.fill(arguments or {})
-        filled = dataclasses.replace(form, href=href) if href != form.href else form
+        filled, rest = _filled_form(form, arguments or {})
         status = await binding.invoke_async(action, filled, rest)
         if not wait:
             return status
@@ -688,12 +692,9 @@ class ThingClient:
             self._inflight.pop(tool_name, None)
 
     async def _wait_for(self, status: Any, *, timeout: float) -> Any:
-        import asyncio
-        import time
-
         deadline = time.monotonic() + timeout
         while not status.terminal and time.monotonic() < deadline:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(_POLL_INTERVAL)
             status = await self.query_action(status)
         return status
 
@@ -891,12 +892,9 @@ class ThingClient:
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "subscribe"):
             return _empty_aiter(f"no subscribable transport for {name}")
-        import dataclasses
-
         # Same uriVariable fill as invoke/frames: broker/topic (or filters) leave
         # the template before the transport sees the form.
-        href, rest = form.fill(args or {})
-        filled = dataclasses.replace(form, href=href) if href != form.href else form
+        filled, rest = _filled_form(form, args or {})
         stream: AsyncIterator[Any] = await binding.subscribe(target, filled, rest)
         # 2. per-delivery filter: the token can expire while the stream lives,
         # so re-authorize before each value and stop the stream on lapse.
@@ -939,10 +937,7 @@ class ThingClient:
         binding = self._registry.resolve(form) if form else None
         if form is None or binding is None or not hasattr(binding, "frames"):
             return _empty_aiter(f"no media transport for {name}; register MediaBinding")
-        import dataclasses
-
-        href, rest = form.fill(arguments or {})
-        filled = dataclasses.replace(form, href=href) if href != form.href else form
+        filled, rest = _filled_form(form, arguments or {})
         stream: AsyncIterator[Any] = binding.frames(affordance, filled, rest, track=track)
         if self._pdp is not None:
             from thingctx.authz.pdp import _authorized_stream
@@ -988,10 +983,7 @@ class ThingClient:
         binding = self._registry.resolve(form) if form else None
         if form is None or binding is None or not hasattr(binding, "publish"):
             raise RuntimeError(f"no media transport for {name}; register MediaBinding")
-        import dataclasses
-
-        href, rest = form.fill(arguments or {})
-        filled = dataclasses.replace(form, href=href) if href != form.href else form
+        filled, rest = _filled_form(form, arguments or {})
         await binding.publish(affordance, filled, frames, rest, track=track, audio=audio)
         return None
 
@@ -1029,10 +1021,7 @@ class ThingClient:
         binding = self._registry.resolve(form) if form else None
         if form is None or binding is None or not hasattr(binding, "save"):
             raise RuntimeError(f"no media transport for {name}; register MediaBinding")
-        import dataclasses
-
-        href, rest = form.fill(arguments or {})
-        filled = dataclasses.replace(form, href=href) if href != form.href else form
+        filled, rest = _filled_form(form, arguments or {})
         await binding.save(affordance, filled, target, rest, track=track)
         return None
 
@@ -1050,8 +1039,6 @@ class ThingClient:
 
 
 async def _empty_aiter(err: str) -> AsyncIterator[Any]:
-    import warnings
-
     warnings.warn(err, stacklevel=2)
     # An empty async generator: the loop never runs, but the `yield` makes this a
     # generator function (so callers can `async for` over it) with no items.

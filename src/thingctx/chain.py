@@ -53,6 +53,7 @@ from thingctx.bindings.base import _decode
 from thingctx.bindings.builtin.http import _http_body
 from thingctx.netpolicy import WEB_SCHEMES, check_url, confine_path
 from thingctx.reliability import TransportError
+from thingctx.thing import _filled_form
 
 DEFAULT_CHUNK = 8 * 1024 * 1024  # 8 MiB, a multiple of the 256 KiB resumable-upload unit
 
@@ -251,10 +252,7 @@ async def run_chain(
         raise ChainError("response chaining needs an http binding registered")
     owner = getattr(action, "thing_id", None)
     spec = form.raw.get("x-thingctx-next") or {}
-    import dataclasses
-
-    href, rest = form.fill(arguments or {})
-    initiate = dataclasses.replace(form, href=href) if href != form.href else form
+    initiate, rest = _filled_form(form, arguments or {})
     # Hold media/body args back from the initiate body; they belong to the
     # follow-up call, not the handoff request.
     held = _follow_arg_names(spec)

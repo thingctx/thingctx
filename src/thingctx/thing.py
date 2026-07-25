@@ -12,9 +12,11 @@ verbatim on each ``raw`` for extensions to read.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+import re
+from dataclasses import dataclass, field, replace
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 
 def _text(defn: dict[str, Any], multi_key: str, single_key: str, fallback: str = "") -> str:
@@ -90,25 +92,32 @@ class WoTForm:
         when the variable *is* a URL; for example a media href that takes any
         source URL as an argument (``"href": "{+url}"``).
         """
-        import re as _re
-
         used: set[str] = set()
 
-        def _sub(m: _re.Match[str]) -> str:
+        def _sub(m: re.Match[str]) -> str:
             key = m.group(1)
             raw = key.startswith("+")
             if raw:
                 key = key[1:]
             if key in args:
                 used.add(key)
-                from urllib.parse import quote
-
                 return str(args[key]) if raw else quote(str(args[key]), safe="")
             return m.group(0)
 
-        href = _re.sub(r"\{(\+?[^}]+)\}", _sub, self.href)
+        href = re.sub(r"\{(\+?[^}]+)\}", _sub, self.href)
         rest = {k: v for k, v in args.items() if k not in used}
         return href, rest
+
+
+def _filled_form(form: WoTForm, args: dict[str, Any]) -> tuple[WoTForm, dict[str, Any]]:
+    """Fill a form's href template from ``args`` and return
+    ``(form, remaining_args)``. The form object is replaced only when the href
+    actually changed, so a template-free form keeps its identity (no copy per
+    call)."""
+    href, rest = form.fill(args)
+    if href == form.href:
+        return form, rest
+    return replace(form, href=href), rest
 
 
 @dataclass
@@ -531,8 +540,6 @@ def _resolve_href(href: str, base: str | None) -> str:
         return href
     if urlparse(href).scheme:
         return href
-    from urllib.parse import urljoin
-
     return urljoin(base if base.endswith("/") else base + "/", href.lstrip("/"))
 
 
@@ -590,9 +597,7 @@ def _project_input(input_schema: dict[str, Any]) -> dict[str, Any]:
 
 def _href_var_names(href: str) -> set[str]:
     """The uriVariable names an href references, e.g. {+broker}/{+topic}."""
-    import re as _re
-
-    return {m.lstrip("+") for m in _re.findall(r"\{(\+?[^}]+)\}", href)}
+    return {m.lstrip("+") for m in re.findall(r"\{(\+?[^}]+)\}", href)}
 
 
 def _project_action_params(action: WoTAction, thing_uri_vars: dict[str, Any]) -> dict[str, Any]:
@@ -690,8 +695,6 @@ def actions_to_tools(
     Returns (tool_specs, route): tool_specs for the model, route[name]
     the WoTAction to invoke when the model calls name.
     """
-    import json as _json
-
     specs: list[dict[str, Any]] = []
     route: dict[str, WoTAction] = {}
     for thing in things:
@@ -703,7 +706,7 @@ def actions_to_tools(
             # OpenAI's function format has no output field; fold the
             # output schema into the description.
             if action.output_schema:
-                desc = f"{desc}\nReturns: {_json.dumps(action.output_schema)}"
+                desc = f"{desc}\nReturns: {json.dumps(action.output_schema)}"
             specs.append(
                 {
                     "type": "function",
