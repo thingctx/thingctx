@@ -194,6 +194,42 @@ class LocalPolicyGrantSource:
         return list(raw)
 
 
+# The named policy presets a single local user can pick with no identity and no policy
+# file. Each names the ops it grants; the affordance is always the ``*`` wildcard (any
+# affordance), which the PDP expands against the TD vocabulary. The thing_id is NOT
+# wildcardable in the PDP, so the grant is generated per Thing (see StaticGrantSource).
+# "read-only" grants reads and subscriptions; "no-writes" also allows actions but never
+# a property write; "full" grants every op.
+POLICY_PRESETS: dict[str, tuple[str, ...]] = {
+    "full": ("readproperty", "writeproperty", "observeproperty", "invokeaction", "subscribeevent"),
+    "read-only": ("readproperty", "observeproperty", "subscribeevent"),
+    "no-writes": ("readproperty", "observeproperty", "invokeaction", "subscribeevent"),
+}
+
+
+class StaticGrantSource:
+    """A :class:`GrantSource` that returns a fixed grant set, ignoring identity.
+
+    For the single local user who wants a coarse posture without an identity provider
+    or a policy file: pick a named preset (``full`` / ``read-only`` / ``no-writes``) and
+    every request is decided against that fixed grant. The preset names ops; the grant
+    is ``(thing_id, "*", op)`` for each Thing id and each preset op, so a ``read-only``
+    grant permits any read and denies any write even on a Thing that declares one. Pass
+    the thing ids because the PDP does not wildcard the Thing position.
+    """
+
+    def __init__(self, preset: str, thing_ids: Any = ()) -> None:
+        if preset not in POLICY_PRESETS:
+            raise ValueError(
+                f"unknown policy preset {preset!r}; choose one of {sorted(POLICY_PRESETS)}"
+            )
+        ops = POLICY_PRESETS[preset]
+        self._grants: GrantSet = {(tid, "*", op) for tid in thing_ids for op in ops}
+
+    async def grant_for(self, identity: Any) -> GrantSet:
+        return set(self._grants)
+
+
 @dataclass
 class PolicyDecisionPoint:
     """Decide ``permit`` / ``deny`` for a request, against a TD vocabulary.

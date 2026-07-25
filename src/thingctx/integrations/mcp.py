@@ -595,7 +595,24 @@ def client_from_registry(
         bindings.append(MediaBinding())
     except Exception:  # noqa: BLE001
         pass
-    return ThingClient(tds=tds, bindings=bindings, approve_when=approve_when)
+    # THINGCTX_POLICY picks a coarse per-operation posture with no identity: read-only,
+    # no-writes, or full. When set, wire a PDP so a denied op is refused before the
+    # service is touched. Unset means no PDP (the previous behavior, unchanged). Build
+    # the PDP's closed vocabulary from these TDs up front; a caller's construction-time
+    # vocabulary is authoritative (the client does not rebuild it at construction).
+    pdp = None
+    policy = os.environ.get("THINGCTX_POLICY")
+    if policy:
+        from thingctx.authz.pdp import PolicyDecisionPoint, StaticGrantSource
+        from thingctx.authz.vocabulary import build_vocabulary
+        from thingctx.thing import parse_thing
+
+        things = [parse_thing(td) for td in tds if isinstance(td, dict)]
+        grants = StaticGrantSource(policy, thing_ids=[t.id for t in things])
+        pdp = PolicyDecisionPoint(build_vocabulary(things), grants)
+        if verbose:
+            print(f"thingctx-mcp: operation policy = {policy}", file=sys.stderr)
+    return ThingClient(tds=tds, bindings=bindings, approve_when=approve_when, pdp=pdp)
 
 
 def _build_server(registry):
