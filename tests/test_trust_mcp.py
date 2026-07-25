@@ -21,6 +21,7 @@ TD = {
     "actions": {
         "status": {"idempotent": True, "forms": [{"href": "local://status"}]},
         "wipe": {"@type": "tc:Destructive", "forms": [{"href": "local://wipe"}]},
+        "nuke": {"@type": "tc:Destructive", "forms": [{"href": "local://nuke"}]},
     },
 }
 
@@ -196,3 +197,59 @@ async def test_elicit_approver_accept_deny_and_fallback():
     # Elicit unexpectedly fails at call time -> also route to the approve tool.
     with pytest.raises(_NeedsManualApproval):
         await _elicit_approver(server_with(raise_elicit=True))(req)
+
+
+@pytest.mark.asyncio
+async def test_bypass_replay_does_not_auto_approve_a_concurrent_call():
+    """Replaying a user-approved call must not open the gate for OTHER calls in
+    flight on the same shared client. Over a shared transport (e.g. --http),
+    two gated calls can overlap; the approve-tool replay of one must satisfy the
+    human-confirm for THAT call only, never for a fresh unrelated call landing
+    inside its window. The fresh call must still require approval."""
+    pytest.importorskip("mcp")
+    import asyncio
+    import json
+
+    from mcp import types
+
+    from thingctx.integrations.mcp import _NeedsManualApproval, build_mcp_server
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _wipe():
+        # Hold the replay in flight so the fresh call overlaps its window.
+        started.set()
+        await release.wait()
+        return {"wiped": True}
+
+    def _cannot_elicit(req):
+        raise _NeedsManualApproval()
+
+    inv = LocalBinding({"wipe": _wipe, "nuke": lambda: {"nuked": True}})
+    client = ThingClient(tds=[TD], bindings=[inv], approve=_cannot_elicit)
+    server = build_mcp_server(client, tool_mode="flat")
+    # Drive the raw request handler directly: the session harness serializes
+    # calls, which would hide the race this test is about.
+    handler = server.request_handlers[types.CallToolRequest]
+
+    def _call(name, args=None):
+        req = types.CallToolRequest(
+            method="tools/call",
+            params=types.CallToolRequestParams(name=name, arguments=args or {}),
+        )
+        return handler(req)
+
+    def _payload(result):
+        return json.loads(result.root.content[0].text)
+
+    parked = _payload(await _call("vault__wipe"))
+    token = parked["approval_token"]
+    replay = asyncio.create_task(_call("approve", {"approval_token": token}))
+    await asyncio.wait_for(started.wait(), 2.0)
+    # The fresh gated call lands while the bypass replay is in flight.
+    fresh = _payload(await _call("vault__nuke"))
+    assert fresh.get("needs_approval") is True  # NOT silently auto-approved
+    assert "nuked" not in fresh
+    release.set()
+    assert _payload(await replay) == {"wiped": True}  # the replay still proceeds
