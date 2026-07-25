@@ -97,7 +97,7 @@ def _client(identity, device):
 async def test_agent_principal_authorized_with_no_user_present():
     """The agent's app-only identity (no user sub) is authorized on its own."""
     client = _client(AGENT, Pump())
-    assert await client.read_property("pump.target_rpm") == 1200
+    assert await client.read_property("pump__target_rpm") == 1200
 
 
 @pytest.mark.asyncio
@@ -108,14 +108,14 @@ async def test_agent_grant_is_strictly_narrower_than_user():
     agent_client = _client(AGENT, device)
 
     # The user may write.
-    await user_client.write_property("pump.target_rpm", 1500)
-    assert await user_client.read_property("pump.target_rpm") == 1500
+    await user_client.write_property("pump__target_rpm", 1500)
+    assert await user_client.read_property("pump__target_rpm") == 1500
 
     # The agent may NOT write the SAME device, even though its operator can. The leash.
     with pytest.raises(AuthorizationDenied):
-        await agent_client.write_property("pump.target_rpm", 9999)
+        await agent_client.write_property("pump__target_rpm", 9999)
     # The agent's denied write never reached the device: the user's value stands.
-    assert await agent_client.read_property("pump.target_rpm") == 1500
+    assert await agent_client.read_property("pump__target_rpm") == 1500
 
 
 @pytest.mark.asyncio
@@ -124,6 +124,6 @@ async def test_decision_is_driven_only_by_the_claims():
     # Agent read: allowed. Agent write: denied. Same client construction, only the
     # operation differs, and the grant for THIS identity draws the line.
     agent_client = _client(AGENT, Pump())
-    assert await agent_client.read_property("pump.target_rpm") == 1200
+    assert await agent_client.read_property("pump__target_rpm") == 1200
     with pytest.raises(AuthorizationDenied):
-        await agent_client.write_property("pump.target_rpm", 1)
+        await agent_client.write_property("pump__target_rpm", 1)

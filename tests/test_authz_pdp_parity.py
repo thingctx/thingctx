@@ -152,6 +152,6 @@ async def test_external_pdp_drives_the_client_the_same_as_local():
     client = ThingClient(
         tds=[TD], bindings=[LocalBinding(Pump())], pdp=_authzen_pdp(stub), identity=OPERATOR
     )
-    assert await client.read_property("pump.target_rpm") == 1200
+    assert await client.read_property("pump__target_rpm") == 1200
     with pytest.raises(AuthorizationDenied):
-        await client.write_property("pump.target_rpm", 3000)
+        await client.write_property("pump__target_rpm", 3000)

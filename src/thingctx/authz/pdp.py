@@ -116,9 +116,17 @@ async def _authorized_stream(stream, pdp, identity, request, *, revocation_check
        check it catches both a lapsed token and a lapsed grant.
 
     On lapse we cut the stream FORWARD (stop yielding); we do not claw back values
-    already delivered, the correct semantics for a live-feed revocation."""
+    already delivered, the correct semantics for a live-feed revocation.
+
+    The token-expiry check applies only when the identity actually carries an ``exp``
+    (a time-bounded token). A ``None`` identity (the no-code preset) and a local opt-in
+    identity (a named principal with no ``exp``) are BOTH token-less: absence of ``exp``
+    means "not a time-bounded token," not "expired," so it must not stop the stream. When
+    an ``exp`` is present, it is enforced per frame so a stream cannot outlive its token.
+    The PDP decision always gates the stream regardless."""
+    check_expiry = isinstance(identity, dict) and "exp" in identity
     async for value in stream:
-        if _token_expired(identity):
+        if check_expiry and _token_expired(identity):
             return  # token expired: stop the stream
         decision = await pdp.decide(identity, request)
         if not decision.permit:
@@ -195,36 +203,65 @@ class LocalPolicyGrantSource:
 
 
 # The named policy presets a single local user can pick with no identity and no policy
-# file. Each names the ops it grants; the affordance is always the ``*`` wildcard (any
+# file. Each names the wildcard ops it grants; the affordance is the ``*`` wildcard (any
 # affordance), which the PDP expands against the TD vocabulary. The thing_id is NOT
 # wildcardable in the PDP, so the grant is generated per Thing (see StaticGrantSource).
-# "read-only" grants reads and subscriptions; "no-writes" also allows actions but never
-# a property write; "full" grants every op.
+#
+# "read-only" grants reads/observe/subscribe AND, per the WoT ``safe`` flag, invokeaction
+# on SAFE actions only (an action with ``safe: true`` causes no state change, so it is
+# read-like: e.g. readFile, listDir, search). It denies property writes and UNSAFE actions
+# (writeFile, sendMessage, delete, a PTZ move). This is "look but don't touch": read
+# everything, run no-op queries, change nothing. The safe-action grant is generated
+# per-affordance, so it needs the parsed Things, not just their ids.
+# "full" grants every op.
 POLICY_PRESETS: dict[str, tuple[str, ...]] = {
     "full": ("readproperty", "writeproperty", "observeproperty", "invokeaction", "subscribeevent"),
     "read-only": ("readproperty", "observeproperty", "subscribeevent"),
-    "no-writes": ("readproperty", "observeproperty", "invokeaction", "subscribeevent"),
 }
+
+# Presets that additionally grant invokeaction on SAFE actions only, generated per
+# affordance from the ``safe`` flag. read-only is safe-permitting: it reads the WoT
+# ``safe`` flag for its defined meaning (no state change), NOT a new axis.
+_SAFE_ACTION_PRESETS = frozenset({"read-only"})
 
 
 class StaticGrantSource:
     """A :class:`GrantSource` that returns a fixed grant set, ignoring identity.
 
     For the single local user who wants a coarse posture without an identity provider
-    or a policy file: pick a named preset (``full`` / ``read-only`` / ``no-writes``) and
-    every request is decided against that fixed grant. The preset names ops; the grant
-    is ``(thing_id, "*", op)`` for each Thing id and each preset op, so a ``read-only``
-    grant permits any read and denies any write even on a Thing that declares one. Pass
-    the thing ids because the PDP does not wildcard the Thing position.
+    or a policy file: pick a named preset (``full`` / ``read-only``) and
+    every request is decided against that fixed grant. The preset names wildcard ops; the
+    grant is ``(thing_id, "*", op)`` for each Thing id and each preset op.
+
+    ``read-only`` additionally grants ``invokeaction`` on the actions a Thing marks
+    ``safe: true`` (per WoT, a safe action causes no state change, so it is read-like).
+    That per-affordance grant needs the parsed Things, so pass ``things=`` (preferred).
+    ``thing_ids=`` still works for the wildcard ops; without ``things`` a ``read-only``
+    grant simply omits the safe-action allowance (the older, stricter behavior).
     """
 
-    def __init__(self, preset: str, thing_ids: Any = ()) -> None:
+    def __init__(self, preset: str, thing_ids: Any = (), *, things: Any = None) -> None:
         if preset not in POLICY_PRESETS:
             raise ValueError(
                 f"unknown policy preset {preset!r}; choose one of {sorted(POLICY_PRESETS)}"
             )
+        things = list(things) if things is not None else []
+        ids = [t.id for t in things] if things else list(thing_ids)
         ops = POLICY_PRESETS[preset]
-        self._grants: GrantSet = {(tid, "*", op) for tid in thing_ids for op in ops}
+        grants: GrantSet = {(tid, "*", op) for tid in ids for op in ops}
+        if preset in _SAFE_ACTION_PRESETS and things:
+            # invokeaction on safe actions only: reads the WoT safe flag, no new axis.
+            for t in things:
+                for name, action in getattr(t, "actions", {}).items():
+                    if getattr(action, "safe", False):
+                        grants.add((t.id, name, "invokeaction"))
+        self._grants: GrantSet = grants
+
+    @property
+    def grants(self) -> GrantSet:
+        """The fixed grant set this preset resolved to (identity-free). Lets a caller
+        bind the same preset grant to a named role without re-deriving it."""
+        return set(self._grants)
 
     async def grant_for(self, identity: Any) -> GrantSet:
         return set(self._grants)
