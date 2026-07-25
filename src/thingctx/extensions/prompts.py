@@ -19,7 +19,7 @@ A TD opts in via @context + @type:
 
     from thingctx.extensions.prompts import list_prompts, get_prompt
     list_prompts(client)
-    await get_prompt(client, "pump.diagnose", {"severity": "high"})
+    await get_prompt(client, "pump__diagnose", {"severity": "high"})
 """
 
 from __future__ import annotations

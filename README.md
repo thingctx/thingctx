@@ -78,8 +78,8 @@ client = thingctx.ThingClient.from_registry(
     thingctx.from_arg("http://device.local/.well-known/wot"))   # a URL, folder, or TDD
 specs, invoke = client.as_tools()        # specs for your model; invoke(name, args) runs a call
 
-await invoke("pump.set_speed", {"rpm": 1500})
-await client.read_property("pump.rpm")
+await invoke("pump__set_speed", {"rpm": 1500})
+await client.read_property("pump__rpm")
 ```
 
 Add a Thing by pointing at one more description.
@@ -98,7 +98,7 @@ def approve(req):                      # sync or async; return True to allow
 client = thingctx.ThingClient(
     tds=[td], bindings=[...], approve=approve, approve_when="declared")
 
-await client.invoke("pump.estop")      # asks approve() first; if denied, never runs
+await client.invoke("pump__estop")     # asks approve() first; if denied, never runs
 ```
 
 `approve_when` is `declared` (default, only TD-marked risky actions),
@@ -153,8 +153,8 @@ grants = LocalPolicyGrantSource({"operator": {(thing_id, "target_rpm", "readprop
 pdp = PolicyDecisionPoint(vocabulary=vocab, grant_source=grants)
 
 client = ThingClient(tds=[td], bindings=[...], pdp=pdp, identity=claims)
-await client.read_property("pump.target_rpm")    # ALLOWED
-await client.write_property("pump.target_rpm", 3000)  # AuthorizationDenied, device untouched
+await client.read_property("pump__target_rpm")    # ALLOWED
+await client.write_property("pump__target_rpm", 3000)  # AuthorizationDenied, device untouched
 ```
 
 The decision is TD-closed: a grant is honored only if the TD's forms actually
@@ -366,9 +366,9 @@ so one client can read over HTTP and subscribe over MQTT without you wiring
 either:
 
 ```python
-await client.read_property("pump.rpm")          # e.g. an HTTP GET
-await client.write_property("pump.target_rpm", 1500)
-async for evt in await client.subscribe("pump.overheat"):   # e.g. an MQTT topic
+await client.read_property("pump__rpm")         # e.g. an HTTP GET
+await client.write_property("pump__target_rpm", 1500)
+async for evt in await client.subscribe("pump__overheat"):  # e.g. an MQTT topic
     ...                              # evt is the payload, e.g. {"temp": 98}
 ```
 

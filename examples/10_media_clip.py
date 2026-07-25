@@ -55,7 +55,7 @@ async def main() -> None:
 
     # Sample a few frames spaced ~2s apart; a clip the model reads as stills.
     clip = await sample_frames(
-        await host.client.frames("sample.watch", track="video"), count=5, every=2.0
+        await host.client.frames("sample__watch", track="video"), count=5, every=2.0
     )
     spans = ", ".join(f"{f.pts:.1f}s" for f in clip if f.pts is not None)
     print(f"clip: {len(clip)} frames ({clip[0].width}x{clip[0].height}) at {spans}")

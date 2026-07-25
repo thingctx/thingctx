@@ -20,7 +20,7 @@ async def sample_frames(
     """Collect up to ``count`` frames spaced about ``every`` seconds apart by
     presentation timestamp. Frames without a pts are taken consecutively.
 
-        clip = await sample_frames(await client.frames("cam.watch"), count=6)
+        clip = await sample_frames(await client.frames("cam__watch"), count=6)
     """
     if count < 1:
         raise ValueError("count must be >= 1")

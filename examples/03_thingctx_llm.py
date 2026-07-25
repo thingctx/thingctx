@@ -73,9 +73,9 @@ async def main() -> None:
         # 2) PROMPT, a user picks a declared template; it seeds the agent.
         prompts = list_prompts(host.client)
         print(f"PROMPTS the Thing declares (tc:PromptTemplate): {[p['name'] for p in prompts]}")
-        msgs = await get_prompt(host.client, "pump.diagnose", {"severity": "high"})
+        msgs = await get_prompt(host.client, "pump__diagnose", {"severity": "high"})
         seed = msgs[0]["content"]  # the expanded template text
-        print("  get_prompt('pump.diagnose', severity=high) ->")
+        print("  get_prompt('pump__diagnose', severity=high) ->")
         print(f"    {seed!r}")
         diagnosis = await host.chat(seed)  # feed it to the LLM
         print(f"  LLM acted on the prompt -> {diagnosis}")
@@ -83,7 +83,7 @@ async def main() -> None:
         # 3) Long-running action, the model calls `calibrate` like any other
         # tool; the runtime blocks it to completion (synchronous:false, with
         # queryaction/cancelaction) and hands the final result back, so the
-        # model sees a normal tool return. A `pump.calibrate.cancel` tool is on
+        # model sees a normal tool return. A `pump__calibrate__cancel` tool is on
         # the same surface for stopping a run mid-flight.
         answer = await host.chat("Calibrate the pump to 1200 rpm.")
         print("\nCHAT   'calibrate to 1200'   [long-running; blocks to completion]")
@@ -102,12 +102,12 @@ async def main() -> None:
         # inline for the model to reason over.
         pump.start_telemetry(temps=(70, 85, 99), period=0.2)
         summary = await host.summarize_telemetry(
-            "pump.overheat",
+            "pump__overheat",
             "These are overheat readings (temp vs limit). Is the pump overheating, "
             "and by how much over the limit at worst?",
             samples=3,
         )
-        print("\nMONITOR summarize_telemetry('pump.overheat', samples=3)  [live SSE -> LLM]")
+        print("\nMONITOR summarize_telemetry('pump__overheat', samples=3)  [live SSE -> LLM]")
         print(f"  -> {summary}")
 
         print("\nNo tool-calling written. The model drove the same TD as 02,")

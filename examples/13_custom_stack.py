@@ -233,14 +233,14 @@ async def main() -> None:
     print("media affordances:", client.list_media())
 
     # 3) Control plane: the built-in scheme resolves to a BasicCredential.
-    out = await client.invoke("pump-a.set_speed", {"rpm": 1200})
-    print(f"\npump-a.set_speed -> {out}   (control plane: basic)")
+    out = await client.invoke("pump-a__set_speed", {"rpm": 1200})
+    print(f"\npump-a__set_speed -> {out}   (control plane: basic)")
 
     # 4) Media plane, same Thing: the watch form overrode security with the custom
     #    scheme. The media binding resolved it and the backend saw the auth plan.
-    frames = [f async for f in await client.frames("pump-a.watch", track="video")]
+    frames = [f async for f in await client.frames("pump-a__watch", track="video")]
     print(
-        f"pump-a.watch     -> {len(frames)} frames; backend saw auth: "
+        f"pump-a__watch     -> {len(frames)} frames; backend saw auth: "
         f"{camera.saw_auth is not None}   (media plane: fleet-token)"
     )
 

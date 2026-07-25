@@ -43,14 +43,14 @@ async def main() -> None:
     print("properties:", client.list_properties())
 
     # 2. Read -> write -> read a property, straight through to the live twin.
-    before = await client.read_property("lamp-1.dimmer-level")
+    before = await client.read_property("lamp-1__dimmer-level")
     print(f"\nread  dimmer-level -> {before}")
 
     new_value = 0.42
-    await client.write_property("lamp-1.dimmer-level", new_value)
+    await client.write_property("lamp-1__dimmer-level", new_value)
     print(f"write dimmer-level <- {new_value}")
 
-    after = await client.read_property("lamp-1.dimmer-level")
+    after = await client.read_property("lamp-1__dimmer-level")
     print(f"read  dimmer-level -> {after}")
 
     assert after == new_value, f"expected {new_value}, got {after}"

@@ -58,7 +58,7 @@ async def main() -> None:
 
     # Grab a frame a few seconds in (the first frames are a black fade-in).
     frame = None
-    async for fr in await host.client.frames("sample.watch", track="video"):
+    async for fr in await host.client.frames("sample__watch", track="video"):
         frame = fr
         if fr.pts and fr.pts >= 5.0:
             break

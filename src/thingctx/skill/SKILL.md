@@ -24,7 +24,7 @@ thingctx list
 
 Prints a JSON array of entries, each with `name`, `kind`, `description`, and
 `input_schema` (a JSON Schema for the arguments). The `name` is slug qualified,
-like `thermostat.setTarget` or `camera.snapshot`. Read the `input_schema` to
+like `thermostat__setTarget` or `camera__snapshot`. Read the `input_schema` to
 learn the argument names, types, and which are required; the `description` often
 states the output. Form every call from that schema; never guess argument names.
 
@@ -44,8 +44,8 @@ that, omit the source everywhere.
 Pass arguments as one JSON object, or as repeated scalar flags:
 
 ```bash
-thingctx invoke thermostat.setTarget --json '{"celsius": 21}'
-thingctx invoke thermostat.setTarget --arg celsius=21
+thingctx invoke thermostat__setTarget --json '{"celsius": 21}'
+thingctx invoke thermostat__setTarget --arg celsius=21
 ```
 
 - The result is JSON on **stdout**. Capture it once, then parse (e.g. with `jq`).
@@ -60,8 +60,8 @@ thingctx invoke thermostat.setTarget --arg celsius=21
 Chain actions by feeding one result into the next:
 
 ```bash
-ID=$(thingctx invoke catalog.create --json "$ITEM" | jq -r .id)
-thingctx invoke catalog.publish --arg id="$ID"
+ID=$(thingctx invoke catalog__create --json "$ITEM" | jq -r .id)
+thingctx invoke catalog__publish --arg id="$ID"
 ```
 
 ## 3. Trust gate
@@ -110,7 +110,7 @@ belongs to the app's recipe; this is just how to make each step read clearly:
   array. `content` may be inline text or a path string (an existing file is read,
   otherwise the text is sent as is):
   ```bash
-  thingctx invoke captions.add --json '{"file": ["c.srt", "/tmp/c.srt", "application/octet-stream"]}'
+  thingctx invoke captions__add --json '{"file": ["c.srt", "/tmp/c.srt", "application/octet-stream"]}'
   ```
 - **Read after write may lag**: a value read right after writing it may not
   reflect the change yet. If a follow up read looks stale, retry once or twice.

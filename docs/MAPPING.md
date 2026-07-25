@@ -79,7 +79,7 @@ projects to the tool specification:
 
 ```json
 { "type": "function", "function": {
-  "name": "github.createIssue",
+  "name": "github__createIssue",
   "description": "createIssue",
   "parameters": { "type": "object", "properties": {
     "owner": {"type": "string"}, "repo": {"type": "string"},
@@ -93,7 +93,7 @@ arguments are bound according to that form's transport binding.
 
 **Path variables are bound first.** Each `{name}` template variable in the form's
 `href` is replaced by the argument of the same name, which is then removed from the
-remaining arguments. An invocation of `github.createIssue` with `owner` equal to
+remaining arguments. An invocation of `github__createIssue` with `owner` equal to
 `my-org` and `repo` equal to `api` therefore yields the URL
 `https://api.github.com/repos/my-org/api/issues`.
 

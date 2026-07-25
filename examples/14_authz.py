@@ -122,18 +122,18 @@ async def main() -> None:
     )
 
     # READ: granted -> the real device value comes back.
-    value = await client.read_property("pump.target_rpm")
+    value = await client.read_property("pump__target_rpm")
     print(f"\nREAD  target_rpm  -> ALLOWED, device returned {value}")
 
     # WRITE: not granted -> the client raises BEFORE the device is touched.
     try:
-        await client.write_property("pump.target_rpm", 3000)
+        await client.write_property("pump__target_rpm", 3000)
         print("WRITE target_rpm  -> ALLOWED (unexpected)")
     except AuthorizationDenied as denied:
         print(f"WRITE target_rpm  -> DENIED, {denied.reason}")
 
     # Proof the write never reached the device: the value is unchanged.
-    after = await client.read_property("pump.target_rpm")
+    after = await client.read_property("pump__target_rpm")
     assert after == value, "denied write must not change device state"
     print(f"\nRE-READ target_rpm -> {after}  (unchanged: the denied write never ran)")
 
