@@ -73,7 +73,7 @@ def _has_token(thing_id: str, scheme: Any) -> bool:
 
 
 def thing_for_tool(client: Any, tool: str) -> Any:
-    """The Thing that owns a ``<slug>.<name>`` tool, or None."""
+    """The Thing that owns a ``<slug>__<name>`` tool, or None."""
     action = client.action_for(tool) if hasattr(client, "action_for") else None
     tid = getattr(action, "thing_id", None)
     if tid is None:
