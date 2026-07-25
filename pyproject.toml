@@ -60,7 +60,10 @@ entra = ["azure-identity>=1.20", "pyjwt[crypto]>=2.8", "httpx>=0.27"]
 filesystem = []
 # Everything.
 all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "av>=11", "numpy>=1.23", "pillow>=10"]
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff>=0.6"]
+# The gate tools are pinned, not floated: the CI and the pre-commit hook must
+# agree with what a contributor runs locally, or "green here, red in CI" churn
+# follows. ruff 0.14.x is where the in-function-import rule (PLC0415) is stable.
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff==0.14.4", "mypy==1.14.1", "vulture==2.14"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
@@ -105,12 +108,235 @@ markers = ["network: hits the network; deselect with -m 'not network'"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+# py.typed ships, so the annotations are a promise to consumers. mypy makes the
+# promise real: strict-ish on our own source, lenient at the optional-dependency
+# boundary (those deps live behind extras and are imported locally).
+[tool.mypy]
+python_version = "3.10"
+files = ["src/thingctx"]
+disallow_untyped_defs = true
+warn_return_any = true
+no_implicit_optional = true
+warn_unused_ignores = true
+check_untyped_defs = true
+# A heavy optional dep may ship no stubs (or stubs newer than our target syntax);
+# that is not our type debt. Treat a missing import as untyped rather than an error.
+ignore_missing_imports = true
+
+# The media plane's deps ship stubs written against newer Python than our floor;
+# do not parse them (we target 3.10, their .pyi use 3.12 syntax). We check only
+# how OUR code uses them, which ignore_missing_imports already covers.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*", "av", "av.*", "PIL", "PIL.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
+
+# Dead-symbol detection. The whitelist names only what is reachable through
+# indirection vulture cannot follow (entry points, protocol signatures); a
+# NEW flagged name is real dead code (PRINCIPLES.md #2), not a suppression.
+[tool.vulture]
+paths = ["src/thingctx", ".vulture_whitelist.py"]
+min_confidence = 80
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# The vulture whitelist is a list of bare names by design (each is an
+# undefined-name / useless-expression to Python); it is not real source.
+extend-exclude = [".vulture_whitelist.py"]
 
 [tool.ruff.lint]
-# pycodestyle errors, pyflakes, import sorting, pyupgrade, bugbear, and
-# flake8-return (RET catches unreachable code and inconsistent returns, the same
-# classes the code-quality scan reports, so they are caught at commit time).
-select = ["E", "F", "I", "UP", "B", "RET"]
+# The ruleset is curated, not exhaustive: each family below earns its place, and
+# the families we deliberately leave off are named in the ignore/skip notes so the
+# restraint is legible. The goal is that a slop, unidiomatic, or unsafe line cannot
+# reach the branch; over-configuration would be its own slop tell.
+select = [
+    # --- Foundations ---
+    "E",      # pycodestyle errors (layout the interpreter is indifferent to but readers are not)
+    "F",      # pyflakes: undefined names, unused imports, shadowing
+    "I",      # import sorting, so import blocks never drift
+    "UP",     # pyupgrade: use current-Python syntax, never the legacy spelling
+    "B",      # bugbear: real bug shapes (mutable defaults, except-pass, loop closures)
+    "RET",    # flake8-return: unreachable code and inconsistent return paths
+    # --- Anti-slop ---
+    "PLC0415", # no in-function imports except the documented seams below
+    "ERA",    # no commented-out dead code left "just in case"
+    "T20",    # no stray print/pprint in library code
+    "SIM",    # collapse over-complex logic a senior dev would write once
+    "C4",     # idiomatic comprehensions, no needless list() around a generator
+    "PIE",    # drop redundant patterns (dict-literal spread, unnecessary pass)
+    "RUF",    # ruff's own checks: mutable class defaults, unused noqa, and kin
+    # --- Idiomatic Python (enforced by machine, not left to the reviewer's eye) ---
+    "PTH",    # pathlib over os.path string munging
+    "FURB",   # refurb: modern stdlib idioms over hand-rolled equivalents
+    "ISC",    # no accidental implicit string concatenation
+    "Q",      # one quote style, consistently
+    "N",      # PEP 8 naming
+    "A",      # do not shadow a builtin
+    "PERF",   # obvious performance anti-idioms (try/except in a hot loop, etc.)
+    # --- Correctness / security ---
+    "S",      # bandit: for a library whose pitch is the authorization gate, clean IS the credibility
+    "ASYNC",  # async footguns (blocking calls on the event loop, open resources)
+    "PT",     # pytest hygiene in the suite
+    # --- Curated subsets (families whose high-value rules we want and whose noisy
+    #     ones we ignore below; enabling the family here, pruning in `ignore`) ---
+    "PL",     # pylint idioms (PLC/PLW/PLE); the noisy complexity-threshold PLR* are ignored below
+    "TRY",    # tryceratops; the pedantic message rules TRY003 are ignored below
+]
+
+ignore = [
+    # --- PL: keep the idiom rules, drop the complexity-threshold opinions. A
+    #     function's branch/argument/statement count is a design judgment, not a
+    #     mechanical defect; PRINCIPLES.md #4 covers "say it once" by eye. ---
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+    "PLR2004", # magic value in comparison: too noisy on status codes, ports, sizes
+    "PLR0904", # too many public methods
+    "PLW2901", # loop-variable overwrite: sometimes the clearest spelling
+    # --- TRY: keep the real bug-shapes (TRY002 bare Exception, TRY004 wrong error
+    #     type, TRY201 verbose raise), drop the message-wording pedantry. ---
+    "TRY003", # long messages outside the exception class; EM-style nit, not a defect
+    # --- ISC001 conflicts with ruff-format (it owns line-joining); leave it to the formatter. ---
+    "ISC001",
+]
+
+# Families deliberately NOT selected (restraint is the taste):
+#   ANN  - annotate-everything is noise; mypy already proves the public types.
+#   D    - full pydocstyle is pedantic; docstring quality is a contract judgment
+#          (PRINCIPLES.md #7), not a line-shape a linter should grade.
+#   FBT  - boolean-trap flagging fights too many legitimate keyword flags here.
+#   COM  - trailing-comma placement is ruff-format's job, not a lint concern.
+#   PLR0* complexity thresholds - see the PL ignores above.
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+
+[tool.ruff.lint.per-file-ignores]
+# Every secret-bearing field uses the `secret()` factory, which returns a
+# ``dataclasses.field(...)``; RUF009 cannot see through the wrapper to know it is
+# the sanctioned field mechanism, not a live mutable default.
+"src/thingctx/auth/credentials.py" = ["RUF009"]
+# The suite may print for diagnostics, uses bare asserts (that is what pytest
+# reads), and constructs fixtures with patterns S/PLC would flag in shipping code.
+"tests/**" = [
+    "T20",     # test diagnostics may print
+    "S101",    # asserts ARE the test surface
+    "S105",    # hardcoded "password"-looking test fixtures are not secrets
+    "S106",    # same, for keyword-arg fixtures
+    "S107",    # a fixture's default "password" argument is not a real secret
+    "S311",    # non-crypto random is fine in a test
+    "S108",    # hardcoded /tmp paths in tests are deliberate
+    "S104",    # a test server may bind 0.0.0.0 to be reachable from a container
+    "S603",    # the suite drives real subprocesses (cli, servers) on purpose
+    "S607",    # and calls them by PATH name (python, ffmpeg) in the harness
+    "PLC0415", # tests import lazily to exercise import-time behavior and optional extras
+    "PT011",   # pytest.raises(Exception) is acceptable in a few broad-failure tests
+    # These rewrite the SHAPE of a passing assertion for no correctness gain;
+    # letting them touch the suite risks the regression the gate exists to prevent.
+    "PT018",   # a composite `assert a and b` is fine; do not split it
+    "SIM300",  # do not reorder an equality in an assertion (Yoda is a non-issue here)
+    # Test-harness idioms. These are quality rules for shipping code; in the suite
+    # they fight the way fixtures and stubs are legitimately written, and enforcing
+    # them would mean rewriting passing test logic for no behavioral gain.
+    "RUF012",  # a stub's class-level list/dict is a fixture, not shared mutable state
+    "RUF059",  # an unpacked-but-unused tuple element documents the shape under test
+    "PT006",   # parametrize name style (str vs tuple) is cosmetic here
+    "PT001",   # fixture-parentheses style is cosmetic
+    "RUF043",  # a pytest.raises match pattern need not be a compiled-regex-safe string
+    "ASYNC251",# a test coroutine may sleep to drive timing deterministically
+    "N802",    # a test may name a function to read as a sentence
+    "N803",    # a fixture argument may echo an external name's casing
+    "N812",    # a test may alias an import to match the symbol under test
+    "S110",    # a test may swallow an expected teardown error
+    "SIM105",  # same, without reaching for contextlib in a throwaway block
+    "SIM117",  # nested with-statements can read clearer in a test setup
+    "PERF203", # per-iteration try/except is fine in a test loop
+    "PERF401", # a test building a list by append is not a hot path
+    "TRY300",  # a test's try/else split is not worth enforcing
+    "PLR1714", # repeated-equality in a test assertion reads fine
+    "C408",    # dict(...) over a literal is acceptable in fixture construction
+    "RUF005",  # list concat over unpacking is fine in a fixture
+    "PTH123",  # a test may open a path it fully controls
+]
+"tools/**" = ["T20"]  # the dev-only tool prints its output by design
+# The OAuth consent flow prints the authorize URL the user must open in a browser;
+# that print IS the user-facing prompt, not debug residue. (cli.py and the MCP
+# stdio server also print their result; their T20 ignore is folded into the
+# in-function-import block below, since those files carry both exceptions.)
+"src/thingctx/auth/oauth_consent.py" = ["T20"]
+# Examples are runnable teaching scripts, not shipped code (absent from the wheel).
+# Printing IS the lesson, an assert reads as "expect this", and a local import shows
+# which extra a feature needs. Keep the real-bug rules (F/B/ASYNC blocking) on.
+"examples/**" = [
+    "T20",     # examples print their result on purpose
+    "S101",    # an assert documents the expected outcome
+    "S102",    # example may exec/eval to demonstrate a handler
+    "S603",    # example spawns a helper server by design
+    "S607",    # example calls a tool on PATH by name
+    "S310",    # example opens a URL it constructs for the demo
+    "PLC0415", # a local import shows which extra the step needs
+    "PT018",   # examples are not pytest cases
+    # Teaching code favors a clear, linear read over maximal idiom: a plain
+    # blocking call, a simple try/return, an explicit loop are the point.
+    "ASYNC210", "ASYNC220",  # a demo may call a blocking helper inside async for clarity
+    "TRY300", "TRY301",      # a linear try/return reads better in an example
+    "PERF401",               # a demo builds a small list plainly
+    "SIM115", "SIM117", "SIM212",  # explicit over clever in illustrative code
+    "A002",                  # an example may use `id`/`type` as a parameter to mirror the API
+]
+
+# Load-bearing in-function imports. PLC0415 is ON everywhere so a NEW casual local
+# import is caught; these files carry imports that MUST stay local and each is
+# annotated here rather than repeating a noqa on every line.
+#
+#   - optional heavy deps (httpx, paho, av/numpy/pillow, litellm, pyjwt, azure,
+#     jsonschema, mcp, yaml): importing at module top would pull the dep into the
+#     lean core and break `import thingctx` with no extras (PRINCIPLES.md #10).
+#   - documented seams: cli.py, connect.py, and integrations/mcp.py import inside
+#     functions to break an import cycle or to keep a monkeypatch seam the suite
+#     relies on. Hoisting connect.py's login import, for one, makes the module do
+#     an OAuth wait at import time and hangs the suite.
+"src/thingctx/integrations/mcp.py" = ["PLC0415", "T20"]  # T20: the MCP stdio server prints its result
+"src/thingctx/integrations/connect.py" = ["PLC0415"]
+"src/thingctx/cli.py" = ["PLC0415", "T20"]  # T20: the CLI prints its result to the terminal
+"src/thingctx/runtime.py" = ["PLC0415"]
+"src/thingctx/chain.py" = ["PLC0415"]
+"src/thingctx/thing.py" = ["PLC0415"]
+"src/thingctx/registry.py" = ["PLC0415"]
+"src/thingctx/openapi.py" = ["PLC0415"]
+"src/thingctx/gateway.py" = ["PLC0415"]
+"src/thingctx/contrib/llm.py" = ["PLC0415"]
+"src/thingctx/auth/providers.py" = ["PLC0415"]
+"src/thingctx/auth/secret.py" = ["PLC0415"]
+"src/thingctx/identity/__init__.py" = ["PLC0415"]
+"src/thingctx/identity/provider.py" = ["PLC0415"]
+"src/thingctx/identity/jwt_guard.py" = ["PLC0415"]
+"src/thingctx/identity/registry.py" = ["PLC0415"]
+"src/thingctx/identity/providers/cloudflare.py" = ["PLC0415"]
+"src/thingctx/bindings/registry.py" = ["PLC0415"]
+"src/thingctx/bindings/base.py" = ["PLC0415"]
+"src/thingctx/bindings/builtin/http.py" = ["PLC0415"]
+"src/thingctx/bindings/builtin/mqtt.py" = ["PLC0415"]
+"src/thingctx/bindings/builtin/local.py" = ["PLC0415"]
+"src/thingctx/bindings/builtin/exec.py" = ["PLC0415"]
+"src/thingctx/bindings/builtin/media/backends.py" = ["PLC0415"]
+"src/thingctx/bindings/builtin/media/binding.py" = ["PLC0415"]
+"src/thingctx/bindings/builtin/media/encode.py" = ["PLC0415"]
+"src/thingctx/gateways/__init__.py" = ["PLC0415"]
+"src/thingctx/gateways/registry.py" = ["PLC0415"]
+"src/thingctx/gateways/builtin/mqtt.py" = ["PLC0415"]
+"src/thingctx/gateways/builtin/mcp.py" = ["PLC0415"]
+"src/thingctx/authz/pdp.py" = ["PLC0415"]
+"src/thingctx/authz/pep.py" = ["PLC0415"]
+"src/thingctx/authz/authzen.py" = ["PLC0415"]  # httpx local: keeps authz stdlib-only (dep-free-base tripwire)
+"src/thingctx/auth/registry.py" = ["PLC0415"]  # importlib.metadata deferred off the import path (entry-point scan cost)
+"src/thingctx/client.py" = ["PLC0415"]
+"src/thingctx/contracts.py" = ["PLC0415"]
+"src/thingctx/extensions/prompts.py" = ["PLC0415"]
+"src/thingctx/lint.py" = ["PLC0415"]
+"src/thingctx/reliability.py" = ["PLC0415"]
+"src/thingctx/testing.py" = ["PLC0415"]
+"src/thingctx/trust.py" = ["PLC0415"]
+"src/thingctx/validate.py" = ["PLC0415"]

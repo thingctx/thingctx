@@ -20,8 +20,8 @@ from thingctx.identity.providers.cloudflare import (
 from thingctx.identity.providers.entra import EntraGatewayGuard, make_entra_guard
 
 __all__ = [
-    "EntraGatewayGuard",
-    "make_entra_guard",
     "CloudflareAccessGuard",
+    "EntraGatewayGuard",
     "make_cloudflare_guard",
+    "make_entra_guard",
 ]

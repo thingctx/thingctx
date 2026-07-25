@@ -33,7 +33,9 @@ _TOOL_NAME_OK = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 # The shape ``from_openapi`` emits when an operation has no ``operationId``:
 # a method and a path slug joined by an underscore (e.g. ``get_users_id``).
-_GENERATED_NAME = re.compile(r"^(get|post|put|patch|delete|head|options)_[a-z0-9_]+$", re.I)
+_GENERATED_NAME = re.compile(
+    r"^(get|post|put|patch|delete|head|options)_[a-z0-9_]+$", re.IGNORECASE
+)
 
 # A single word (no space) is almost never a usable description for a model.
 _SINGLE_TOKEN = re.compile(r"^\S+$")
@@ -41,7 +43,7 @@ _SINGLE_TOKEN = re.compile(r"^\S+$")
 # Header names that carry a secret. A TD is meant to be committed and shared, so
 # a credential in ``htv:headers`` is the one thing the security posture forbids.
 _CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
-_CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.I)
+_CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.IGNORECASE)
 
 _MIN_DESCRIPTION = 8  # a description under this many characters carries no meaning
 

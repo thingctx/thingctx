@@ -56,7 +56,7 @@ from typing import Any
 
 from thingctx.identity.jwt_guard import AuthorizationError, Grant, JwtGatewayGuard
 
-__all__ = ["CloudflareAccessGuard", "make_cloudflare_guard", "AuthorizationError"]
+__all__ = ["AuthorizationError", "CloudflareAccessGuard", "make_cloudflare_guard"]
 
 
 class CloudflareAccessGuard(JwtGatewayGuard):
@@ -174,8 +174,7 @@ class CloudflareAccessGuard(JwtGatewayGuard):
             t = host
         # Strip the cloudflareaccess.com suffix if a full host was given.
         suffix = ".cloudflareaccess.com"
-        if t.endswith(suffix):
-            t = t[: -len(suffix)]
+        t = t.removesuffix(suffix)
         return t.strip("/")
 
     def _authorize(self, claims: dict[str, Any]) -> None:

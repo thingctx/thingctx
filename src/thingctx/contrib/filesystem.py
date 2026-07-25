@@ -79,7 +79,7 @@ class FilesystemHandler:
         p = _confine(path)
         if not p.is_dir():
             raise NotADirectoryError(f"not a directory: {path!r}")
-        return {"path": path, "entries": sorted(os.listdir(p))}
+        return {"path": path, "entries": sorted(entry.name for entry in p.iterdir())}
 
 
 def make_filesystem_handler() -> FilesystemHandler:

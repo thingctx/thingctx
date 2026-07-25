@@ -21,11 +21,11 @@ import pytest
 pytest.importorskip("jwt")
 pytest.importorskip("cryptography")
 
-import jwt  # noqa: E402
-from cryptography.hazmat.primitives import serialization  # noqa: E402
-from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
-from thingctx import HttpBinding, parse_thing  # noqa: E402
+from thingctx import HttpBinding, parse_thing
 
 GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 TOKEN = "jwt-minted-access-token"
@@ -67,7 +67,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode()
         if self.path == "/token":
@@ -84,7 +84,7 @@ class _Handler(BaseHTTPRequestHandler):
                     audience=None,
                     options={"verify_aud": False},
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 type(self).seen["bad"] = f"bad-signature: {e}"
                 return self._json(401, {"error": "invalid_assertion"})
             type(self).seen["claims"] = claims
@@ -98,7 +98,7 @@ class _Handler(BaseHTTPRequestHandler):
         return None
 
 
-@pytest.fixture()
+@pytest.fixture
 def server():
     _Handler.seen = {"token_calls": 0, "claims": None, "api_auth": None, "bad": None}
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)

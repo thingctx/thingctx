@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from thingctx.identity.jwt_guard import AuthorizationError, Grant, JwtGatewayGuard
 
-__all__ = ["EntraGatewayGuard", "make_entra_guard", "AuthorizationError"]
+__all__ = ["AuthorizationError", "EntraGatewayGuard", "make_entra_guard"]
 
 
 class EntraGatewayGuard(JwtGatewayGuard):

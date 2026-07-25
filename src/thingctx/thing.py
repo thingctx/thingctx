@@ -94,7 +94,7 @@ class WoTForm:
 
         used: set[str] = set()
 
-        def _sub(m):
+        def _sub(m: _re.Match[str]) -> str:
             key = m.group(1)
             raw = key.startswith("+")
             if raw:
@@ -135,10 +135,7 @@ class WoTAction:
     def has_type(self, term: str) -> bool:
         """True if annotated @type term (exact, or local name after a
         prefix:)."""
-        for t in self.at_type:
-            if t == term or t.split(":")[-1] == term.split(":")[-1]:
-                return True
-        return False
+        return any(t == term or t.split(":")[-1] == term.split(":")[-1] for t in self.at_type)
 
     def _flag(self, *keys: str) -> bool:
         """True if any of the given keys is truthy in the action's raw def
@@ -504,14 +501,14 @@ def _parse_security_scheme(name: str, sdef: dict[str, Any]) -> WoTSecurityScheme
 def _context_prefixes(context: Any) -> dict[str, str]:
     """Collect prefix -> IRI mappings declared in ``@context`` (the object
     entries; bare string contexts contribute none)."""
-    prefixes: dict[str, str] = {}
     entries = context if isinstance(context, list) else [context]
-    for entry in entries:
-        if isinstance(entry, dict):
-            for k, v in entry.items():
-                if isinstance(v, str) and not k.startswith("@"):
-                    prefixes[k] = v
-    return prefixes
+    return {
+        k: v
+        for entry in entries
+        if isinstance(entry, dict)
+        for k, v in entry.items()
+        if isinstance(v, str) and not k.startswith("@")
+    }
 
 
 def _as_tuple(v: Any) -> tuple[str, ...]:

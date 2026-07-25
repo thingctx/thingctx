@@ -4,12 +4,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from collections.abc import AsyncIterator, Callable
+from typing import TYPE_CHECKING, Any, cast
 
 from thingctx.bindings.base import ProtocolBinding
 from thingctx.contracts import implements
 from thingctx.thing import thing_slug
+
+if TYPE_CHECKING:
+    from thingctx.thing import WoTAction, WoTEvent, WoTForm, WoTProperty
 
 
 @implements(ProtocolBinding)
@@ -64,7 +67,7 @@ class LocalBinding:
             handlers if isinstance(handlers, LocalBinding) else LocalBinding(handlers)
         )
 
-    def _sub_for(self, thing_id: Any):
+    def _sub_for(self, thing_id: Any) -> LocalBinding | None:
         if not self._by_slug or thing_id is None:
             return None
 
@@ -76,10 +79,10 @@ class LocalBinding:
         if self._obj is not None:
             fn = getattr(self._obj, name, None)
             if callable(fn):
-                return fn
+                return cast("Callable[..., Any]", fn)  # narrowed by callable(); getattr yields Any
         return None
 
-    async def invoke(self, action, form, arguments):  # noqa: ANN001
+    async def invoke(self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]) -> Any:
         sub = self._sub_for(action.thing_id)
         if sub is not None:
             return await sub.invoke(action, form, arguments)
@@ -101,7 +104,7 @@ class LocalBinding:
         return result
 
     # Telemetry: read a property, subscribe to a stream
-    async def read(self, prop, form):  # noqa: ANN001
+    async def read(self, prop: WoTProperty, form: WoTForm) -> Any:
         """Read a property's current value. Resolves ``get_<name>`` /
         ``<name>`` on the device object, else a same-named attribute."""
         sub = self._sub_for(prop.thing_id)
@@ -119,7 +122,7 @@ class LocalBinding:
             return getattr(self._obj, prop.name)
         return {"error": f"no readable source for property {prop.name!r}"}
 
-    async def write(self, prop, form, value):  # noqa: ANN001
+    async def write(self, prop: WoTProperty, form: WoTForm, value: Any) -> Any:
         """Write a property: call ``set_<name>(value)`` on the device,
         else set a same-named attribute."""
         import inspect
@@ -136,7 +139,12 @@ class LocalBinding:
             return {"ok": True, prop.name: value}
         return {"error": f"no writable target for property {prop.name!r}"}
 
-    async def subscribe(self, target, form, args=None):  # noqa: ANN001
+    async def subscribe(
+        self,
+        target: WoTEvent | WoTProperty | str,
+        form: WoTForm,
+        args: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any]:
         """Subscribe to an event / observable property. Returns an async
         iterator yielding pushed values. The device pushes with :meth:`emit`.
         ``target`` is the affordance (its ``name`` keys the subscriber list);
@@ -147,7 +155,7 @@ class LocalBinding:
         queue: asyncio.Queue = asyncio.Queue()
         self._subs.setdefault(name, []).append(queue)
 
-        async def _stream():
+        async def _stream() -> AsyncIterator[Any]:
             try:
                 while True:
                     yield await queue.get()

@@ -51,9 +51,9 @@ def test_every_projected_tool_name_is_mcp_legal():
     names += list(client.list_events())
     assert names, "projection produced no names"
     for n in names:
-        assert MCP_NAME.match(
-            n
-        ), f"tool name {n!r} is not MCP-legal (needs ^[a-zA-Z0-9_-]{{1,64}}$)"
+        assert MCP_NAME.match(n), (
+            f"tool name {n!r} is not MCP-legal (needs ^[a-zA-Z0-9_-]{{1,64}}$)"
+        )
 
 
 def test_tool_name_uses_double_underscore_and_slug_recovers():

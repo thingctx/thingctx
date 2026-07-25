@@ -15,8 +15,12 @@ from __future__ import annotations
 import asyncio
 import random
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from thingctx.auth.media import redact_url
+
+if TYPE_CHECKING:
+    import httpx
 
 # Transient HTTP statuses worth retrying: request timeout, rate limit, and the
 # server-side 5xx family that commonly clears on a second try.
@@ -39,7 +43,10 @@ class RetryPolicy:
     retry_statuses: tuple[int, ...] = DEFAULT_RETRY_STATUSES
 
     def delay(self, attempt: int) -> float:
-        return min(self.backoff * (2**attempt), self.max_backoff) + random.uniform(0, self.jitter)
+        # ``2 ** attempt`` types as Any (int.__pow__ overload fallback), which
+        # would poison the product; float() pins the already-float result.
+        capped = min(self.backoff * float(2**attempt), self.max_backoff)
+        return capped + random.uniform(0, self.jitter)  # noqa: S311 (jitter, not security-sensitive)
 
 
 class TransportError(Exception):
@@ -78,7 +85,7 @@ class TransportError(Exception):
         if cause is not None:
             self.__cause__ = cause
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "ok": False,
             "error": {
@@ -91,7 +98,7 @@ class TransportError(Exception):
         }
 
 
-def _retry_after(resp, policy: RetryPolicy, attempt: int) -> float:
+def _retry_after(resp: httpx.Response | None, policy: RetryPolicy, attempt: int) -> float:
     """Honor a numeric ``Retry-After`` header (429/503) if present and sane,
     otherwise fall back to the policy's backoff schedule."""
     if resp is not None:
@@ -102,8 +109,14 @@ def _retry_after(resp, policy: RetryPolicy, attempt: int) -> float:
 
 
 async def send_with_retry(
-    client, method: str, url: str, *, policy: RetryPolicy, retries: int | None = None, **kwargs
-):
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    policy: RetryPolicy,
+    retries: int | None = None,
+    **kwargs: Any,
+) -> tuple[httpx.Response, int]:
     """Send a request, retrying transient failures per ``policy``. Returns
     ``(response, attempts)``; raises ``TransportError`` if every attempt fails
     at the transport level (the caller decides what to do with a bad status).

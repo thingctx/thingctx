@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["JwtGatewayGuard", "Grant", "AuthorizationError"]
+__all__ = ["AuthorizationError", "Grant", "JwtGatewayGuard"]
 
 _JWKS_TTL = 3600.0  # cache the provider's signing keys for an hour
 _JWKS_FORCE_COOLDOWN = 30.0  # min seconds between forced refetches (rotation), a DoS guard
@@ -177,12 +177,17 @@ class JwtGatewayGuard:
             return self._jwks_cache  # type: ignore[return-value]
         import httpx
 
+        # Reached only when _static_jwks is None; the constructor then requires
+        # jwks_url, so it is set here. Guard fail-closed rather than trust it.
+        url = self._jwks_url
+        if url is None:  # pragma: no cover - constructor invariant
+            raise AuthorizationError("no signing-key source configured")
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(self._jwks_url)
+                resp = await client.get(url)
                 resp.raise_for_status()
                 jwks = resp.json()
-        except Exception as exc:  # noqa: BLE001 - any fetch failure is a denial
+        except Exception as exc:
             raise AuthorizationError(
                 "could not fetch the signing keys to verify the token"
             ) from exc
@@ -190,7 +195,7 @@ class JwtGatewayGuard:
         self._jwks_fetched_at = time.time()
         return self._jwks_cache  # type: ignore[return-value]
 
-    def _signing_key(self, jwks: dict, kid: str | None):
+    def _signing_key(self, jwks: dict[str, Any], kid: str | None) -> Any:
         """Build a public key for the token's ``kid`` from the JWKS, or raise."""
         import jwt
 

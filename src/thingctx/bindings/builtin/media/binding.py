@@ -26,7 +26,7 @@ import contextlib
 import re
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any
 from urllib.parse import urlparse
 
@@ -414,7 +414,9 @@ class MediaBinding(AuthMixin):
                 options["auth"] = plan
         await self._run_copy(backend.copy, url, target, options)
 
-    async def _run_copy(self, copy, url: str, target: str, options: dict) -> None:  # noqa: ANN001
+    async def _run_copy(
+        self, copy: Callable[..., None], url: str, target: str, options: dict
+    ) -> None:
         """Run a blocking stream-copy in a worker thread. No frame queue bridge
         is needed (the copy is a single blocking call, not a per-frame handoff);
         a worker error is re-raised on the event loop with credentials scrubbed,
@@ -444,7 +446,13 @@ class MediaBinding(AuthMixin):
         if error:
             raise error[0]
 
-    async def _drain(self, write, target: str, options: dict, source: AsyncIterator[Frame]) -> None:
+    async def _drain(
+        self,
+        write: Callable[..., None],
+        target: str,
+        options: dict,
+        source: AsyncIterator[Frame],
+    ) -> None:
         """Bridge an async frame source to a blocking writer thread.
 
         Frames cross through a bounded queue; when it fills, the producer awaits
@@ -483,9 +491,10 @@ class MediaBinding(AuthMixin):
             while not stop.is_set():
                 try:
                     q.put(item, timeout=0.1)
-                    return
-                except _queue.Full:
+                except _queue.Full:  # noqa: PERF203 (per-iteration retry on a full queue)
                     continue
+                else:
+                    return
 
         thread = threading.Thread(target=_worker, name="thingctx-media-pub", daemon=True)
         thread.start()
@@ -513,7 +522,14 @@ class MediaBinding(AuthMixin):
             if error:
                 raise error[0]
 
-    async def _drain_av(self, write_av, target: str, options: dict, video, audio) -> None:
+    async def _drain_av(
+        self,
+        write_av: Callable[..., None],
+        target: str,
+        options: dict,
+        video: AsyncIterator[Frame] | None,
+        audio: AsyncIterator[Frame] | None,
+    ) -> None:
         """Bridge two async frame sources (video, audio; either may be None) to a
         single blocking ``write_av`` that muxes both into one container. Each
         track crosses on its own bounded queue; the worker pulls from both and
@@ -529,11 +545,11 @@ class MediaBinding(AuthMixin):
         qv: _queue.Queue | None = _queue.Queue(maxsize=depth) if video is not None else None
         qa: _queue.Queue | None = _queue.Queue(maxsize=depth) if audio is not None else None
 
-        def _blocking(q: _queue.Queue | None):
+        def _blocking(q: _queue.Queue | None) -> Iterator[Frame] | None:
             if q is None:
                 return None
 
-            def _gen() -> Any:
+            def _gen() -> Iterator[Frame]:
                 while True:
                     item = q.get()
                     if item is done:
@@ -554,9 +570,10 @@ class MediaBinding(AuthMixin):
             while not stop.is_set():
                 try:
                     q.put(item, timeout=0.1)
-                    return
-                except _queue.Full:
+                except _queue.Full:  # noqa: PERF203 (per-iteration retry on a full queue)
                     continue
+                else:
+                    return
 
         thread = threading.Thread(target=_worker, name="thingctx-media-av", daemon=True)
         thread.start()
@@ -578,8 +595,10 @@ class MediaBinding(AuthMixin):
 
         feeds = []
         if video is not None:
+            assert qv is not None  # noqa: S101  # qv is set exactly when video is
             feeds.append(_feed(video, qv))
         if audio is not None:
+            assert qa is not None  # noqa: S101  # qa is set exactly when audio is
             feeds.append(_feed(audio, qa))
         try:
             await asyncio.gather(*feeds)
@@ -591,7 +610,9 @@ class MediaBinding(AuthMixin):
             if error:
                 raise error[0]
 
-    async def _pump(self, read, url: str, options: dict) -> AsyncIterator[Frame]:
+    async def _pump(
+        self, read: Callable[..., Iterator[Frame]], url: str, options: dict
+    ) -> AsyncIterator[Frame]:
         """Run a blocking frame generator in a thread and yield its frames on
         the event loop.
 
@@ -625,6 +646,7 @@ class MediaBinding(AuthMixin):
             if drop:
                 loop.call_soon_threadsafe(_offer_frame_drop, frame)
                 return
+            assert free is not None  # noqa: S101  # free is set whenever drop is False
             # "all": block the worker until the consumer frees a slot.
             while not free.acquire(timeout=0.1):
                 if stop.is_set():

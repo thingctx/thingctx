@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _pump import PumpDevice  # noqa: E402
+from _pump import PumpDevice
 
 
 def build_app():

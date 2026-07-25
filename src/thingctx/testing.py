@@ -55,8 +55,17 @@ from thingctx.gateways import (
 )
 from thingctx.registry import Registry
 
+
+def _require(condition: object, message: str) -> None:
+    """Raise ``AssertionError(message)`` when ``condition`` is falsy. Unlike a bare
+    ``assert``, this survives ``python -O``: a conformance check that silently
+    vanishes under optimization would hand back false confidence."""
+    if not condition:
+        raise AssertionError(message)
+
+
 # Capability -> (attribute name, expected to be a coroutine function).
-_ASYNC_CAPS = (
+_ASYNC_CAPS: tuple[tuple[type[Any], str], ...] = (
     (Readable, "read"),
     (Writable, "write"),
     (Subscribable, "subscribe"),
@@ -64,7 +73,7 @@ _ASYNC_CAPS = (
 )
 
 # Capabilities whose methods are all expected to be coroutine functions.
-_MULTI_ASYNC_CAPS = (
+_MULTI_ASYNC_CAPS: tuple[tuple[type[Any], tuple[str, ...]], ...] = (
     (BulkProperties, ("read_all", "write_all")),
     (AsyncAction, ("invoke_async", "query_action", "cancel_action")),
 )
@@ -89,34 +98,36 @@ def assert_binding_contract(binding: Any) -> None:
     """Assert ``binding`` satisfies the core contract and that every capability
     it advertises has the right shape. Raises ``AssertionError`` on a breach."""
     schemes = binding_schemes(binding)
-    assert schemes and all(
-        isinstance(s, str) and s for s in schemes
-    ), "a binding must name at least one non-empty scheme"
+    _require(
+        schemes and all(isinstance(s, str) and s for s in schemes),
+        "a binding must name at least one non-empty scheme",
+    )
 
-    assert isinstance(binding, ProtocolBinding), "a binding must expose a scheme and invoke()"
-    assert inspect.iscoroutinefunction(binding.invoke), "invoke() must be async"
+    _require(isinstance(binding, ProtocolBinding), "a binding must expose a scheme and invoke()")
+    _require(inspect.iscoroutinefunction(binding.invoke), "invoke() must be async")
 
     if isinstance(binding, ContentRouted):
-        assert callable(binding.handles), "handles must be callable"
-        assert not inspect.iscoroutinefunction(binding.handles), "handles must be synchronous"
+        _require(callable(binding.handles), "handles must be callable")
+        _require(not inspect.iscoroutinefunction(binding.handles), "handles must be synchronous")
 
     if isinstance(binding, MediaConsumer):
-        assert callable(binding.frames), "frames must be callable"
-        assert not inspect.iscoroutinefunction(
-            binding.frames
-        ), "frames is a synchronous factory returning an async iterator"
+        _require(callable(binding.frames), "frames must be callable")
+        _require(
+            not inspect.iscoroutinefunction(binding.frames),
+            "frames is a synchronous factory returning an async iterator",
+        )
 
     for cap, attr in _ASYNC_CAPS:
         if isinstance(binding, cap):
             method = getattr(binding, attr)
-            assert inspect.iscoroutinefunction(method), f"{attr}() must be async"
+            _require(inspect.iscoroutinefunction(method), f"{attr}() must be async")
 
     for cap, attrs in _MULTI_ASYNC_CAPS:
         if isinstance(binding, cap):
             for attr in attrs:
-                assert inspect.iscoroutinefunction(
-                    getattr(binding, attr)
-                ), f"{attr}() must be async"
+                _require(
+                    inspect.iscoroutinefunction(getattr(binding, attr)), f"{attr}() must be async"
+                )
 
 
 def assert_media_backend_contract(backend: Any) -> None:
@@ -129,18 +140,21 @@ def assert_media_backend_contract(backend: Any) -> None:
     off the event loop, and ``read`` / ``write`` stop when the passed
     ``threading.Event`` is set. Raises ``AssertionError`` on a breach."""
 
-    assert isinstance(
-        backend, MediaBackend
-    ), "a media backend must expose can_open(), read(), and write()"
+    _require(
+        isinstance(backend, MediaBackend),
+        "a media backend must expose can_open(), read(), and write()",
+    )
     for attr in ("can_open", "read", "write"):
         method = getattr(backend, attr)
-        assert callable(method), f"{attr} must be callable"
-        assert not inspect.iscoroutinefunction(
-            method
-        ), f"{attr}() must be synchronous; it runs off the event loop in a worker thread"
-    assert inspect.isgeneratorfunction(
-        backend.read
-    ), "read() must be a generator that yields Frame objects until stop is set"
+        _require(callable(method), f"{attr} must be callable")
+        _require(
+            not inspect.iscoroutinefunction(method),
+            f"{attr}() must be synchronous; it runs off the event loop in a worker thread",
+        )
+    _require(
+        inspect.isgeneratorfunction(backend.read),
+        "read() must be a generator that yields Frame objects until stop is set",
+    )
 
 
 def assert_provider_contract(provider: Any) -> None:
@@ -149,19 +163,23 @@ def assert_provider_contract(provider: Any) -> None:
     ``matches`` and resolves neutral credential material with an async
     ``resolve``. Raises ``AssertionError`` on a breach."""
 
-    assert isinstance(
-        provider, CredentialProvider
-    ), "a provider must expose name, matches(), and resolve()"
-    assert (
-        isinstance(provider.name, str) and provider.name
-    ), "a provider must name itself with a non-empty string"
-    assert callable(provider.matches), "matches must be callable"
-    assert not inspect.iscoroutinefunction(
-        provider.matches
-    ), "matches() must be synchronous; it only inspects a scheme and credential"
-    assert inspect.iscoroutinefunction(
-        provider.resolve
-    ), "resolve() must be async; it may mint a token over the network"
+    _require(
+        isinstance(provider, CredentialProvider),
+        "a provider must expose name, matches(), and resolve()",
+    )
+    _require(
+        isinstance(provider.name, str) and provider.name,
+        "a provider must name itself with a non-empty string",
+    )
+    _require(callable(provider.matches), "matches must be callable")
+    _require(
+        not inspect.iscoroutinefunction(provider.matches),
+        "matches() must be synchronous; it only inspects a scheme and credential",
+    )
+    _require(
+        inspect.iscoroutinefunction(provider.resolve),
+        "resolve() must be async; it may mint a token over the network",
+    )
 
 
 def assert_registry_contract(registry: Any, *, call: bool = True) -> None:
@@ -171,14 +189,15 @@ def assert_registry_contract(registry: Any, *, call: bool = True) -> None:
     ``fetch`` once and checks the shape; pass ``call=False`` to skip the call when
     fetching has a cost or side effect. Raises ``AssertionError`` on a breach."""
 
-    assert isinstance(registry, Registry), "a registry must expose fetch()"
-    assert callable(registry.fetch), "fetch must be callable"
-    assert not inspect.iscoroutinefunction(registry.fetch), "fetch() must be synchronous"
+    _require(isinstance(registry, Registry), "a registry must expose fetch()")
+    _require(callable(registry.fetch), "fetch must be callable")
+    _require(not inspect.iscoroutinefunction(registry.fetch), "fetch() must be synchronous")
     if call:
         tds = registry.fetch()
-        assert isinstance(tds, list) and all(
-            isinstance(td, dict) for td in tds
-        ), "fetch() must return a list of Thing Description dicts"
+        _require(
+            isinstance(tds, list) and all(isinstance(td, dict) for td in tds),
+            "fetch() must return a list of Thing Description dicts",
+        )
 
 
 def gateway_binding_capabilities(binding: Any) -> dict[str, bool]:
@@ -208,29 +227,33 @@ def assert_gateway_binding_contract(binding: Any) -> None:
     shape only when present, so a driver is never forced to support an operation
     its transport cannot carry."""
 
-    assert isinstance(
-        binding, GatewayBinding
-    ), "a gateway binding must expose scheme, project_forms, serve, aclose"
-    assert (
-        isinstance(getattr(binding, "scheme", None), str) and binding.scheme
-    ), "a gateway binding must name a non-empty scheme"
-    assert callable(binding.project_forms), "project_forms must be callable"
-    assert not inspect.iscoroutinefunction(
-        binding.project_forms
-    ), "project_forms must be synchronous (it builds forms, it does not do I/O)"
-    assert inspect.iscoroutinefunction(binding.serve), "serve() must be async"
-    assert inspect.iscoroutinefunction(binding.aclose), "aclose() must be async"
+    _require(
+        isinstance(binding, GatewayBinding),
+        "a gateway binding must expose scheme, project_forms, serve, aclose",
+    )
+    _require(
+        isinstance(getattr(binding, "scheme", None), str) and binding.scheme,
+        "a gateway binding must name a non-empty scheme",
+    )
+    _require(callable(binding.project_forms), "project_forms must be callable")
+    _require(
+        not inspect.iscoroutinefunction(binding.project_forms),
+        "project_forms must be synchronous (it builds forms, it does not do I/O)",
+    )
+    _require(inspect.iscoroutinefunction(binding.serve), "serve() must be async")
+    _require(inspect.iscoroutinefunction(binding.aclose), "aclose() must be async")
 
     # Optional capabilities: shape-checked only when advertised.
     if isinstance(binding, RequestReply):
-        assert inspect.iscoroutinefunction(binding.reply), "reply() must be async"
+        _require(inspect.iscoroutinefunction(binding.reply), "reply() must be async")
     if isinstance(binding, EventMirroring):
-        assert inspect.iscoroutinefunction(binding.mirror_event), "mirror_event() must be async"
+        _require(inspect.iscoroutinefunction(binding.mirror_event), "mirror_event() must be async")
     if isinstance(binding, Announces):
-        assert inspect.iscoroutinefunction(binding.announce), "announce() must be async"
-        assert inspect.iscoroutinefunction(binding.reap), "reap() must be async"
+        _require(inspect.iscoroutinefunction(binding.announce), "announce() must be async")
+        _require(inspect.iscoroutinefunction(binding.reap), "reap() must be async")
     if isinstance(binding, QoSAware):
-        assert callable(binding.quality_terms), "quality_terms must be callable"
-        assert not inspect.iscoroutinefunction(
-            binding.quality_terms
-        ), "quality_terms must be synchronous"
+        _require(callable(binding.quality_terms), "quality_terms must be callable")
+        _require(
+            not inspect.iscoroutinefunction(binding.quality_terms),
+            "quality_terms must be synchronous",
+        )

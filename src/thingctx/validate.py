@@ -29,7 +29,7 @@ class TDValidationError(ValueError):
 
 
 def _load_schema() -> dict:
-    global _schema_cache
+    global _schema_cache  # noqa: PLW0603  module-level schema cache; the global is the cache seam
     if _schema_cache is None:
         _schema_cache = json.loads(_SCHEMA_PATH.read_text())
     return _schema_cache
@@ -112,11 +112,11 @@ def validate_semantics(td: dict[str, Any]) -> list[str]:
             scheme = (defs.get(name) or {}).get("scheme")
             if scheme == "combo":
                 for key in ("oneOf", "allOf"):
-                    for ref in _as_list((defs.get(name) or {}).get(key)):
-                        if ref not in defined:
-                            problems.append(
-                                f"{where}: combo {name!r} {key} references undefined {ref!r}"
-                            )
+                    problems.extend(
+                        f"{where}: combo {name!r} {key} references undefined {ref!r}"
+                        for ref in _as_list((defs.get(name) or {}).get(key))
+                        if ref not in defined
+                    )
 
     _check_security(td.get("security"), "(root)")
     for name, sdef in defs.items():
@@ -127,13 +127,13 @@ def validate_semantics(td: dict[str, Any]) -> list[str]:
         for var in _VAR.findall(form.get("href", "")):
             # A leading ``+`` is RFC 6570 reserved expansion ({+var}); the
             # variable name it declares is ``var``, matching WoTForm.fill().
-            name = var[1:] if var.startswith("+") else var
+            name = var.removeprefix("+")
             if name not in local_vars and name not in thing_vars:
                 problems.append(f"{where}: href var {{{var}}} has no matching uriVariable")
         ops = _as_list(form.get("op"))
-        for op in ops:
-            if op not in legal:
-                problems.append(f"{where}: op {op!r} is not legal for this affordance")
+        problems.extend(
+            f"{where}: op {op!r} is not legal for this affordance" for op in ops if op not in legal
+        )
         if form.get("security") is not None:
             _check_security(form.get("security"), where)
         scopes = _as_list(form.get("scopes"))

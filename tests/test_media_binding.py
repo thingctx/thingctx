@@ -39,7 +39,7 @@ class _FakeBackend:
                 raise RuntimeError("decode boom")
             yield Frame(data=i, kind=kind, pts=float(i))
 
-    def write(self, frames, target, *, options, stop):  # noqa: ANN001
+    def write(self, frames, target, *, options, stop):
         raise NotImplementedError
 
 
@@ -186,7 +186,7 @@ class _WriterBackend:
     def read(self, url: str, *, options: dict, stop: threading.Event):
         raise NotImplementedError
 
-    def write(self, frames, target, *, options, stop):  # noqa: ANN001
+    def write(self, frames, target, *, options, stop):
         self.target = target
         self.seen_options = options
         for i, fr in enumerate(frames):
@@ -213,7 +213,7 @@ def test_publish_drains_all_frames():
 
 def test_publish_is_lossless_when_writer_lags():
     class _Slow(_WriterBackend):
-        def write(self, frames, target, *, options, stop):  # noqa: ANN001
+        def write(self, frames, target, *, options, stop):
             import time
 
             self.target = target

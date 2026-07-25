@@ -59,7 +59,7 @@ def to_authzen_request(identity: Any, request: AccessRequest) -> dict:
     """Map a thingctx (identity, AccessRequest) to an AuthZEN 1.0 evaluation
     request body. The op becomes the action name; the (thing, affordance) becomes
     the resource; the claims + form scheme become context for the external PDP."""
-    subject = {"type": "identity", "id": _subject_id(identity)}
+    subject: dict[str, Any] = {"type": "identity", "id": _subject_id(identity)}
     if isinstance(identity, dict):
         # Pass the claims as subject properties so a policy can read roles/scp/etc.
         subject["properties"] = dict(identity)
@@ -142,7 +142,7 @@ class AuthZenPDP:
                 resp = await client.post(self._url, json=body, headers=self._headers)
                 resp.raise_for_status()
                 payload = resp.json()
-        except Exception:  # noqa: BLE001 - any failure denies (fail closed)
+        except Exception:
             return Decision(
                 permit=False,
                 reason="AuthZEN PDP was unreachable or returned an error; denied fail-closed",

@@ -143,10 +143,9 @@ async def ttfc_mcp_stdio(_pump, td) -> float:
         command=sys.executable, args=[str(HERE / "_mcp_stdio_server.py")], env=_device_env(td)
     )
     t0 = time.perf_counter()
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            await session.call_tool("set_speed", {"rpm": 900})
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
+        await session.call_tool("set_speed", {"rpm": 900})
     return time.perf_counter() - t0
 
 

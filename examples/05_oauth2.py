@@ -50,7 +50,7 @@ def _basic_creds(header: str):
         decoded = base64.b64decode(header[6:]).decode()
         cid, _, secret = decoded.partition(":")
         return cid, secret
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None, None
 
 
@@ -66,7 +66,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_POST(self) -> None:  # noqa: N802 - stdlib naming
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode()
 
@@ -159,7 +159,7 @@ async def run(base: str) -> None:
     try:
         await bad_client.invoke("demo-pump__set_speed", {"rpm": 9999})
         raise AssertionError("a bad secret should not have been able to set speed")
-    except Exception as exc:  # noqa: BLE001 - any auth failure is the point
+    except Exception as exc:
         print(f"bad secret refused: {type(exc).__name__}")
 
     assert STATE["speed"] == 1800, "the rejected call must not have changed device state"

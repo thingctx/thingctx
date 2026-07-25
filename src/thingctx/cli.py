@@ -37,8 +37,13 @@ import json
 import os
 import sys
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from thingctx.runtime import ThingClient
+    from thingctx.trust import ApprovePolicy
 
 
 def _load_td(source: str) -> dict:
@@ -46,9 +51,8 @@ def _load_td(source: str) -> dict:
     if source.startswith(("http://", "https://")):
         # A fixed timeout so a stalled server cannot hang the command indefinitely.
         with urllib.request.urlopen(source, timeout=30) as resp:  # noqa: S310 (scheme checked above)
-            return json.loads(resp.read().decode("utf-8"))
-    with open(source, encoding="utf-8") as fh:
-        return json.loads(fh.read())
+            return cast(dict, json.loads(resp.read().decode("utf-8")))
+    return cast(dict, json.loads(Path(source).read_text(encoding="utf-8")))
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
@@ -70,8 +74,7 @@ def _cmd_import_openapi(args: argparse.Namespace) -> int:
     td = from_openapi(spec, base_url=args.base_url, id=args.id, title=args.title)
     out = json.dumps(td, indent=2) + "\n"
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            fh.write(out)
+        Path(args.out).write_text(out, encoding="utf-8")
         print(f"wrote {args.out} ({len(td.get('actions', {}))} actions)", file=sys.stderr)
     else:
         sys.stdout.write(out)
@@ -81,8 +84,7 @@ def _cmd_import_openapi(args: argparse.Namespace) -> int:
 def _client_from_secrets_file(path: str) -> dict[str, str]:
     """Read a Google-style client-secrets JSON (``installed``/``web`` wrapper)
     into client_id/secret and auth/token endpoints."""
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     blob = data.get("installed") or data.get("web") or data
     return {
         "client_id": blob.get("client_id", ""),
@@ -96,8 +98,7 @@ def _scheme_from_td(path: str, name: str | None) -> tuple[dict[str, Any], str | 
     """Pull an authorization-code security scheme (endpoints + scopes) and the
     Thing id from a TD file. Picks the only code-flow scheme when ``name`` is
     omitted."""
-    with open(path, encoding="utf-8") as fh:
-        td = json.load(fh)
+    td = json.loads(Path(path).read_text(encoding="utf-8"))
     defs = td.get("securityDefinitions") or {}
     code = {
         n: d for n, d in defs.items() if d.get("scheme") == "oauth2" and d.get("flow") == "code"
@@ -148,8 +149,9 @@ def _cmd_auth_login(args: argparse.Namespace) -> int:
     missing = [k for k in ("authorization_url", "token_url") if not cfg.get(k)] + (
         [] if client_id else ["client-id"]
     )
-    if missing:
+    if missing or not client_id:
         raise SystemExit(f"missing required config: {', '.join(missing)}")
+    client_id = str(client_id)
 
     store = FileTokenStore(args.store) if args.store else None
     login(
@@ -198,11 +200,11 @@ def _build_args(arg_pairs: list[str] | None, json_blob: str | None) -> dict[str,
     return body
 
 
-def _cli_approver(assume_yes: bool):
+def _cli_approver(assume_yes: bool) -> Callable[[Any], bool]:
     """Approve a trust-gated call: ``--yes`` allows it unattended; otherwise ask
     on a TTY. No TTY and no ``--yes`` denies (the safe default for cron/CI)."""
 
-    def approve(req) -> bool:
+    def approve(req: Any) -> bool:
         if assume_yes:
             return True
         if not sys.stdin.isatty():
@@ -221,9 +223,8 @@ def _emit(result: Any, out: str | None) -> None:
     """Serialize an invoke result to ``--out`` (a path), or stdout when ``out``
     is missing or ``-``. Bytes are written raw; a str is written as is; anything
     else is pretty JSON."""
-    to_file = bool(out) and out != "-"
-    dest = None
-    if to_file:
+    dest: Path | None = None
+    if out and out != "-":
         from thingctx.netpolicy import confine_path
 
         # Refuse to write through a symlink, and (when THINGCTX_DOWNLOAD_DIR is
@@ -232,9 +233,8 @@ def _emit(result: Any, out: str | None) -> None:
         dest = confine_path(out, base=os.environ.get("THINGCTX_DOWNLOAD_DIR") or None)
     if isinstance(result, bytes | bytearray):
         data = bytes(result)
-        if to_file:
-            with open(dest, "wb") as fh:
-                fh.write(data)
+        if dest is not None:
+            dest.write_bytes(data)
             print(f"wrote {out} ({len(data)} bytes)", file=sys.stderr)
         else:
             sys.stdout.buffer.write(data)
@@ -242,9 +242,8 @@ def _emit(result: Any, out: str | None) -> None:
     text = result if isinstance(result, str) else json.dumps(result, indent=2, default=str)
     if not text.endswith("\n"):
         text += "\n"
-    if to_file:
-        with open(dest, "w", encoding="utf-8") as fh:
-            fh.write(text)
+    if dest is not None:
+        dest.write_text(text, encoding="utf-8")
         print(f"wrote {out}", file=sys.stderr)
     else:
         sys.stdout.write(text)
@@ -256,7 +255,9 @@ def _verbose(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "verbose", False) or os.environ.get("THINGCTX_VERBOSE"))
 
 
-def _registry_client(source: str | None, approve_when: str, *, verbose: bool = False):
+def _registry_client(
+    source: str | None, approve_when: ApprovePolicy, *, verbose: bool = False
+) -> ThingClient:
     """Build the same client the MCP bridge builds (local handlers + http/media
     bindings, per-Thing env secrets, stored OAuth consent). With no ``source``,
     the per-user default registry (see thingctx.registry.default_sources)."""
@@ -284,7 +285,16 @@ def _cmd_invoke(args: argparse.Namespace) -> int:
 
     source, action = _split_source_action(args.spec)
     body = _build_args(args.arg, args.json)
-    approve_when = args.approve_when or os.environ.get("THINGCTX_APPROVE_WHEN", "declared")
+    # The --approve-when flag is argparse-validated, but THINGCTX_APPROVE_WHEN is
+    # not; clamp an unrecognized env value to the safe default rather than letting
+    # it silently degrade downstream.
+    raw_when = args.approve_when or os.environ.get("THINGCTX_APPROVE_WHEN", "declared")
+    # The membership test IS the validation, so the result is a valid ApprovePolicy;
+    # mypy does not narrow `in` over a Literal, hence the cast.
+    approve_when = cast(
+        "ApprovePolicy",
+        raw_when if raw_when in ("declared", "destructive", "all", "never") else "declared",
+    )
 
     async def run() -> Any:
         client = _registry_client(source, approve_when, verbose=_verbose(args))
@@ -294,7 +304,7 @@ def _cmd_invoke(args: argparse.Namespace) -> int:
 
     try:
         result = asyncio.run(run())
-    except Exception as exc:  # noqa: BLE001  (CLI boundary: a transport/setup
+    except Exception as exc:
         # failure becomes a clean error, not a traceback dumped at a script.)
         result = {"error": str(exc), "type": type(exc).__name__}
     # Failure (a raised error or an error envelope from the runtime) goes to
@@ -317,20 +327,20 @@ def _cmd_list(args: argparse.Namespace) -> int:
                 {k: entry.get(k) for k in ("name", "kind", "description", "input_schema")}
                 for entry in client.tool_surface()
             ]
-            for name in client.list_media():
-                entries.append(
-                    {
-                        "name": name,
-                        "kind": "media",
-                        "description": f"media stream {name} (consume with frames())",
-                        "input_schema": None,
-                    }
-                )
+            entries.extend(
+                {
+                    "name": name,
+                    "kind": "media",
+                    "description": f"media stream {name} (consume with frames())",
+                    "input_schema": None,
+                }
+                for name in client.list_media()
+            )
             return entries
 
     try:
         entries = asyncio.run(run())
-    except Exception as exc:  # noqa: BLE001  (CLI boundary: an unreachable or
+    except Exception as exc:
         # malformed source becomes a clean error, not a traceback.)
         print(json.dumps({"error": str(exc), "type": type(exc).__name__}), file=sys.stderr)
         return 1
@@ -356,7 +366,7 @@ def _cmd_registry_add(args: argparse.Namespace) -> int:
             else []
         )
         if src not in existing:
-            with open(sources_file, "a", encoding="utf-8") as fh:
+            with sources_file.open("a", encoding="utf-8") as fh:
                 fh.write(src + "\n")
         print(f"thingctx: recorded source {src} in {sources_file}", file=sys.stderr)
         return 0
@@ -531,7 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    return cast(int, args.func(args))
 
 
 if __name__ == "__main__":

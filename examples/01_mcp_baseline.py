@@ -16,12 +16,12 @@ from __future__ import annotations
 import asyncio
 import json
 
-import mcp.types as types
 from _pump import (
     DEVICE_TOKEN,
     PumpDevice,
     start_device,
 )
+from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.shared.memory import create_connected_server_and_client_session as connect
 

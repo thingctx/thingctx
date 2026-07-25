@@ -14,6 +14,8 @@ import logging
 import os
 import threading
 from collections.abc import Iterator
+from pathlib import Path
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from thingctx.auth import redact_url
@@ -83,7 +85,7 @@ class _RedactingHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = record.getMessage()
-        except Exception:  # noqa: BLE001 - never break logging
+        except Exception:
             return
         redacted = redact_url(msg)
         if redacted != msg:
@@ -171,7 +173,7 @@ class PyAVBackend:
                 container.close()
 
     @staticmethod
-    def _video(frame, rate: float | None = None) -> Frame:  # noqa: ANN001
+    def _video(frame: Any, rate: float | None = None) -> Frame:
         return Frame(
             data=frame.to_ndarray(format="rgb24"),
             kind="video",
@@ -183,7 +185,7 @@ class PyAVBackend:
         )
 
     @staticmethod
-    def _audio(frame) -> Frame:  # noqa: ANN001
+    def _audio(frame: Any) -> Frame:
         layout = getattr(frame, "layout", None)
         fmt = getattr(getattr(frame, "format", None), "name", None)
         # The sample format and layout are kept in meta so the publish path can
@@ -242,10 +244,10 @@ class PyAVBackend:
         vstate: dict = {"stream": None, "count": 0, "last_pts": None}
         astate: dict = {"stream": None, "resampler": None, "fifo": None, "samples": 0}
         try:
-            viter = iter(video) if video is not None else None
-            aiter = iter(audio) if audio is not None else None
-            pv = next(viter, None) if viter is not None else None
-            pa = next(aiter, None) if aiter is not None else None
+            vid_it = iter(video) if video is not None else None
+            aud_it = iter(audio) if audio is not None else None
+            pv = next(vid_it, None) if vid_it is not None else None
+            pa = next(aud_it, None) if aud_it is not None else None
             # The source frame rate (carried on the frame) drives the output so a
             # frames -> publish round trip preserves duration and A/V sync. The
             # fps option is only a fallback for raw frames with no source rate
@@ -267,11 +269,19 @@ class PyAVBackend:
                     <= self._pts_seconds(pa, astate["samples"], pa.sample_rate or 48000)
                 )
                 if take_video:
+                    # take_video implies pv is not None (either pa is None, so the
+                    # loop guard forces pv, or the conjunct above tested pv), and
+                    # pv came from vid_it so that is non-None too.
+                    assert pv is not None  # noqa: S101 (loop invariant)
+                    assert vid_it is not None  # noqa: S101 (loop invariant)
                     self._encode_video(container, vstate, pv, rate, options)
-                    pv = next(viter, None)
+                    pv = next(vid_it, None)
                 else:
+                    # not take_video implies pa is not None (and pa came from aud_it).
+                    assert pa is not None  # noqa: S101 (loop invariant)
+                    assert aud_it is not None  # noqa: S101 (loop invariant)
                     self._encode_audio(container, astate, pa)
-                    pa = next(aiter, None)
+                    pa = next(aud_it, None)
             self._flush(container, vstate.get("stream"))
             self._flush_audio(container, astate)
             self._flush(container, astate.get("stream"))
@@ -286,7 +296,7 @@ class PyAVBackend:
         the ``fps`` option is only a fallback."""
         src_rate = fr.meta.get("rate") if (fr is not None and fr.meta) else None
         if src_rate:
-            return max(1, int(round(float(src_rate))))
+            return max(1, round(float(src_rate)))
         opt = options.get("fps")
         return max(1, int(opt)) if opt else 30
 
@@ -299,7 +309,9 @@ class PyAVBackend:
         return count / float(rate or 30)
 
     @staticmethod
-    def _ensure_video_stream(container, vstate: dict, fr: Frame, fps: int, options: dict) -> None:  # noqa: ANN001
+    def _ensure_video_stream(
+        container: Any, vstate: dict, fr: Frame, fps: int, options: dict
+    ) -> None:
         import numpy as np
 
         if vstate["stream"] is not None:
@@ -318,7 +330,9 @@ class PyAVBackend:
         vstate["stream"] = stream
 
     @classmethod
-    def _encode_video(cls, container, vstate: dict, fr: Frame, fps: int, options: dict) -> None:  # noqa: ANN001
+    def _encode_video(
+        cls, container: Any, vstate: dict, fr: Frame, fps: int, options: dict
+    ) -> None:
         import fractions
 
         import av
@@ -335,10 +349,7 @@ class PyAVBackend:
         # (e.g. 1/90000) does not rescale cleanly to the mp4 stream on mux and
         # fails with EINVAL for some frame counts, so keep 1/fps. Frames with no
         # source pts (a raw producer) fall back to the frame index.
-        if fr.pts is not None:
-            pts = round(float(fr.pts) * fps)
-        else:
-            pts = vstate["count"]
+        pts = round(float(fr.pts) * fps) if fr.pts is not None else vstate["count"]
         # The muxer requires strictly increasing pts; nudge forward if a rate
         # mismatch (source pts vs chosen fps) would repeat or regress a value.
         if vstate["last_pts"] is not None and pts <= vstate["last_pts"]:
@@ -351,7 +362,7 @@ class PyAVBackend:
         vstate["count"] += 1
 
     @staticmethod
-    def _ensure_audio_stream(container, astate: dict, fr: Frame) -> None:  # noqa: ANN001
+    def _ensure_audio_stream(container: Any, astate: dict, fr: Frame) -> None:
         import av
 
         if astate["stream"] is not None:
@@ -366,7 +377,7 @@ class PyAVBackend:
         astate["fifo"] = av.AudioFifo()
 
     @classmethod
-    def _encode_audio(cls, container, astate: dict, fr: Frame) -> None:  # noqa: ANN001
+    def _encode_audio(cls, container: Any, astate: dict, fr: Frame) -> None:
         import fractions
 
         import av
@@ -393,7 +404,7 @@ class PyAVBackend:
                 container.mux(packet)
 
     @staticmethod
-    def _flush_audio(container, astate: dict) -> None:  # noqa: ANN001
+    def _flush_audio(container: Any, astate: dict) -> None:
         fifo = astate.get("fifo")
         stream = astate.get("stream")
         if fifo is None or stream is None:
@@ -404,7 +415,7 @@ class PyAVBackend:
                 container.mux(packet)
 
     @staticmethod
-    def _flush(container, stream) -> None:  # noqa: ANN001
+    def _flush(container: Any, stream: Any) -> None:
         if stream is not None:
             for packet in stream.encode(None):  # drain the encoder
                 container.mux(packet)
@@ -463,7 +474,7 @@ class PyAVBackend:
             finally:
                 for tmp in temps:
                     with contextlib.suppress(OSError):
-                        os.unlink(tmp)
+                        Path(tmp).unlink()
             return
         self._mux(sources, target, options=options, stop=stop)
 
@@ -476,19 +487,27 @@ class PyAVBackend:
         import tempfile
         import urllib.request
 
-        req = urllib.request.Request(url, headers=headers or {})
+        # Resolved stream URLs are http(s) CDN links; refuse any other scheme so
+        # urlopen cannot be steered to a local file or custom handler.
+        if not url.startswith(("http://", "https://")):
+            raise MediaError(f"cannot stage a non-http(s) stream url: {redact_url(url)}")
+        req = urllib.request.Request(url, headers=headers or {})  # noqa: S310 (scheme checked above)
         fd, path = tempfile.mkstemp(prefix="thingctx-remux-")
         try:
-            with urllib.request.urlopen(req, timeout=options.get("timeout")) as resp:
-                with os.fdopen(fd, "wb") as f:
-                    while not stop.is_set():
-                        chunk = resp.read(1 << 20)
-                        if not chunk:
-                            break
-                        f.write(chunk)
+            with (
+                urllib.request.urlopen(  # noqa: S310 (scheme checked above)
+                    req, timeout=options.get("timeout")
+                ) as resp,
+                os.fdopen(fd, "wb") as f,
+            ):
+                while not stop.is_set():
+                    chunk = resp.read(1 << 20)
+                    if not chunk:
+                        break
+                    f.write(chunk)
         except BaseException:
             with contextlib.suppress(OSError):
-                os.unlink(path)
+                Path(path).unlink()
             raise
         return path
 
@@ -559,12 +578,12 @@ class PyAVBackend:
                     inp.close()
 
     @staticmethod
-    def _interleave(demuxers, out, out_for: dict, stop: threading.Event) -> None:  # noqa: ANN001
+    def _interleave(demuxers: list, out: Any, out_for: dict, stop: threading.Event) -> None:
         """Mux packets from several demuxers in presentation-time order. Each
         packet keeps its source time base; reassigning its output stream lets the
         muxer rescale on write. Flush packets (no dts) are skipped."""
 
-        def _next(dem):  # the next packet that carries a timestamp
+        def _next(dem: Any) -> Any:  # the next packet that carries a timestamp
             for pkt in dem:
                 if pkt.dts is not None:
                     return pkt
@@ -577,7 +596,7 @@ class PyAVBackend:
             if pkt is not None:
                 heads.append([si, dem, pkt])
 
-        def _pts_seconds(entry) -> float:
+        def _pts_seconds(entry: Any) -> float:
             pkt = entry[2]
             ts = pkt.dts if pkt.dts is not None else pkt.pts
             return float(ts * pkt.time_base) if ts is not None and pkt.time_base else 0.0
@@ -653,7 +672,9 @@ class ExtractorBackend(PyAVBackend):
         import yt_dlp
 
         with yt_dlp.YoutubeDL(self._ydl_opts(options)) as ydl:
-            return ydl.extract_info(url, download=False)
+            # yt_dlp is untyped, so extract_info is Any; a resolvable page yields
+            # the info mapping the contract promises.
+            return cast(dict, ydl.extract_info(url, download=False))
 
     def _extract(self, url: str, options: dict) -> list[tuple[str, dict]]:
         """Resolve a page to its chosen media stream(s), each a ``(url,
@@ -681,7 +702,7 @@ class ExtractorBackend(PyAVBackend):
             if stop.is_set():
                 raise yt_dlp.utils.DownloadError("cancelled")
 
-        outtmpl = os.path.join(tmpdir, f"{fid}.%(ext)s")
+        outtmpl = str(Path(tmpdir) / f"{fid}.%(ext)s")
         opts = self._ydl_opts(
             options,
             extra={
@@ -698,9 +719,9 @@ class ExtractorBackend(PyAVBackend):
         except Exception as exc:
             raise MediaError(f"failed to stage stream {fid}: {redact_url(str(exc))}") from exc
         produced = [
-            os.path.join(tmpdir, name)
-            for name in os.listdir(tmpdir)
-            if name.startswith(f"{fid}.") and not name.endswith(".part")
+            str(p)
+            for p in Path(tmpdir).iterdir()
+            if p.name.startswith(f"{fid}.") and not p.name.endswith(".part")
         ]
         if not produced:
             raise MediaError(f"stream {fid} produced no file")
@@ -740,7 +761,7 @@ class ExtractorBackend(PyAVBackend):
 
         tmpdir = tempfile.mkdtemp(prefix="thingctx-dl-")
         try:
-            local = [
+            local: list[tuple[str, dict | None]] = [
                 (self._download_format(url, f["format_id"], tmpdir, options, stop), None)
                 for f in requested
             ]

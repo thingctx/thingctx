@@ -20,11 +20,11 @@ from thingctx.bindings.builtin.media.frame import Frame, MediaBackend
 from thingctx.bindings.builtin.media.sample import sample_frames
 
 __all__ = [
-    "MediaBinding",
-    "MediaError",
+    "MEDIA_SCHEMES",
     "Frame",
     "MediaBackend",
-    "MEDIA_SCHEMES",
+    "MediaBinding",
+    "MediaError",
     "is_media_form",
     "sample_frames",
 ]

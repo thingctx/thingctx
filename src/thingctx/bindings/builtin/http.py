@@ -4,18 +4,26 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_http
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
-from thingctx.lifecycle import status_from_body
+from thingctx.lifecycle import ActionStatus, status_from_body
 from thingctx.reliability import IDEMPOTENT_METHODS, RetryPolicy, TransportError, _retry_after
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
-def _decode(resp, empty=None):
+    import httpx
+
+    from thingctx.thing import WoTAction, WoTForm, WoTProperty
+
+
+def _decode(resp: httpx.Response, empty: Any = None) -> Any:
     """Decode an HTTP response by its content type: JSON to a value, text to a
     str, anything else (e.g. an image) to raw bytes. An empty body returns
     ``empty``."""
@@ -84,7 +92,7 @@ def _raw_body_value(arguments: Any) -> Any:
 _STREAM_CHUNK = 1024 * 1024  # 1 MiB read size for streamed bodies
 
 
-async def _aiter_file(fh: Any, chunk: int = _STREAM_CHUNK):
+async def _aiter_file(fh: Any, chunk: int = _STREAM_CHUNK) -> AsyncIterator[Any]:
     """Stream a (sync) file object in blocks, closing it when done. httpx's
     ``AsyncClient`` rejects a plain sync file as ``content=``, so a file body is
     bridged through this async generator instead of being read into memory."""
@@ -100,7 +108,7 @@ async def _aiter_file(fh: Any, chunk: int = _STREAM_CHUNK):
             close()
 
 
-async def _aiter_sync(it: Any):
+async def _aiter_sync(it: Any) -> AsyncIterator[Any]:
     for block in it:
         yield block
 
@@ -193,7 +201,9 @@ def _http_body(
         # ``application/merge-patch+json`` vs ``application/json`` is a
         # different operation), so the declared type must reach the wire; httpx
         # would otherwise stamp ``application/json`` from the ``json=`` kwarg.
-        extra = {"Content-Type": content_type} if ct.endswith("+json") else {}
+        extra: dict[str, str] = (
+            {"Content-Type": content_type} if content_type and ct.endswith("+json") else {}
+        )
         return {"json": arguments}, extra, False
     if ct == "application/x-www-form-urlencoded":
         return {"data": arguments}, {}, False
@@ -212,7 +222,11 @@ def _http_body(
             kwargs["data"] = data
         return kwargs, {}, bool(files)
     body = _raw_body_value(arguments)
-    return {"content": _as_content(body)}, {"Content-Type": content_type}, _is_stream_body(body)
+    # Reached only for a non-empty, non-json ``ct``, so ``content_type`` is a
+    # concrete media type here (an empty/None type normalizes to "" and takes
+    # the json branch above); send it as the raw body's Content-Type.
+    raw_headers: dict[str, str] = {"Content-Type": content_type} if content_type else {}
+    return {"content": _as_content(body)}, raw_headers, _is_stream_body(body)
 
 
 def _merge_href_query(url: str, params: dict | None) -> tuple[str, dict | None]:
@@ -291,11 +305,13 @@ class HttpBinding(AuthMixin):
         self._policy = RetryPolicy(retries=retries, backoff=backoff)
         # One pooled AsyncClient, created lazily inside the running loop and
         # reused across calls so connections (and TLS handshakes) stay warm.
-        self._client = None
+        self._client: httpx.AsyncClient | None = None
         # This binding also claims https.
         self.schemes = ("http", "https")
 
-    async def _prepare(self, owner_id: str | None = None, form=None):
+    async def _prepare(
+        self, owner_id: str | None = None, form: WoTForm | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any], list[Any], Any]:
         """Resolve the owner's credentials and map them onto HTTP.
 
         Returns ``(headers, params, signers, cert)``: headers/params to merge
@@ -313,7 +329,7 @@ class HttpBinding(AuthMixin):
         return headers, plan.params, plan.signers, plan.cert
 
     @staticmethod
-    async def _sign_request(signers, request) -> None:
+    async def _sign_request(signers: list[Any], request: httpx.Request) -> None:
         """Run any request-signer callables on the assembled request. A signer
         may be sync or async."""
         import inspect
@@ -323,7 +339,7 @@ class HttpBinding(AuthMixin):
             if inspect.isawaitable(result):
                 await result
 
-    def _pool(self):
+    def _pool(self) -> httpx.AsyncClient:
         """The lazily-created, reused client (created inside the running loop so
         it binds to the right event loop; recreated if closed)."""
         import httpx
@@ -341,12 +357,21 @@ class HttpBinding(AuthMixin):
     async def __aenter__(self) -> HttpBinding:
         return self
 
-    async def __aexit__(self, *exc) -> None:
+    async def __aexit__(self, *exc: Any) -> None:
         await self.aclose()
 
     async def _send(
-        self, method, url, *, signers, cert, empty=None, retry=True, return_response=False, **kwargs
-    ):
+        self,
+        method: str,
+        url: str,
+        *,
+        signers: list[Any],
+        cert: Any,
+        empty: Any = None,
+        retry: bool = True,
+        return_response: bool = False,
+        **kwargs: Any,
+    ) -> Any:
         """Build, sign, and send a request with retries, then normalize the
         outcome: a non-2xx becomes a ``TransportError`` (the same shape a
         transport-level failure raises), and the body is decoded by content
@@ -395,10 +420,8 @@ class HttpBinding(AuthMixin):
                     continue
                 if resp.is_error:
                     detail = ""
-                    try:
+                    with contextlib.suppress(Exception):
                         detail = resp.text[:200]
-                    except Exception:  # noqa: BLE001 - detail is best-effort
-                        pass
                     raise TransportError(
                         method, url, status=resp.status_code, attempts=attempt + 1, detail=detail
                     )
@@ -416,10 +439,17 @@ class HttpBinding(AuthMixin):
             if not pooled:
                 await client.aclose()
 
-    async def invoke(self, action, form, arguments):  # noqa: ANN001
+    async def invoke(self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]) -> Any:
         return await self._invoke_send(action, form, arguments)
 
-    async def _invoke_send(self, action, form, arguments, *, return_response=False):  # noqa: ANN001
+    async def _invoke_send(
+        self,
+        action: WoTAction,
+        form: WoTForm,
+        arguments: dict[str, Any],
+        *,
+        return_response: bool = False,
+    ) -> Any:
         """Drive an action's form and return its decoded body, or (with
         ``return_response``) an :class:`HttpResult` carrying status + headers so
         a caller can chain off the response (read a ``Location`` etc.)."""
@@ -459,14 +489,14 @@ class HttpBinding(AuthMixin):
             **body_kwargs,
         )
 
-    async def read(self, prop, form):  # noqa: ANN001
+    async def read(self, prop: WoTProperty, form: WoTForm) -> Any:
         """GET the property's current value from its form URL."""
         headers, params, signers, cert = await self._prepare(getattr(prop, "thing_id", None), form)
         return await self._send(
             "GET", form.href, signers=signers, cert=cert, headers=headers, params=params
         )
 
-    async def write(self, prop, form, value):  # noqa: ANN001
+    async def write(self, prop: WoTProperty, form: WoTForm, value: Any) -> Any:
         """PUT the new value to the property's form URL (the ``writeproperty``
         HTTP binding default)."""
         headers, params, signers, cert = await self._prepare(getattr(prop, "thing_id", None), form)
@@ -481,7 +511,7 @@ class HttpBinding(AuthMixin):
             empty={"ok": True},
         )
 
-    async def read_all(self, thing, form, names=None):  # noqa: ANN001
+    async def read_all(self, thing: Any, form: WoTForm, names: Any = None) -> Any:
         """GET a Thing-level bulk-property form. ``names`` (when given) selects a
         subset via a ``props`` query parameter (the ``readmultipleproperties``
         op); the response is a ``{name: value}`` object."""
@@ -492,7 +522,7 @@ class HttpBinding(AuthMixin):
             "GET", form.href, signers=signers, cert=cert, headers=headers, params=params
         )
 
-    async def write_all(self, thing, form, values):  # noqa: ANN001
+    async def write_all(self, thing: Any, form: WoTForm, values: dict[str, Any]) -> Any:
         """PUT a ``{name: value}`` object to a Thing-level bulk-property form
         (the ``writeallproperties`` / ``writemultipleproperties`` op)."""
         headers, params, signers, cert = await self._prepare(getattr(thing, "id", None), form)
@@ -507,7 +537,9 @@ class HttpBinding(AuthMixin):
             empty={"ok": True},
         )
 
-    async def invoke_async(self, action, form, arguments):  # noqa: ANN001
+    async def invoke_async(
+        self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]
+    ) -> ActionStatus:
         """Start a long-running action. POST returns 201/202 with a status body
         carrying the status resource ``href``; map it to an ``ActionStatus``."""
 
@@ -524,7 +556,7 @@ class HttpBinding(AuthMixin):
         )
         return status_from_body(body, form)
 
-    async def query_action(self, status):  # noqa: ANN001
+    async def query_action(self, status: Any) -> ActionStatus:
         """GET the action's status resource (the ``queryaction`` op)."""
 
         form = status.form
@@ -535,7 +567,7 @@ class HttpBinding(AuthMixin):
         )
         return status_from_body(body, form, href=status.href)
 
-    async def cancel_action(self, status):  # noqa: ANN001
+    async def cancel_action(self, status: Any) -> ActionStatus:
         """DELETE the action's status resource (the ``cancelaction`` op)."""
 
         form = status.form
@@ -552,7 +584,9 @@ class HttpBinding(AuthMixin):
         )
         return status_from_body(body, form, href=status.href)
 
-    async def subscribe(self, target, form, args=None):  # noqa: ANN001
+    async def subscribe(
+        self, target: Any, form: WoTForm, args: dict[str, Any] | None = None
+    ) -> AsyncIterator[Any]:
         """Subscribe over Server-Sent Events (the HTTP streaming binding for
         events / observable properties). Yields each ``data:`` payload as it
         arrives. ``target`` is the affordance, so the stream authenticates as
@@ -566,7 +600,7 @@ class HttpBinding(AuthMixin):
         headers, params, signers, cert = await self._prepare(owner, form)
         if args:
             params = {**params, **args}
-        url, params = _merge_href_query(form.href, params)
+        url, merged_params = _merge_href_query(form.href, params)
         if self._block_private:
             from thingctx.netpolicy import check_url
 
@@ -577,9 +611,9 @@ class HttpBinding(AuthMixin):
         # client just by never completing the handshake.
         sse_timeout = httpx.Timeout(self._timeout, read=None)
 
-        async def _stream():
+        async def _stream() -> AsyncIterator[Any]:
             async with httpx.AsyncClient(timeout=sse_timeout, cert=cert) as client:
-                req = client.build_request("GET", url, headers=headers, params=params)
+                req = client.build_request("GET", url, headers=headers, params=merged_params)
                 await self._sign_request(signers, req)
                 resp = await client.send(req, stream=True)
                 try:

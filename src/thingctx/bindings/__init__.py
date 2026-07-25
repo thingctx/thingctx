@@ -51,39 +51,39 @@ from thingctx.bindings.registry import (
 )
 
 __all__ = [
-    # Contract
-    "ProtocolBinding",
-    "select_binding",
-    "binding_schemes",
+    "BUILTIN_BINDINGS",
     "CONTRACT_VERSION",
-    # Capabilities
-    "ContentRouted",
-    "Readable",
-    "Writable",
-    "Subscribable",
-    "BulkProperties",
     "AsyncAction",
-    "MediaConsumer",
-    "MediaPublisher",
-    "SecurityAware",
-    "Closeable",
     # Auth helper shared by built-in and custom bindings
     "AuthMixin",
     # Registry + discovery
     "BindingRegistry",
+    "BulkProperties",
+    "Closeable",
+    # Capabilities
+    "ContentRouted",
+    "ExecBinding",
+    "Frame",
+    # Built-in bindings
+    "HttpBinding",
+    "LocalBinding",
+    # Media backend sub-contract (pluggable engines behind MediaBinding)
+    "MediaBackend",
+    "MediaBinding",
+    "MediaConsumer",
+    "MediaPublisher",
+    "MqttBinding",
+    # Contract
+    "ProtocolBinding",
+    "Readable",
+    "SecurityAware",
+    "Subscribable",
+    "Writable",
+    "binding_schemes",
     "build_builtin",
     "default_bindings",
     "discover_bindings",
     "discover_local_handlers",
-    "BUILTIN_BINDINGS",
-    # Built-in bindings
-    "HttpBinding",
-    "LocalBinding",
-    "MqttBinding",
-    "MediaBinding",
-    "ExecBinding",
     "is_media_form",
-    # Media backend sub-contract (pluggable engines behind MediaBinding)
-    "MediaBackend",
-    "Frame",
+    "select_binding",
 ]

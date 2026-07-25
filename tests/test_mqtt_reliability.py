@@ -12,8 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import thingctx.reliability as reliability
-from thingctx import TransportError, parse_thing
+from thingctx import TransportError, parse_thing, reliability
 from thingctx.auth import EnhancedAuth
 from thingctx.bindings import MqttBinding
 

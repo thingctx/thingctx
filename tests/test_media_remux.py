@@ -233,7 +233,7 @@ def test_extractor_copy_single_stream_copies_resolved_url(monkeypatch):
     )
     captured: dict = {}
 
-    def _fake_mux(self, sources, target, *, options, stop):  # noqa: ANN001
+    def _fake_mux(self, sources, target, *, options, stop):
         captured.update(sources=list(sources), target=target, options=dict(options))
 
     monkeypatch.setattr(b.PyAVBackend, "_mux", _fake_mux)
@@ -269,14 +269,14 @@ def test_extractor_copy_merged_downloads_each_format_then_muxes_local(monkeypatc
     )
     downloaded: list = []
 
-    def _fake_download(self, url, fid, tmpdir, options, stop):  # noqa: ANN001
+    def _fake_download(self, url, fid, tmpdir, options, stop):
         downloaded.append(fid)
         return f"{tmpdir}/{fid}.mp4"
 
     monkeypatch.setattr(b.ExtractorBackend, "_download_format", _fake_download)
     captured: dict = {}
 
-    def _fake_mux(self, sources, target, *, options, stop):  # noqa: ANN001
+    def _fake_mux(self, sources, target, *, options, stop):
         captured["sources"] = list(sources)
         captured["options"] = dict(options)
 
@@ -307,7 +307,7 @@ def test_extractor_download_failure_raises_clear_media_error(monkeypatch):
         lambda self, url, opts: {"requested_formats": [{"format_id": "140"}]},
     )
 
-    def _boom(self, url, fid, tmpdir, options, stop):  # noqa: ANN001
+    def _boom(self, url, fid, tmpdir, options, stop):
         raise MediaError(f"failed to stage stream {fid}: broken")
 
     monkeypatch.setattr(b.ExtractorBackend, "_download_format", _boom)
@@ -332,7 +332,7 @@ def test_remux_passes_format_http_headers_to_input_open(monkeypatch, tmp_path):
     seen: list = []
     real_open = av.open
 
-    def _fake_open(file, mode="r", **kw):  # noqa: ANN001
+    def _fake_open(file, mode="r", **kw):
         if mode == "w":
             return real_open(file, mode="w", **kw)
         seen.append(dict(kw.get("options") or {}))
@@ -364,14 +364,14 @@ def test_remux_stages_remote_streams_then_muxes_locally(monkeypatch, tmp_path):
     staged_for = {"https://cdn/v": str(v), "https://cdn/a": str(a)}
     calls: list = []
 
-    def _fake_stage(url, headers, options, stop):  # noqa: ANN001
+    def _fake_stage(url, headers, options, stop):
         calls.append((url, headers))
         return staged_for[url]
 
     monkeypatch.setattr(b.PyAVBackend, "_stage", staticmethod(_fake_stage))
     seen: dict = {}
 
-    def _fake_mux(self, sources, target, *, options, stop):  # noqa: ANN001
+    def _fake_mux(self, sources, target, *, options, stop):
         seen.update(sources=list(sources), options=dict(options))
 
     monkeypatch.setattr(b.PyAVBackend, "_mux", _fake_mux)
@@ -401,7 +401,7 @@ def test_direct_copy_drops_ytdlp_format_selector(monkeypatch, tmp_path):
 
     captured: dict = {}
 
-    def _fake_remux(self, sources, target, *, options, stop):  # noqa: ANN001
+    def _fake_remux(self, sources, target, *, options, stop):
         captured["options"] = dict(options)
         captured["sources"] = list(sources)
 
@@ -423,7 +423,7 @@ def test_remux_single_remote_is_not_staged(monkeypatch, tmp_path):
     # One continuous read is fine; the single path must stream directly, no temp.
     from thingctx.bindings.builtin.media import backends as b
 
-    def _boom(*a, **k):  # noqa: ANN002, ANN003
+    def _boom(*a, **k):
         raise AssertionError("a single source must not be staged")
 
     monkeypatch.setattr(b.PyAVBackend, "_stage", staticmethod(_boom))
@@ -449,7 +449,7 @@ def test_remux_merged_local_sources_are_not_staged(monkeypatch, tmp_path):
     # in place without staging.
     from thingctx.bindings.builtin.media import backends as b
 
-    def _boom(*a, **k):  # noqa: ANN002, ANN003
+    def _boom(*a, **k):
         raise AssertionError("local sources must not be staged")
 
     monkeypatch.setattr(b.PyAVBackend, "_stage", staticmethod(_boom))

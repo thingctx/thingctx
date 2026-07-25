@@ -20,15 +20,15 @@ from typing import Any
 from thingctx.auth.secret import Secret
 
 __all__ = [
-    "Credential",
-    "Secret",
-    "BearerToken",
-    "BasicCredential",
     "ApiKeyCredential",
-    "SignatureCredential",
+    "BasicCredential",
+    "BearerToken",
     "ClientCertificate",
+    "Credential",
     "EnhancedAuth",
     "RequestSigner",
+    "Secret",
+    "SignatureCredential",
 ]
 
 _REDACTED = "***"
@@ -36,7 +36,9 @@ _REDACTED = "***"
 
 def secret(default: Any = MISSING) -> Any:
     """Mark a dataclass field as a secret: coerced to a :class:`Secret` and
-    masked in ``repr``."""
+    masked in ``repr``. The field's declared type is ``Secret`` (its post-init
+    reality); ``__post_init__`` also accepts a raw ``str``/``bytes`` and wraps it,
+    so a caller may pass either."""
     if default is MISSING:
         return field(metadata={"secret": True})
     return field(default=default, metadata={"secret": True})
@@ -85,7 +87,7 @@ class BearerToken(Credential):
     """A bearer token. ``scheme`` is the word used in an HTTP ``Authorization``
     header; a transport with no header uses ``token`` directly."""
 
-    token: str = secret()
+    token: Secret = secret()
     scheme: str = "Bearer"
 
 
@@ -93,8 +95,8 @@ class BearerToken(Credential):
 class BasicCredential(Credential):
     """A username/password pair."""
 
-    username: str = secret()
-    password: str = secret()
+    username: Secret = secret()
+    password: Secret = secret()
 
 
 @dataclass(repr=False)
@@ -103,7 +105,7 @@ class ApiKeyCredential(Credential):
     where it belongs."""
 
     name: str
-    value: str = secret()
+    value: Secret = secret()
     location: str = "header"
 
 
@@ -114,9 +116,9 @@ class SignatureCredential(Credential):
     cannot sign a request ignores it."""
 
     algorithm: str
-    key_id: str = secret()
-    secret_key: str = secret()
-    token: str | None = secret(default=None)
+    key_id: Secret = secret()
+    secret_key: Secret = secret()
+    token: Secret | None = secret(default=None)
     params: dict = field(default_factory=dict)
 
 
@@ -127,7 +129,7 @@ class ClientCertificate(Credential):
     certfile: str
     keyfile: str | None = None
     ca_certs: str | None = None
-    password: str | None = secret(default=None)
+    password: Secret | None = secret(default=None)
 
 
 @dataclass(repr=False)
@@ -137,7 +139,7 @@ class EnhancedAuth(Credential):
     connect-time auth exchange consumes this."""
 
     method: str
-    data: bytes = secret(default=b"")
+    data: Secret = secret(default=b"")
 
 
 @dataclass(repr=False)

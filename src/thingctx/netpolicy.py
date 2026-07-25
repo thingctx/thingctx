@@ -24,18 +24,20 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from collections.abc import Collection
+from os import PathLike
 from pathlib import Path
 from urllib.parse import urlsplit
 
 __all__ = [
-    "PolicyError",
     "WEB_SCHEMES",
-    "url_scheme",
-    "require_scheme",
-    "is_private_host",
-    "resolve_is_private",
+    "PolicyError",
     "check_url",
     "confine_path",
+    "is_private_host",
+    "require_scheme",
+    "resolve_is_private",
+    "url_scheme",
 ]
 
 # The schemes a plain document fetch or an HTTP response handoff may use.
@@ -51,7 +53,7 @@ def url_scheme(url: str) -> str:
     return (urlsplit(url).scheme or "").lower()
 
 
-def require_scheme(url: str, allowed, *, what: str = "URL") -> str:
+def require_scheme(url: str, allowed: Collection[str], *, what: str = "URL") -> str:
     """Return ``url`` if its scheme is in ``allowed``, else raise ``PolicyError``.
 
     Guards a scheme jump that is never legitimate for the caller (for example a
@@ -65,7 +67,7 @@ def require_scheme(url: str, allowed, *, what: str = "URL") -> str:
     return url
 
 
-def _as_ip(host: str):
+def _as_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse ``host`` as an IP literal, or return None. Accepts the canonical
     forms plus the non-canonical IPv4 encodings a URL parser and the OS resolver
     both accept (decimal ``2130706433``, hex ``0x7f.1``, octal, and short forms
@@ -119,7 +121,7 @@ def resolve_is_private(host: str) -> bool:
 def check_url(
     url: str,
     *,
-    allowed_schemes=WEB_SCHEMES,
+    allowed_schemes: Collection[str] = WEB_SCHEMES,
     block_private: bool = False,
     resolve: bool = True,
     what: str = "URL",
@@ -140,7 +142,7 @@ def check_url(
     return url
 
 
-def confine_path(dest, *, base=None) -> Path:
+def confine_path(dest: str | PathLike[str], *, base: str | PathLike[str] | None = None) -> Path:
     """Validate a write destination and return it as a :class:`Path`.
 
     Refuses writing through a symlink at the destination (a symlink swap that

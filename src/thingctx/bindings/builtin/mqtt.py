@@ -4,31 +4,39 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+from typing import TYPE_CHECKING, Any
 
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_mqtt
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
 from thingctx.reliability import RetryPolicy, TransportError
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
-def _decode_mqtt(payload):
+    from thingctx.auth.mqtt import MqttAuthPlan
+    from thingctx.thing import WoTAction, WoTForm
+
+
+def _decode_mqtt(payload: bytes) -> Any:
     """Decode an MQTT payload: JSON to a value, else a best-effort string."""
     try:
         return json.loads(payload.decode())
-    except Exception:  # noqa: BLE001 - non-JSON payloads fall back to text
+    except Exception:
         try:
             return payload.decode(errors="replace")
-        except Exception:  # noqa: BLE001
+        except Exception:
             return payload
 
 
-def _connack_ok(rc) -> bool:
+def _connack_ok(rc: Any) -> bool:
     """True if a CONNACK reason code means success, across paho v1 (int 0) and
     v2 (a ReasonCode whose ``value`` is 0)."""
     if rc == 0:
         return True
-    return getattr(rc, "value", None) == 0
+    return bool(getattr(rc, "value", None) == 0)
 
 
 @implements(ProtocolBinding)
@@ -76,7 +84,7 @@ class MqttBinding(AuthMixin):
         connect_retries: int = 3,
         backoff: float = 0.2,
         connect_timeout: float = 10.0,
-        client_factory=None,
+        client_factory: Any = None,
     ) -> None:
         self._broker = broker
         self._init_auth(
@@ -96,28 +104,31 @@ class MqttBinding(AuthMixin):
         self._client_factory = client_factory
         self._connect_policy = RetryPolicy(retries=connect_retries, backoff=backoff)
 
-    def _new_client(self, enhanced: bool = False):
+    def _new_client(self, enhanced: bool = False) -> Any:
         """A paho client that works across paho-mqtt 1.x and 2.x (2.x requires
         an explicit callback API version). Uses MQTT v5 when ``enhanced`` auth
         is in play, since enhanced authentication is a v5 feature."""
         if self._client_factory is not None:
             return self._client_factory()
-        import paho.mqtt.client as mqtt  # type: ignore
+        import paho.mqtt.client as mqtt
 
         cid = self._client_id or ""
         version = getattr(mqtt, "CallbackAPIVersion", None)
-        args = (version.VERSION1,) if version is not None else ()  # paho-mqtt >= 2.0
+        # paho-mqtt >= 2.0 requires an explicit callback API version as the first
+        # positional arg; 1.x has no such parameter. Pass it by keyword only when
+        # present so there is no positional collision with client_id/protocol.
+        ver_kw = {"callback_api_version": version.VERSION1} if version is not None else {}
         if enhanced:
             # MQTT v5 has no clean_session (it uses a per-connect clean_start).
-            client = mqtt.Client(*args, client_id=cid, protocol=mqtt.MQTTv5)
+            client = mqtt.Client(**ver_kw, client_id=cid, protocol=mqtt.MQTTv5)
         else:
-            client = mqtt.Client(*args, client_id=cid, clean_session=self._clean_session)
+            client = mqtt.Client(**ver_kw, client_id=cid, clean_session=self._clean_session)
         # Bound the reconnect backoff paho applies when a live connection drops.
         client.reconnect_delay_set(min_delay=1, max_delay=30)
         return client
 
     @staticmethod
-    def _configure_client(client, plan) -> None:
+    def _configure_client(client: Any, plan: MqttAuthPlan) -> None:
         """Apply connection-level auth from a plan: username/password and mTLS.
         (Enhanced auth, being a v5 CONNECT property, is handled at connect time.)"""
         if plan.username is not None:
@@ -132,13 +143,13 @@ class MqttBinding(AuthMixin):
             )
 
     @staticmethod
-    def _connect_properties(plan):
+    def _connect_properties(plan: MqttAuthPlan) -> Any:
         """The MQTT v5 CONNECT properties carrying enhanced authentication
         (``AuthenticationMethod`` + ``AuthenticationData``), or ``None``."""
         if plan.enhanced is None:
             return None
-        from paho.mqtt.packettypes import PacketTypes  # type: ignore
-        from paho.mqtt.properties import Properties  # type: ignore
+        from paho.mqtt.packettypes import PacketTypes
+        from paho.mqtt.properties import Properties
 
         props = Properties(PacketTypes.CONNECT)
         props.AuthenticationMethod = plan.enhanced.method
@@ -146,7 +157,7 @@ class MqttBinding(AuthMixin):
             props.AuthenticationData = plan.enhanced.data.get_secret_bytes()
         return props
 
-    def _endpoint(self, form, fallback: str):
+    def _endpoint(self, form: WoTForm, fallback: str) -> tuple[str, int, str]:
         import urllib.parse
 
         # An MQTT topic filter may contain '#' (multi-level wildcard) and '+', both
@@ -169,14 +180,18 @@ class MqttBinding(AuthMixin):
         topic = topic or fallback
         return host, port, topic
 
-    async def _apply_auth(self, client, owner_id: str | None, form=None):
+    async def _apply_auth(
+        self, client: Any, owner_id: str | None, form: WoTForm | None = None
+    ) -> MqttAuthPlan:
         """Configure an existing client's connection auth from the owner's
         credentials. Returns the ``MqttAuthPlan`` for inspection/testing."""
         plan = apply_mqtt(await self._resolve_credentials(owner_id, form))
         self._configure_client(client, plan)
         return plan
 
-    async def _connect(self, owner_id: str | None, host: str, port: int, form=None):
+    async def _connect(
+        self, owner_id: str | None, host: str, port: int, form: WoTForm | None = None
+    ) -> tuple[Any, Any]:
         """Resolve the owner's credentials, build a client of the right protocol,
         and configure its connection auth. Returns ``(client, properties)`` ready
         to connect. All auth comes from the shared, transport-neutral layer. A
@@ -186,7 +201,9 @@ class MqttBinding(AuthMixin):
         self._configure_client(client, plan)
         return client, self._connect_properties(plan)
 
-    async def _establish(self, client, host, port, *, topics, props=None):
+    async def _establish(
+        self, client: Any, host: str, port: int, *, topics: list[str], props: Any = None
+    ) -> None:
         """Connect with retry/backoff and (re)subscribe to ``topics`` on every
         successful (re)connection, then wait for CONNACK. Raises TransportError
         if it cannot connect within the retry budget."""
@@ -200,7 +217,9 @@ class MqttBinding(AuthMixin):
             # abandoned attempt can never satisfy this one's wait.
             connected = asyncio.Event()
 
-            def _on_connect(_c, _u, _flags, rc, *_args, _ev=connected):  # paho v1+v2
+            def _on_connect(
+                _c: Any, _u: Any, _flags: Any, rc: Any, *_args: Any, _ev: asyncio.Event = connected
+            ) -> None:  # paho v1+v2
                 if _connack_ok(rc):
                     # paho does not resubscribe after a reconnect; do it here so a
                     # dropped connection transparently restores the subscription.
@@ -213,8 +232,7 @@ class MqttBinding(AuthMixin):
                 client.connect(host, port, **connect_kwargs)
                 client.loop_start()
                 await asyncio.wait_for(connected.wait(), timeout=self._connect_timeout)
-                return
-            except Exception as exc:  # noqa: BLE001 - normalize every connect failure
+            except Exception as exc:
                 # Tear the attempt down fully (stop the loop and close the socket)
                 # before retrying or giving up, so no connection leaks.
                 self._shutdown(client)
@@ -224,16 +242,16 @@ class MqttBinding(AuthMixin):
                 raise TransportError(
                     "CONNECT", f"mqtt://{host}:{port}", attempts=attempt + 1, cause=exc
                 ) from exc
+            else:
+                return
 
     @staticmethod
-    def _shutdown(client) -> None:
+    def _shutdown(client: Any) -> None:
         for step in ("loop_stop", "disconnect"):
-            try:
+            with contextlib.suppress(Exception):
                 getattr(client, step)()
-            except Exception:  # noqa: BLE001 - shutdown is best-effort
-                pass
 
-    async def invoke(self, action, form, arguments):  # noqa: ANN001
+    async def invoke(self, action: WoTAction, form: WoTForm, arguments: dict[str, Any]) -> Any:
         """Publish to the form topic. When the action declares an ``output``
         schema, await a reply on ``<topic>/reply`` (request/response). When it
         does not, fire-and-forget: publish, wait for PUBACK at QoS >= 1, return
@@ -244,12 +262,12 @@ class MqttBinding(AuthMixin):
         expect_reply = bool(getattr(action, "output_schema", None))
         reply_topic = f"{topic}/reply"
         loop = asyncio.get_running_loop()
-        fut: asyncio.Future | None = loop.create_future() if expect_reply else None
+        fut: asyncio.Future[Any] | None = loop.create_future() if expect_reply else None
         client, props = await self._connect(getattr(action, "thing_id", None), host, port, form)
 
         if expect_reply:
 
-            def _on_message(_c, _u, msg):  # noqa: ANN001
+            def _on_message(_c: Any, _u: Any, msg: Any) -> None:
                 payload = _decode_mqtt(msg.payload)
                 if fut is not None and not fut.done():
                     loop.call_soon_threadsafe(fut.set_result, payload)
@@ -276,9 +294,10 @@ class MqttBinding(AuthMixin):
             wait_pub = getattr(info, "wait_for_publish", None)
             if self._qos and callable(wait_pub):
                 await loop.run_in_executor(None, lambda: wait_pub(self._timeout))
-            if not expect_reply:
+            # fut is created iff expect_reply (see above); testing it directly
+            # both returns the no-reply result and narrows the reply path.
+            if fut is None:
                 return {"ok": True, "topic": topic}
-            assert fut is not None
             return await asyncio.wait_for(fut, timeout=self._timeout)
         except asyncio.TimeoutError as exc:
             raise TransportError(
@@ -290,7 +309,9 @@ class MqttBinding(AuthMixin):
         finally:
             self._shutdown(client)
 
-    async def subscribe(self, target, form, args=None):  # noqa: ANN001
+    async def subscribe(
+        self, target: Any, form: WoTForm, args: dict[str, Any] | None = None
+    ) -> AsyncIterator[Any]:
         """Subscribe to the form's MQTT topic; yield each message. This is the
         events / observable-property binding for MQTT: a long-lived subscription
         that survives broker reconnects (the topic is re-subscribed on every
@@ -301,11 +322,11 @@ class MqttBinding(AuthMixin):
         name = target if isinstance(target, str) else target.name
         owner = getattr(target, "thing_id", None)
         host, port, topic = self._endpoint(form, name)
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue[Any] = asyncio.Queue()
         loop = asyncio.get_running_loop()
         client, props = await self._connect(owner, host, port, form)
 
-        def _on_message(_c, _u, msg):  # noqa: ANN001
+        def _on_message(_c: Any, _u: Any, msg: Any) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, _decode_mqtt(msg.payload))
 
         client.on_message = _on_message
@@ -315,7 +336,7 @@ class MqttBinding(AuthMixin):
             self._shutdown(client)
             raise
 
-        async def _stream():
+        async def _stream() -> AsyncIterator[Any]:
             try:
                 while True:
                     yield await queue.get()

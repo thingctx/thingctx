@@ -42,7 +42,11 @@ Capabilities, advertised by presence (the anti-lowest-common-denominator rule):
 
 from __future__ import annotations
 
-from typing import Any
+import contextlib
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from thingctx.trust import ApprovePolicy
 
 from thingctx.gateways.engine import (
     INVOKE,
@@ -85,7 +89,7 @@ class McpGatewayBinding:
         server_name: str = "thingctx",
         *,
         approve: Any = "elicit",
-        approve_when: str | None = None,
+        approve_when: ApprovePolicy | None = None,
     ) -> None:
         self._server_name = server_name
         self._approve = approve
@@ -194,10 +198,8 @@ def _is_destructive(action: Any) -> bool:
     ``tc:Destructive`` type marker if the action exposes no method."""
     is_destructive = getattr(action, "is_destructive", None)
     if callable(is_destructive):
-        try:
+        with contextlib.suppress(Exception):
             return bool(is_destructive())
-        except Exception:  # noqa: BLE001
-            pass
     raw = getattr(action, "raw", {}) or {}
     at_type = raw.get("@type")
     types = at_type if isinstance(at_type, list) else [at_type]

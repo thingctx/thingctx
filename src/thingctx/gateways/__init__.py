@@ -21,6 +21,8 @@ exactly as consumer bindings register through ``thingctx.bindings``.
 
 from __future__ import annotations
 
+from typing import Any
+
 from thingctx.gateways.engine import (
     INVOKE,
     OBSERVE,
@@ -39,27 +41,27 @@ from thingctx.gateways.engine import (
 from thingctx.gateways.registry import discover_gateway_bindings
 
 __all__ = [
-    "Gateway",
-    "GatewayBinding",
-    "ServeRequest",
-    # capability protocols (a driver opts in by implementing them)
-    "RequestReply",
-    "EventMirroring",
-    "PubSubOnly",
-    "Announces",
-    "QoSAware",
+    "INVOKE",
+    "OBSERVE",
     # the neutral operation names
     "READ",
-    "WRITE",
-    "OBSERVE",
-    "INVOKE",
     "SUBSCRIBE",
+    "WRITE",
+    "Announces",
+    "EventMirroring",
+    "Gateway",
+    "GatewayBinding",
+    "PubSubOnly",
+    "QoSAware",
+    # capability protocols (a driver opts in by implementing them)
+    "RequestReply",
+    "ServeRequest",
     # discovery
     "discover_gateway_bindings",
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     # The MQTT reference driver needs paho (the ``mqtt`` extra); load it lazily so
     # importing thingctx.gateways stays dependency-free.
     if name == "MqttGatewayBinding":

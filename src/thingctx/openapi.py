@@ -19,7 +19,8 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 TD_CONTEXT = "https://www.w3.org/2022/wot/td/v1.1"
 HTV = "http://www.w3.org/2011/http#"
@@ -41,7 +42,7 @@ _KEEP_KEYS = (
 # A header carrying a secret must never be written into a TD (a TD is meant to
 # be committed and shared; the invoker holds secrets at call time).
 _CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
-_CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.I)
+_CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.IGNORECASE)
 
 
 def _is_credential_header(field_name: str) -> bool:
@@ -54,7 +55,7 @@ def _resolve_ref(spec: dict, ref: str) -> dict:
     node: Any = spec
     for part in ref.lstrip("#/").split("/"):
         node = node[part.replace("~1", "/").replace("~0", "~")]
-    return node
+    return cast(dict, node)
 
 
 def _deref(spec: dict, node: Any) -> Any:
@@ -219,7 +220,7 @@ def _safe(method: str) -> bool:
 def _action_name(op: dict, method: str, path: str) -> str:
     """operationId if present, else a readable slug from method and path."""
     if op.get("operationId"):
-        return op["operationId"]
+        return str(op["operationId"])
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", path).strip("_")
     return f"{method.lower()}_{slug}"
 
@@ -286,14 +287,14 @@ def _op_security(op: dict, defs: dict) -> list[str] | None:
     groups = [g for g in (op.get("security") or []) if g]
     if not groups:
         return []
-    return [a for a in groups[0].keys() if a in defs]
+    return [a for a in groups[0] if a in defs]
 
 
 def from_openapi(
     spec: dict,
     *,
     base_url: str | None = None,
-    id: str | None = None,
+    id: str | None = None,  # noqa: A002 (documented public kwarg; the CLI passes id=)
     title: str | None = None,
     security: dict | None = None,
     include: Callable[[str, str, str], bool] | list[str] | None = None,
@@ -367,7 +368,7 @@ def from_openapi(
                 "contentType": body_ct or "application/json",
             }
             hdrs = _required_headers(spec, op)
-            declared = {h: None for h in hdrs}
+            declared = dict.fromkeys(hdrs)
             declared.update(fixed_headers)
             if declared:
                 form["htv:headers"] = [
@@ -423,7 +424,7 @@ def from_openapi(
 def _server_url(spec: dict) -> str:
     servers = spec.get("servers") or []
     if servers and isinstance(servers[0], dict):
-        return servers[0].get("url", "")
+        return str(servers[0].get("url", ""))
     return ""
 
 
@@ -435,20 +436,19 @@ def load_spec(source: str) -> dict:
 
         text = httpx.get(source, follow_redirects=True, timeout=30.0).text
     else:
-        with open(source, encoding="utf-8") as fh:
-            text = fh.read()
+        text = Path(source).read_text(encoding="utf-8")
     return _parse_spec(text)
 
 
 def _parse_spec(text: str) -> dict:
     try:
-        return json.loads(text)
+        return cast(dict, json.loads(text))
     except ValueError:
         try:
-            import yaml
+            import yaml  # type: ignore[import-untyped]  # pyyaml ships no stubs
         except ImportError as exc:  # pragma: no cover - guidance path
             raise ValueError(
                 "spec is not JSON and PyYAML is not installed; "
                 'install the YAML support with: pip install "thingctx[openapi]"'
             ) from exc
-        return yaml.safe_load(text)
+        return cast(dict, yaml.safe_load(text))
