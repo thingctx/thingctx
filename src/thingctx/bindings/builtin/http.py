@@ -16,8 +16,7 @@ from thingctx.contracts import implements
 def _decode(resp, empty=None):
     """Decode an HTTP response by its content type: JSON to a value, text to a
     str, anything else (e.g. an image) to raw bytes. An empty body returns
-    ``empty``. HTTP-specific (reads content-type/content); it lives here, not in
-    the transport-neutral binding base."""
+    ``empty``."""
     ctype = resp.headers.get("content-type", "").split(";")[0].strip()
     # An empty body (a 204 No Content, or any empty 2xx) has nothing to parse,
     # even when the response still declares a JSON content type. Check this first
@@ -236,9 +235,9 @@ class HttpBinding(AuthMixin):
 
     Honors declared security via the transport-neutral auth layer: it resolves
     each owner's schemes into neutral credential material (see
-    :class:`AuthMixin`) and maps it onto the request with ``apply_http`` --
-    headers, query params, a client certificate, or request signing. No auth
-    logic lives in this transport.
+    :class:`AuthMixin`) and maps it onto the request with ``apply_http`` (headers,
+    query params, a client certificate, or request signing). No auth logic lives
+    in this transport.
 
     Transient failures (connection errors, timeouts, 429, 5xx) are retried with
     bounded exponential backoff, and any non-2xx outcome surfaces as a single
@@ -246,17 +245,15 @@ class HttpBinding(AuthMixin):
     ``retry_non_idempotent`` is set, so a write is never silently re-sent. A
     pooled client is reused across calls to keep connections warm.
 
-    Capability coverage: this is the reference transport and implements the whole
-    control-plane contract, so every optional WoT TD 1.1 capability is exercised
-    here. ``invoke`` (incl. ``contentCoding`` negotiation and the declared
-    ``additionalResponses`` error shape on failure); ``read`` / ``write``; bulk
-    ``read_all`` / ``write_all`` over a Thing-level form; the async action
-    lifecycle ``invoke_async`` / ``query_action`` / ``cancel_action`` (POST a
-    201/202 + status resource, then GET / DELETE it); and ``subscribe`` over SSE.
-    Auth covers the schemes ``apply_http`` maps: bearer, basic, apikey, oauth2
-    (resolved to a bearer token), mutual TLS, and request signing (``auto``,
-    e.g. SigV4). ``digest`` and ``combo`` are modeled by the parser but not yet
-    applied here.
+    The reference transport: it implements the whole control-plane contract, so
+    every optional WoT TD 1.1 capability is exercised here. ``invoke`` (incl.
+    ``contentCoding`` negotiation and the declared ``additionalResponses`` error
+    shape on failure); ``read`` / ``write``; bulk ``read_all`` / ``write_all``;
+    the async action lifecycle ``invoke_async`` / ``query_action`` /
+    ``cancel_action``; and ``subscribe`` over SSE. Auth covers the schemes
+    ``apply_http`` maps: bearer, basic, apikey, oauth2 (resolved to a bearer
+    token), mutual TLS, and request signing (``auto``, e.g. SigV4). ``digest`` and
+    ``combo`` are modeled by the parser but not yet applied here.
     """
 
     scheme = "http"

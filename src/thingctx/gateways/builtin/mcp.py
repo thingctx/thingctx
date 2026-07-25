@@ -5,8 +5,7 @@
 MCP is not a plain address-mapped bus. It has a protocol-specific middleware
 surface a bus lacks: tools (actions), resources (properties), prompts
 (``tc:PromptTemplate`` actions), media snapshots, and elicitation-based approval.
-This driver proves the gateway seam carries that richness without flattening it: the
-MCP specifics ride in ``mcpv:`` form vocabulary that the engine passes through
+The MCP specifics ride in ``mcpv:`` form vocabulary that the engine passes through
 opaquely, exactly as MQTT's specifics ride in ``mqv:``.
 
 This driver is THIN. It does not reimplement the MCP projection; it COMPOSES with
@@ -32,12 +31,11 @@ Capabilities, advertised by presence (the anti-lowest-common-denominator rule):
 
 * ``GatewayBinding`` (base) and ``RequestReply``: MCP is request/reply. A tool call
   returns a result, so the engine may route reply-bearing ops here.
-* NOT ``EventMirroring``: the current MCP bridge exposes actions + resources +
-  prompts, not a live event push. This driver does not wire native events to MCP
+* NOT ``EventMirroring``: the MCP bridge exposes actions + resources + prompts,
+  not a live event push. This driver does not wire native events to MCP
   notifications, so it does NOT implement ``mirror_event``. The seam's whole
-  point is to advertise only what you actually do; claiming EventMirroring without
-  wiring it would be dishonest. (When an event->notification bridge is wired, add
-  ``mirror_event`` and the engine will start mirroring.)
+  point is to advertise only what you actually do; claiming EventMirroring
+  without wiring it would be dishonest.
 * NOT ``PubSubOnly`` (it replies), NOT ``QoSAware`` (MCP has no per-message QoS),
   NOT ``Announces`` (the MCP server's own list_tools/list_resources IS discovery).
 """
@@ -65,11 +63,9 @@ def _slug(thing: Any) -> str:
 
 
 class McpGatewayBinding:
-    """Serve a fleet to MCP clients. Implements GatewayBinding + RequestReply.
-
-    Deliberately does NOT implement EventMirroring (no event->MCP-notification is
-    wired), PubSubOnly (it replies), QoSAware (MCP has no per-message QoS), or
-    Announces (the MCP server's own listings are the discovery surface).
+    """Serve a fleet to MCP clients. Implements GatewayBinding + RequestReply;
+    not EventMirroring, PubSubOnly, QoSAware, or Announces (see the module
+    docstring for why each is omitted).
 
     Args:
         server_name: the MCP server name a client sees; the projected ``mcp://``
@@ -174,18 +170,17 @@ class McpGatewayBinding:
     async def aclose(self) -> None:
         """Tear down: drop the server reference. The composed server holds no
         transport of its own until pumped (``run_stdio``), so there is nothing to
-        disconnect here; the engine closes the native client separately."""
+        disconnect here. The engine closes the native client separately."""
         self._server = None
         self._gateway = None
 
     # -- RequestReply capability ------------------------------------------ #
 
     async def reply(self, request: ServeRequest, result: Any) -> None:
-        """MCP is request/reply: the tool-call handler in the composed server
-        returns the result to the caller inline (via ``client.invoke``), so a
-        reply needs no separate publish. This method exists to ADVERTISE the
-        RequestReply capability (the engine feature-detects it by presence); the
-        actual reply is delivered by the MCP server's own call machinery."""
+        """The composed server returns the result to the caller inline (via
+        ``client.invoke``), so a reply needs no separate publish. This method
+        exists to ADVERTISE the RequestReply capability (the engine feature-detects
+        it by presence)."""
         return
 
 

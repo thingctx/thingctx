@@ -9,9 +9,9 @@ honours the contract the runtime drives it through:
   names a scheme, exposes an async ``invoke``, and is consistent about the
   capabilities it advertises.
 * :func:`assert_media_backend_contract` for a
-  :class:`~thingctx.MediaBackend`: the pluggable engine behind ``MediaBinding``
-  (PyAV today, GStreamer/GigE tomorrow). It exposes synchronous
-  ``can_open`` / ``read`` / ``write`` that run off the event loop.
+  :class:`~thingctx.MediaBackend`: the pluggable engine behind ``MediaBinding``.
+  It exposes synchronous ``can_open`` / ``read`` / ``write`` that run off the
+  event loop.
 * :func:`assert_provider_contract` for a
   :class:`~thingctx.CredentialProvider`: it names itself, decides what it
   handles with a synchronous ``matches``, and resolves credential material with

@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Durable storage for long-lived OAuth refresh tokens.
 
-A refresh token outlives the process, so the in-memory access-token cache
-(``AuthContext.cache``) cannot hold it: the user consents once and every later
-run refreshes silently. That requires a place to keep the refresh token between
-runs. This module is that place.
+A refresh token outlives the process, so it needs a home outside the in-memory
+access-token cache (``AuthContext.cache``): the user consents once and every
+later run refreshes silently.
 
 A refresh token is a bearer secret with a long life, so the file backend writes
 ``0600`` and never logs a value. The contract is the :class:`TokenStore`

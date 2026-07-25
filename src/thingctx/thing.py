@@ -4,12 +4,10 @@
 and their transport bindings. Stdlib only.
 
 Models the W3C WoT Thing Description 1.1 information model
-(1.1-12-March-2025): interaction affordances and their forms, the full
-form vocabulary (op, subprotocol, content coding, expected responses,
-form-level security), per-affordance ``uriVariables``, the security
-scheme variants, the Thing-level bulk-operation forms, and metadata
-(version, links, lifecycle dates, ``@context``). Unmodeled vendor keys
-are kept verbatim on each ``raw`` for extensions to read.
+(1.1-12-March-2025): affordances and their forms, the form vocabulary,
+per-affordance ``uriVariables``, security scheme variants, Thing-level
+bulk-operation forms, and metadata. Unmodeled vendor keys are kept
+verbatim on each ``raw`` for extensions to read.
 """
 
 from __future__ import annotations
@@ -356,8 +354,7 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
         pdef = pdef or {}
         ops = _all_ops(pdef)
         # TD flags are the baseline; when forms declare an explicit op list that
-        # omits writeproperty, the write surface is closed even without readOnly
-        # (dogfood: MQTT observe/read forms were projecting a spurious .set).
+        # omits writeproperty, the write surface is closed even without readOnly.
         writable = not bool(pdef.get("readOnly"))
         if ops and "writeproperty" not in ops:
             writable = False
@@ -604,13 +601,12 @@ def _href_var_names(href: str) -> set[str]:
 def _project_action_params(action: WoTAction, thing_uri_vars: dict[str, Any]) -> dict[str, Any]:
     """The tool ``parameters`` for an action, INCLUDING the uriVariables its form
     needs. The bare input schema omits them (they live in ``uriVariables``, not
-    ``input``), so a model reading only the schema cannot supply the broker/topic
-    a form like ``mqtt://{+broker}/{+topic}`` requires. Fold in the action-level
-    uriVariables plus any Thing-level ones the href references, as required
-    string properties, so the flat tool advertises exactly what the call needs.
+    ``input``), so a form like ``mqtt://{+broker}/{+topic}`` would leave the model
+    unable to supply the broker/topic. Fold in the action-level uriVariables plus
+    any Thing-level ones the href references, as required string properties.
 
-    Uses the '{+broker}' expansion form's naming; a scalar/array input still wraps
-    under SCALAR_INPUT_KEY, and its uriVariables sit alongside that key."""
+    A scalar/array input still wraps under SCALAR_INPUT_KEY, and its uriVariables
+    sit alongside that key."""
     base = _project_input(action.input_schema)
     # Which uriVariables does this action's form(s) actually reference?
     referenced: set[str] = set()

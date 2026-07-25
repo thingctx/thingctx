@@ -75,8 +75,7 @@ class ThingClient:
         self._approve = approve
         self._approve_when: ApprovePolicy = approve_when
         # pdp / identity move authorization INTO the client. When pdp is None,
-        # authorization is off and nothing below runs (backward compatible: a
-        # caller that never sets a pdp is unaffected). When a pdp is set, every
+        # authorization is off and nothing below runs. When a pdp is set, every
         # device-reaching dispatch method authorizes the resolved (thing_id,
         # affordance, op) against it BEFORE the approve gate and BEFORE any
         # binding is selected, so a denial can never reach a transport. There is
@@ -134,10 +133,8 @@ class ThingClient:
             self._assert_supported(tds)
 
     def _reindex(self) -> None:
-        """Recompute every derived map from ``self._things``: the tool specs,
-        the invoke route, the property/event maps, the media split, and the
-        per-binding security binding. Run at construction and again whenever the
-        thing set changes (see :meth:`add_things`)."""
+        """Recompute every derived map from ``self._things``. Run at construction
+        and again whenever the thing set changes (see :meth:`add_things`)."""
         self._tool_specs, self._route = actions_to_tools(
             self._things,
             only_idempotent=self._only_idempotent,
@@ -167,14 +164,11 @@ class ThingClient:
         # are consumed via frames(), never invoke(). Expose them through
         # list_media()/frames() instead.
         #
-        # A continuous feed is, per WoT, most faithfully an EVENT (an async data
-        # stream you subscribe to) or an observable PROPERTY (state you observe),
-        # not an Action (a discrete function call). We recognize a media form on
-        # any of the three and remember the WoT op it is authorized as, so the PDP
-        # gates a camera ``watch`` as ``subscribeevent`` / ``observeproperty`` (a
-        # read) rather than ``invokeaction``. That is what lets a read-only posture
-        # permit watching while still denying a ``move`` action, with no special
-        # policy: the op the standard already assigns does the separating.
+        # A media form may sit on an event, an observable property, or an action.
+        # We remember the WoT op it is authorized as, so the PDP gates a camera
+        # ``watch`` as ``subscribeevent`` / ``observeproperty`` (a read) rather
+        # than ``invokeaction``: a read-only posture then permits watching while
+        # still denying a ``move`` action, with no special policy.
         #
         # ``self._media`` maps name -> (affordance, op). Actions carrying a media
         # form stay supported as ``invokeaction`` for back-compat.
@@ -465,12 +459,11 @@ class ThingClient:
         """Return a client that authorizes every device-reaching call against
         ``pdp`` for ``identity``. Sugar over the ``pdp=`` constructor param.
 
-        This is NOT a proxy. It returns a ThingClient that shares this client's
-        internal state (the same parsed Things, binding registry, route,
-        property/event/media maps, approve gate) with only the authorization
-        settings set. So there is no second dispatch surface to drift from and
-        nothing to bypass: the returned client's own dispatch methods enforce
-        the check, exactly as if you had passed ``pdp=`` at construction.
+        Not a proxy: it returns a ThingClient that shares this client's internal
+        state with only the authorization settings set. There is no second
+        dispatch surface to drift from and nothing to bypass; the returned
+        client's own dispatch methods enforce the check, exactly as if ``pdp=``
+        had been passed at construction.
         """
         clone = object.__new__(type(self))
         clone.__dict__ = dict(self.__dict__)

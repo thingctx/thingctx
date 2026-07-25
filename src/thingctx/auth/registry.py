@@ -88,9 +88,8 @@ def discover_auth(*, group: str = "thingctx.auth", register: bool = False) -> li
     Opt in: nothing here runs unless you call it, because importing a provider
     runs third-party code in process. Each entry point names a zero-argument
     callable that returns a provider instance. With ``register=True`` each
-    discovered provider is also registered on the default registry (at the front,
-    so it can override a built-in scheme); otherwise they are only returned, for
-    you to register or hand to a binding's ``extra_auth``.
+    discovered provider is also registered on the default registry, at the front
+    so it can override a built-in scheme; otherwise they are only returned.
     """
     from importlib.metadata import entry_points
 

@@ -2,12 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Response chaining: drive a follow-up call from an action's response.
 
-A common shape across REST APIs is handle-then-act: one call returns the address
-for the next (a ``Location`` header or a JSON field), and a second call goes to
-that address. Resumable/chunked upload, presigned-URL upload, async-job polling,
-and S3-style multipart all share it. A TD form declares the handoff with an
-``x-thingctx-next`` annotation and the engine here runs it, so these are plain
-``client.invoke`` actions rather than one-off helpers.
+Handle-then-act: one call returns the address for the next (a ``Location`` header
+or a JSON field), and a second call goes there. Resumable upload, presigned-URL
+upload, async-job polling, and S3-style multipart share this shape. A TD form
+declares the handoff with an ``x-thingctx-next`` annotation and the engine here
+runs it, so these stay plain ``client.invoke`` actions.
 
 Annotation (on a form)::
 
@@ -47,7 +46,7 @@ from urllib.parse import urljoin, urlsplit
 
 from thingctx.netpolicy import WEB_SCHEMES, check_url, confine_path
 
-DEFAULT_CHUNK = 8 * 1024 * 1024  # 8 MiB, a multiple of 256 KiB (Google's unit)
+DEFAULT_CHUNK = 8 * 1024 * 1024  # 8 MiB, a multiple of the 256 KiB resumable-upload unit
 
 # A chain is HTTP(S) end to end: a next address extracted from a response may
 # only be an http(s) URL, never a jump to file:/data:/another scheme.

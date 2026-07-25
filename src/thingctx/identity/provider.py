@@ -3,17 +3,14 @@
 """Outbound: authenticate the agent as an Entra identity to any target.
 
 ``EntraAuth`` is a thingctx :class:`~thingctx.CredentialProvider`. It claims an
-``oauth2`` security scheme that is flagged as Entra, mints an access token via
-``azure-identity``, and returns a :class:`~thingctx.BearerToken`. thingctx's
-transport applier attaches the token; this provider never touches a request.
+``oauth2`` security scheme flagged as Entra, mints an access token via
+``azure-identity``, and returns a :class:`~thingctx.BearerToken`.
 
 The whole Entra credential chain is reachable through one scheme:
-
-* by default, ``DefaultAzureCredential`` -- which transparently covers a client
-  secret (env), a certificate, a managed identity (IMDS), workload identity
-  federation, and the developer's Azure CLI login;
-* explicitly, ``ClientSecretCredential`` or ``CertificateCredential`` when the
-  TD / runtime secret names one.
+``DefaultAzureCredential`` by default (client secret, certificate, managed
+identity, workload identity federation, Azure CLI login), or an explicit
+``ClientSecretCredential`` / ``CertificateCredential`` when the TD / runtime
+secret names one.
 
 The Entra gotcha this provider hides: v2 tokens are minted against a **resource
 scope** of the form ``<resource>/.default``. A caller who writes a bare
@@ -271,9 +268,5 @@ class EntraAuth:
 
 
 def make_provider() -> EntraAuth:
-    """Zero-arg factory for the ``thingctx.auth`` entry point.
-
-    ``pip install thingctx-identity`` + ``discover_auth(register=True)`` is all a
-    consumer needs; thingctx loads this and the Entra scheme resolves with no
-    code change on their side."""
+    """Zero-arg factory for the ``thingctx.auth`` entry point."""
     return EntraAuth()

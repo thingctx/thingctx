@@ -2,12 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """MQTT gateway binding: serve a WoT fleet onto an MQTT bus.
 
-This is the reference middleware driver. It implements the ``GatewayBinding``
-contract (project forms, serve, teardown) plus the ``RequestReply``,
-``EventMirroring``, and ``QoSAware`` capabilities, because an MQTT broker can
-carry a reply, mirror events, and honor per-message QoS. A pub/sub-only or
-one-shot transport would implement fewer of these, and the engine would call only
-what it advertises.
+Implements the ``GatewayBinding`` contract (project forms, serve, teardown) plus
+the ``RequestReply``, ``EventMirroring``, and ``QoSAware`` capabilities, because
+an MQTT broker can carry a reply, mirror events, and honor per-message QoS. A
+pub/sub-only or one-shot transport would implement fewer of these, and the engine
+would call only what it advertises.
 
 Protocol-specific richness rides in the projected form's own ``mqv:`` vocabulary
 (the MQTT binding-template namespace), so the engine never sees a topic, a QoS, or
@@ -80,15 +79,14 @@ class MqttGatewayBinding:
         guard: Any = None,
         broker_binds_identity: bool = False,
     ) -> None:
-        # Confused-deputy guardrail, enforced at config time (not a docstring): a
-        # per-caller ``guard`` reads the caller's token from a message user-property
-        # but does NOT bind it to the broker connection. On a broker that does not
-        # authenticate each publisher connection and enforce topic permissions, a
-        # sender could present another party's still-valid token and be authorized
-        # as them. So a guard is REFUSED unless the deployment attests the broker
-        # binds connection identity (mTLS client cert / per-client ACLs), e.g. Azure
-        # Event Grid / Event Hub, HiveMQ with client ACLs. This makes the trust
-        # boundary a control the operator must acknowledge, not a caveat they skip.
+        # Confused-deputy guardrail, enforced at config time: a per-caller
+        # ``guard`` reads the caller's token from a message user-property but does
+        # NOT bind it to the broker connection. On a broker that does not
+        # authenticate each publisher connection, a sender could present another
+        # party's still-valid token and be authorized as them. So a guard is
+        # REFUSED unless the deployment attests the broker binds connection
+        # identity (mTLS client cert / per-client ACLs), e.g. Azure Event Grid /
+        # Event Hub, HiveMQ with client ACLs.
         if guard is not None and not broker_binds_identity:
             raise ValueError(
                 "a per-caller guard requires a broker that binds connection identity "
@@ -266,11 +264,8 @@ class MqttGatewayBinding:
         (fall back to the server identity) when there is no guard, no token, or
         the token fails validation. ``inbound`` is the paho ``Properties`` object.
 
-        This is the gateway-side mirror of the consumer ``AuthMixin``: it authenticates
-        the caller coming IN, as ``AuthMixin`` authenticates thingctx going OUT to
-        a device. It reuses the same ``thingctx.identity`` guard the HTTP gateway
-        uses, so a caller validated on the bus yields the same claims shape as one
-        over HTTP.
+        It reuses the same ``thingctx.identity`` guard the HTTP gateway uses, so a
+        caller validated on the bus yields the same claims shape as one over HTTP.
 
         TRUST BOUNDARY (read before relying on this): the token is validated
         cryptographically (signature, issuer, audience, expiry), so a forged token
@@ -324,9 +319,9 @@ class MqttGatewayBinding:
     def _start_caller_mirror(self, slug: str, name: str, stream_topic: str, identity: Any) -> None:
         """Mirror an event to ONE caller's stream topic, after their subscribeevent
         grant was authorized. The native subscribe runs on the caller's guarded
-        client, so the per-delivery stream re-authorization (token expiry /
-        revocation) also applies: the caller's stream stops when their grant lapses,
-        not just at subscribe time."""
+        client, so per-delivery re-authorization (token expiry / revocation)
+        applies: the caller's stream stops when their grant lapses, not just at
+        subscribe time."""
         client = self._gateway.client
         pdp = getattr(client, "_pdp", None)
         if pdp is not None and identity is not None:

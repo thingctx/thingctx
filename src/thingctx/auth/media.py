@@ -7,15 +7,6 @@ produces one neutral :class:`MediaAuthPlan` and offers a per engine mapping for
 each. As with the other appliers, all credential to engine knowledge lives here;
 the backends just call the mapping for the engine they use and hold no auth
 logic.
-
-Mapping choices:
-* ``BasicCredential`` becomes username and password (URL userinfo for a decoder;
-  account login for the extractor).
-* ``BearerToken`` or header ``ApiKeyCredential`` becomes request headers (for
-  token bearing HTTP and HLS streams).
-* query ``ApiKeyCredential`` becomes a URL query parameter (tokened stream URLs).
-* ``ClientCertificate`` becomes TLS cert, key, and ca (for ``rtsps`` and TLS
-  transports).
 """
 
 from __future__ import annotations

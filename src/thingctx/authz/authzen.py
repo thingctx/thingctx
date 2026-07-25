@@ -1,11 +1,10 @@
 """AuthZEN interop: speak the OpenID Authorization API 1.0 Final shape.
 
 thingctx ships a lean, zero-dependency local PDP as its default (see
-:class:`~thingctx.authz.pdp.PolicyDecisionPoint`). This module makes
-the same decision boundary speak the AuthZEN standard, so an adopter can point
-thingctx at ANY AuthZEN-conformant Policy Decision Point, their OPA, a Cedar
-service, an enterprise PDP, without changing thingctx. The standard is the buy;
-the default stays lean.
+:class:`~thingctx.authz.pdp.PolicyDecisionPoint`). This module makes the same
+decision boundary speak the AuthZEN standard, so an adopter can point thingctx at
+ANY AuthZEN-conformant Policy Decision Point (their OPA, a Cedar service, an
+enterprise PDP) without changing thingctx.
 
 Two directions, both here:
 

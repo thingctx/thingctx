@@ -2,25 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """The guard registry: how identity-provider guards are discovered and added.
 
-This mirrors thingctx's own pluggability. thingctx discovers transport bindings
-through the ``thingctx.bindings`` entry-point group (``discover_bindings``) and
-outbound credential providers through ``thingctx.auth`` (``discover_auth``). The
-INBOUND gateway guard is the same shape: a provider-neutral contract
-(:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard`) plus concrete providers
-that register against it, discovered opt-in through an entry-point group.
-
-Adding a new IdP later is one provider class + one entry point, zero core
-change:
+The inbound gateway guard mirrors thingctx's other pluggability: a
+provider-neutral contract (:class:`~thingctx.identity.jwt_guard.JwtGatewayGuard`)
+plus concrete providers that register through an entry-point group, discovered
+opt-in. A new IdP is one provider class + one entry point:
 
     # in thingctx-cognito's pyproject.toml
     [project.entry-points."thingctx.guards"]
     cognito = "thingctx_cognito:make_cognito_guard"
 
     # then, in a gateway
-    guards = discover_guards(register=True)     # {"entra": ..., "cloudflare": ...,
-                                                #  "cognito": ...}
-    Guard = guards["cognito"]
-    guard = Guard(user_pool_id=..., audience=...)
+    guards = discover_guards(register=True)
+    guard = guards["cognito"](user_pool_id=..., audience=...)
 
 The one difference from ``discover_auth``: a guard needs per-deployment config
 (a tenant, a team domain, an audience), so an entry point cannot return a

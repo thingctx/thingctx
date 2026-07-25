@@ -39,10 +39,10 @@ def _output_format(url: str) -> str | None:
 
 
 def _headers_to_ffmpeg(headers: dict | None) -> str | None:
-    """FFmpeg takes request headers as one CRLF-joined string on an http(s)
-    input. yt-dlp attaches per-format ``http_headers`` (a User-Agent matching the
-    client it resolved with); a CDN like googlevideo rejects the bytes without
-    them, so they must ride into ``av.open`` for that stream."""
+    """FFmpeg needs request headers as one CRLF-joined string on an http(s)
+    input. yt-dlp's per-format ``http_headers`` carry a User-Agent matching the
+    client it resolved with; a CDN like googlevideo rejects the bytes without
+    them, so they ride into ``av.open`` for that stream."""
     if not headers:
         return None
     for k, v in headers.items():
@@ -62,11 +62,11 @@ _DIRECT_MEDIA_EXTS = (
 
 
 def _looks_direct(url: str) -> bool:
-    """Auto-mode heuristic: a directly-openable media stream (vs a page to
-    resolve). A non-http(s) scheme (rtsp/srt/file/local path) is always direct;
-    an http(s) URL is direct only when its path ends in a known media or playlist
-    extension, otherwise it is treated as a page (yt-dlp). A caller that knows
-    better forces the mode with ``resolve: "direct"`` / ``"page"``."""
+    """Auto-mode heuristic: a directly-openable stream vs a page to resolve. A
+    non-http(s) scheme (rtsp/srt/file/local path) is always direct; an http(s)
+    URL is direct only when its path ends in a known media or playlist extension,
+    otherwise it is a page for yt-dlp. A caller override forces the mode with
+    ``resolve: "direct"`` / ``"page"``."""
     p = urlparse(url)
     if p.scheme not in ("http", "https"):
         return True
@@ -74,10 +74,10 @@ def _looks_direct(url: str) -> bool:
 
 
 class _RedactingHandler(logging.Handler):
-    """A no-op handler that redacts credentials from a record in place. Attached
-    to the ``libav`` logger, its ``handle()`` runs during propagation (before the
-    host app's root handlers see the record) and scrubs any URL the message
-    carries; it emits nothing itself, so it never suppresses or duplicates logs."""
+    """Redacts credentials from a record in place. Attached to the ``libav``
+    logger, its ``handle()`` runs during propagation, before the host app's root
+    handlers see the record, and scrubs any URL the message carries. It emits
+    nothing itself, so it never suppresses or duplicates logs."""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -200,9 +200,8 @@ class PyAVBackend:
     def write(
         self, frames: Iterator[Frame], target: str, *, options: dict, stop: threading.Event
     ) -> None:
-        """Encode and mux a single track of ``frames`` to ``target``. A
-        convenience over :meth:`write_av`; ``track`` (``video``/``audio``) picks
-        which stream the frames feed."""
+        """Encode and mux a single track of ``frames`` to ``target``. ``track``
+        (``video``/``audio``) picks which stream the frames feed."""
         if options.get("track", "video") == "audio":
             self.write_av(None, frames, target, options=options, stop=stop)
         else:
@@ -218,9 +217,7 @@ class PyAVBackend:
         stop: threading.Event,
     ) -> None:
         """Encode and mux video and/or audio to ``target`` (an ingest URL or a
-        file). The muxer is chosen from the URL scheme (or the file extension);
-        credentials in the plan are applied to the target URL.
-
+        file). The muxer is chosen from the URL scheme or the file extension.
         Streams are created lazily from the first frame of each track. Packets
         are interleaved by presentation time: a frame's ``pts`` (seconds) when
         the producer supplies it, else a per-track clock (video frame count over
@@ -285,7 +282,7 @@ class PyAVBackend:
     def _encode_rate(fr: Frame | None, options: dict) -> int:
         """The video frame rate to encode at. The source rate (carried on the
         frame by the read path) wins so a re-encode preserves the source timing;
-        the ``fps`` option is only a fallback for frames with no source rate."""
+        the ``fps`` option is only a fallback."""
         src_rate = fr.meta.get("rate") if (fr is not None and fr.meta) else None
         if src_rate:
             return max(1, int(round(float(src_rate))))
@@ -414,15 +411,14 @@ class PyAVBackend:
     def copy(self, url: str, target: str, *, options: dict, stop: threading.Event) -> None:
         """Remux (stream copy) the source to ``target`` without decoding: the
         compressed packets are written through unchanged, so the output is bit
-        exact (same codecs, frame rate, A/V sync) with no re-encode and no rate
-        decision, the cleanest "save the source to a file". ``track``
-        (``video``/``audio``) limits the copy to one stream; by default every
-        video and audio stream is copied.
+        exact (same codecs, frame rate, A/V sync). ``track`` (``video``/``audio``)
+        limits the copy to one stream; by default every video and audio stream is
+        copied.
 
-        The target container must accept the source codecs, so keep a container
-        that matches the source (``.webm`` for vp9/opus, ``.mp4`` for h264/aac);
-        an incompatible target raises. A transform (not a plain save) still goes
-        through the decode/re-encode path (``write_av``)."""
+        The target container must accept the source codecs (``.webm`` for
+        vp9/opus, ``.mp4`` for h264/aac); an incompatible target raises. A
+        transform (not a plain save) goes through the re-encode path
+        (``write_av``)."""
         # ``format`` in a media hint is the resolver's (yt-dlp) stream selector,
         # not a PyAV container; on a direct open it must never reach
         # ``av.open(format=...)``. The output container is derived from the
@@ -474,8 +470,8 @@ class PyAVBackend:
     def _stage(url: str, headers: dict | None, options: dict, stop: threading.Event) -> str:
         """Download one resolved stream fully to a temp file, in one continuous
         read with its request headers. Sequential full reads are what a CDN
-        tolerates (and what yt-dlp does); the staged file then muxes locally with
-        no idle-connection drop."""
+        tolerates; the staged file then muxes locally with no idle-connection
+        drop."""
         import tempfile
         import urllib.request
 
@@ -504,10 +500,9 @@ class PyAVBackend:
         stop: threading.Event,
     ) -> None:
         """Open each source and copy its packets into one ``target`` container.
-        Each source is a ``(url, http_headers)`` pair; the headers (per format,
-        from the resolver) are applied when opening that input. Packets are
-        interleaved across inputs by presentation time so the muxer buffers
-        little, and every stream is copied (no decode/encode)."""
+        Each source is a ``(url, http_headers)`` pair; the headers are applied
+        when opening that input. Packets are interleaved across inputs by
+        presentation time, and every stream is copied (no decode/encode)."""
         import av
 
         _install_libav_redaction()
@@ -601,14 +596,13 @@ class PyAVBackend:
 @implements(MediaBackend)
 class ExtractorBackend(PyAVBackend):
     """Resolve a web page URL to a direct media URL with yt-dlp, then decode it
-    with PyAV. yt-dlp covers hundreds of sites, so a new source needs a TD, not
-    new code here. Works for both recorded and live (HLS) media.
+    with PyAV. Works for both recorded and live (HLS) media.
 
     Selected by a declared media hint (``resolve: "page"``), never by hostname,
-    so the runtime carries no per site knowledge. ``source: "youtube"`` is kept
-    as an alias for the same intent. Under ``resolve: "auto"`` it claims any
-    http(s) URL that is not already a direct stream, so one affordance serves
-    both a direct URL and a page."""
+    so the runtime carries no per site knowledge. ``source: "youtube"`` is an
+    alias for the same intent. Under ``resolve: "auto"`` it claims any http(s)
+    URL that is not already a direct stream, so one affordance serves both a
+    direct URL and a page."""
 
     def can_open(self, url: str, hint: dict) -> bool:
         mode = hint.get("resolve")
@@ -665,8 +659,8 @@ class ExtractorBackend(PyAVBackend):
         http_headers)`` pair. A merged selector (``bestvideo+bestaudio``) yields
         two (a video-only and an audio-only stream) in ``requested_formats``, to
         be muxed together; a single selector yields one. The per-format
-        ``http_headers`` carry the User-Agent the CDN requires to serve the
-        bytes, so they travel with the URL to the open."""
+        ``http_headers`` carry the User-Agent the CDN requires, so they travel
+        with the URL to the open."""
         info = self._resolve_info(url, options)
         requested = info.get("requested_formats")
         formats = requested if requested else [info]
@@ -677,9 +671,9 @@ class ExtractorBackend(PyAVBackend):
     ) -> str:
         """Download one resolved format fully to a temp file with yt-dlp and
         return its path. yt-dlp's own downloader (range requests, retries, client
-        tokens) is what fetches a googlevideo DASH stream reliably where a plain
-        GET is not; the file is fully written and closed before the mux opens it,
-        so there is no live pipe between fetch and mux to break."""
+        tokens) fetches a googlevideo DASH stream reliably where a plain GET does
+        not; the file is fully written and closed before the mux opens it, so
+        there is no live pipe between fetch and mux to break."""
         import yt_dlp
 
         from thingctx.bindings.builtin.media.binding import MediaError
@@ -726,14 +720,14 @@ class ExtractorBackend(PyAVBackend):
 
     def copy(self, url: str, target: str, *, options: dict, stop: threading.Event) -> None:
         """Stream-copy a page source to ``target``. A single chosen stream is
-        copied straight from the resolved URL (one continuous connection is
-        fine). A merged selector (``bestvideo+bestaudio``) resolves to two DASH
-        streams that cannot be read interleaved over the network (a CDN drops the
-        idle one, and a plain GET of a googlevideo URL is unreliable), so each is
-        DOWNLOADED fully to a temp file by yt-dlp, then the closed local files are
-        stream-copy muxed into one target. ``format`` is the yt-dlp selector, not
-        a PyAV container; the output container comes from the target. Auth and
-        per-format headers are consumed at resolve/download time."""
+        copied straight from the resolved URL. A merged selector
+        (``bestvideo+bestaudio``) resolves to two DASH streams that cannot be
+        read interleaved over the network (a CDN drops the idle one, and a plain
+        GET of a googlevideo URL is unreliable), so each is downloaded fully to a
+        temp file by yt-dlp, then the closed local files are stream-copy muxed
+        into one target. ``format`` is the yt-dlp selector, not a PyAV container;
+        the output container comes from the target. Auth and per-format headers
+        are consumed at resolve/download time."""
         info = self._resolve_info(url, options)
         requested = info.get("requested_formats")
         opts = {k: v for k, v in options.items() if k not in ("format", "auth")}

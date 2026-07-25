@@ -2,24 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Provider-neutral inbound JWT validation for a thingctx gateway.
 
-:class:`JwtGatewayGuard` is the engine behind every identity-provider guard in
-this package. It validates an *incoming* bearer JWT and authorizes the caller,
-so thingctx can sit in front of devices that do not speak the provider's protocol
-and drive them south with their own native auth. The guard is only about the
-inbound identity; the device is invoked with the existing outbound stack (its
-own bearer / basic / apikey), a different credential entirely.
+:class:`JwtGatewayGuard` validates an *incoming* bearer JWT and authorizes the
+caller, so thingctx can sit in front of devices that do not speak the provider's
+protocol. It is only about inbound identity; the device is invoked with the
+existing outbound stack (its own bearer / basic / apikey), a different credential.
 
-Everything here is provider-agnostic. A concrete provider (Entra, Cloudflare
-Access, ...) is nothing more than a choice of three things, all passed to the
-constructor:
+A concrete provider (Entra, Cloudflare Access, ...) supplies three things to the
+constructor: ``issuers`` (accepted ``iss`` values), the signing keys (a live
+``jwks_url`` to fetch and cache, or a static ``jwks`` set), and the authorization
+grants (:class:`Grant` objects naming the claim and required values).
 
-* ``issuers``: the accepted ``iss`` values (a tenant or team fixes these);
-* the signing keys: either a live ``jwks_url`` to fetch and cache, or a static
-  ``jwks`` set for offline or test use;
-* the authorization grants: one or more :class:`Grant` objects, each naming the
-  claim that carries the grant and the values required in it.
-
-The validation itself is real, not decorative, and identical for every provider:
+The validation runs for every provider:
 
 * fetch the provider's signing keys (JWKS) and cache them;
 * select the key by the token header ``kid``;
@@ -325,11 +318,9 @@ class JwtGatewayGuard:
         """Validate the inbound ``token``, then, only if authorized, drive the
         device via ``client.invoke(tool, arguments)``.
 
-        This is the caller-to-device bridge in one object: the caller's identity is
-        checked on the caller side; the device is invoked on the device side with
-        its own native auth (whatever ``client``'s TD declares). The device is
-        never touched if validation fails: :meth:`validate` raises first, so
-        ``invoke`` never runs.
+        The device is invoked with its own native auth (whatever ``client``'s TD
+        declares), never the caller's. The device is never touched if validation
+        fails: :meth:`validate` raises first, so ``invoke`` never runs.
         """
         claims = await self.validate(token)  # raises before any device call
         result = await client.invoke(tool, arguments or {})

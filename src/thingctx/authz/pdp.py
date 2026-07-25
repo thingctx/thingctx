@@ -86,9 +86,7 @@ def _token_expired(identity: Any, *, now: float | None = None) -> bool:
     """True if the identity's token has expired.
 
     The identity is the validated claims dict the guard returned; a JWT carries
-    ``exp`` (seconds since the epoch). This is what makes the per-delivery filter
-    REAL, not a re-run of a pure function: a claims dict does not expire on its
-    own, but its ``exp`` claim is a wall-clock deadline we compare against now.
+    ``exp`` (seconds since the epoch), a wall-clock deadline compared against now.
     A missing ``exp`` is treated as expired (fail-closed): the guard requires exp
     on inbound tokens, so its absence here means an untrusted identity."""
     import time as _time
@@ -105,25 +103,22 @@ async def _authorized_stream(stream, pdp, identity, request, *, revocation_check
     """Wrap a device stream so each delivered value is re-authorized, and STOP the
     stream the moment authorization lapses.
 
-    Two lapse conditions, both real:
-    1. TOKEN EXPIRY: the identity's ``exp`` deadline passes while the stream lives.
-       Checked against the wall clock on each delivery, so a stream cannot outlive
-       the token that authorized it. THIS is the staleness window, and it is
-       closed by reading exp, not by re-running the PDP.
+    Two lapse conditions:
+    1. TOKEN EXPIRY: the identity's ``exp`` deadline passes while the stream lives,
+       checked against the wall clock on each delivery, so a stream cannot outlive
+       the token that authorized it.
     2. REVOCATION: an optional ``revocation_check(identity, request) -> bool`` that
-       returns True to revoke (a role pulled, a policy change). The default
-       re-asks the PDP, which catches a policy/grant change; combined with the exp
-       check it catches both a lapsed token and a lapsed grant.
+       returns True to revoke (a role pulled, a policy change). The default re-asks
+       the PDP, catching a policy/grant change.
 
     On lapse we cut the stream FORWARD (stop yielding); we do not claw back values
     already delivered, the correct semantics for a live-feed revocation.
 
-    The token-expiry check applies only when the identity actually carries an ``exp``
-    (a time-bounded token). A ``None`` identity (the no-code preset) and a local opt-in
-    identity (a named principal with no ``exp``) are BOTH token-less: absence of ``exp``
-    means "not a time-bounded token," not "expired," so it must not stop the stream. When
-    an ``exp`` is present, it is enforced per frame so a stream cannot outlive its token.
-    The PDP decision always gates the stream regardless."""
+    The token-expiry check applies only when the identity carries an ``exp`` (a
+    time-bounded token). A ``None`` identity (the no-code preset) and a local
+    opt-in identity (a named principal) are both token-less: absence of ``exp``
+    means "not a time-bounded token," not "expired," so it must not stop the
+    stream. The PDP decision always gates the stream regardless."""
     check_expiry = isinstance(identity, dict) and "exp" in identity
     async for value in stream:
         if check_expiry and _token_expired(identity):
@@ -211,8 +206,7 @@ class LocalPolicyGrantSource:
 # on SAFE actions only (an action with ``safe: true`` causes no state change, so it is
 # read-like: e.g. readFile, listDir, search). It denies property writes and UNSAFE actions
 # (writeFile, sendMessage, delete, a PTZ move). This is "look but don't touch": read
-# everything, run no-op queries, change nothing. The safe-action grant is generated
-# per-affordance, so it needs the parsed Things, not just their ids.
+# everything, run no-op queries, change nothing.
 # "full" grants every op.
 POLICY_PRESETS: dict[str, tuple[str, ...]] = {
     "full": ("readproperty", "writeproperty", "observeproperty", "invokeaction", "subscribeevent"),
@@ -229,15 +223,14 @@ class StaticGrantSource:
     """A :class:`GrantSource` that returns a fixed grant set, ignoring identity.
 
     For the single local user who wants a coarse posture without an identity provider
-    or a policy file: pick a named preset (``full`` / ``read-only``) and
-    every request is decided against that fixed grant. The preset names wildcard ops; the
+    or a policy file: pick a named preset (``full`` / ``read-only``, see
+    ``POLICY_PRESETS``) and every request is decided against that fixed grant. The
     grant is ``(thing_id, "*", op)`` for each Thing id and each preset op.
 
-    ``read-only`` additionally grants ``invokeaction`` on the actions a Thing marks
-    ``safe: true`` (per WoT, a safe action causes no state change, so it is read-like).
-    That per-affordance grant needs the parsed Things, so pass ``things=`` (preferred).
-    ``thing_ids=`` still works for the wildcard ops; without ``things`` a ``read-only``
-    grant simply omits the safe-action allowance (the older, stricter behavior).
+    ``read-only``'s safe-action ``invokeaction`` grant is per-affordance, so it
+    needs the parsed Things: pass ``things=`` (preferred). ``thing_ids=`` still
+    works for the wildcard ops; without ``things`` a ``read-only`` grant omits the
+    safe-action allowance (the stricter behavior).
     """
 
     def __init__(self, preset: str, thing_ids: Any = (), *, things: Any = None) -> None:
