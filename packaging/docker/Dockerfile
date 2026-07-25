@@ -14,7 +14,7 @@ ENV PATH="/venv/bin:$PATH"
 # Install from PyPI (the signed/attested artifact), not the local tree, so the image
 # is reproducible from a released version and carries nothing unpublished.
 ARG THINGCTX_VERSION=0.2.0
-RUN pip install --no-cache-dir "thingctx[mcp-http,http,mqtt,media,filesystem,validate,authz]==${THINGCTX_VERSION}"
+RUN pip install --no-cache-dir "thingctx[mcp-http,http,mqtt,filesystem,validate,authz]==${THINGCTX_VERSION}"
 
 FROM python:3.12-slim
 # TODO: pin by digest to match the build stage.
