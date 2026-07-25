@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import http.server
 import json
 import secrets
@@ -219,7 +220,10 @@ def authorize_code_flow(
         raise RuntimeError(
             f"authorization did not complete: {result.get('error') or 'timed out or denied'}"
         )
-    if result.get("state") != state:
+    # The state is the CSRF token; compare it in constant time so a mismatch does
+    # not leak how much of it matched. A missing or non-string state is a mismatch.
+    returned_state = result.get("state")
+    if not isinstance(returned_state, str) or not hmac.compare_digest(returned_state, state):
         raise RuntimeError("authorization state mismatch; aborting (possible CSRF)")
     tok = exchange_code(
         token_url,
