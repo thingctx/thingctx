@@ -17,7 +17,6 @@ providers with no secret in the agent.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 from pathlib import Path
@@ -175,9 +174,10 @@ async def _run_connect(thing: Any, scheme: Any, session: Any) -> str | None:
     # An agent-triggered call must never silently start a login (the browser only
     # opens after the human approves here).
     if session is not None:
-        # Best effort: a client that cannot elicit falls through to the local
-        # consent below rather than blocking the connect.
-        with contextlib.suppress(Exception):
+        # A client that cannot show the prompt is refused, not handed a browser it
+        # never asked for. Suppressing the failure here would open a window on an
+        # agent's say-so, which is the one thing this gate exists to prevent.
+        try:
             result = await session.elicit(
                 message=(
                     f"Connect {label}? This opens a browser once so you can sign in "
@@ -185,8 +185,13 @@ async def _run_connect(thing: Any, scheme: Any, session: Any) -> str | None:
                 ),
                 requestedSchema={"type": "object", "properties": {}},
             )
-            if getattr(result, "action", None) != "accept":
-                return f"{label} was not connected (sign in declined)."
+        except Exception:
+            return (
+                f"{label} needs a one-time sign in, but this client cannot show the "
+                f"confirmation. Run `thingctx auth login` to consent from a terminal."
+            )
+        if getattr(result, "action", None) != "accept":
+            return f"{label} was not connected (sign in declined)."
 
     creds = _load_client(client_file)
     try:
