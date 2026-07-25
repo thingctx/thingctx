@@ -207,6 +207,46 @@ async for evt in await client.subscribe("pump__overheat"):  # e.g. an MQTT topic
 So thingctx is useful with no agent in sight: a declarative way to drive your
 APIs and devices from a versioned file, with one policy gate on every call.
 
+## Adding a Thing changes nothing here
+
+A valid Thing Description is the whole integration. Point the runtime at it and
+it drives your system. thingctx never learns your device's name, you never fork
+it, and you never open a pull request to use it. That is why a thousand
+descriptions cost the same to operate as one.
+
+The single reason to touch the library is a transport it cannot speak yet. A
+binding is one class: the scheme it serves, and a method per operation that
+scheme supports.
+
+```python
+class CoapBinding:
+    scheme = "coap"
+    schemes = ("coap", "coaps")   # optional, when one class serves several
+
+    async def invoke(self, action, form, arguments): ...   # the contract
+    async def read(self, prop, form): ...                  # add what it supports
+```
+
+Only `scheme` and `invoke` are required. Read, write, subscribe and the media
+methods are each opted into by adding them, and the runtime asks before it calls
+one, so a pub/sub transport that cannot answer a read simply does not implement
+it. See [docs/BINDINGS.md](docs/BINDINGS.md).
+
+From there you have two doors, and neither is the consolation prize.
+
+**Keep it.** Pass it to the client and it stays in your repository, on your
+release schedule, under your licence. Nothing here needs to know it exists.
+
+```python
+client = thingctx.ThingClient(tds=[...], bindings=[CoapBinding()])
+```
+
+**Or send it.** If it is a transport other people also need, a pull request puts
+it among the built-ins so nobody writes it twice.
+
+A private binding is not a workaround for an unmerged one. It is how the library
+is meant to be extended, and the same seam serves both.
+
 ## Safe by default: approval + grounding
 
 Two optional layers stand between an agent and a real system.
