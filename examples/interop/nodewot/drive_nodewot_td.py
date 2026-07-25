@@ -37,15 +37,15 @@ async def main() -> None:
     # Address by the Thing's slug, which thingctx derives from the TD id.
     # node-wot defaults to a random urn:uuid id, so derive it rather than
     # hard-coding; the demo then works for any producer.
-    slug = client.list_properties()[0].split(".", 1)[0]
+    slug = client.list_properties()[0].split("__", 1)[0]
 
-    before = await client.read_property(f"{slug}.count")
+    before = await client.read_property(f"{slug}__count")
     print(f"\nread  count -> {before}")
 
     await client.invoke(f"{slug}__increment", {})
     print("invoke increment")
 
-    after = await client.read_property(f"{slug}.count")
+    after = await client.read_property(f"{slug}__count")
     print(f"read  count -> {after}")
 
     assert after == before + 1, f"expected {before + 1}, got {after}"
