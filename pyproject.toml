@@ -55,6 +55,9 @@ authz = ["pyjwt[crypto]>=2.8", "httpx>=0.27"]
 # Entra identity: outbound provider + Entra gateway guard. azure-identity confined
 # here, never in base or another extra.
 entra = ["azure-identity>=1.20", "pyjwt[crypto]>=2.8", "httpx>=0.27"]
+# Sandboxed filesystem handler (stdlib). Empty extra: signals opt-in; the handler
+# still refuses every call until THINGCTX_FS_ROOT is set.
+filesystem = []
 # Everything.
 all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.0", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "av>=11", "numpy>=1.23", "pillow>=10"]
 dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff>=0.6"]
@@ -84,6 +87,12 @@ cloudflare = "thingctx.identity.providers.cloudflare:make_cloudflare_guard"
 [project.entry-points."thingctx.gateways"]
 mqtt = "thingctx.gateways.builtin.mqtt:MqttGatewayBinding"
 mcp = "thingctx.gateways.builtin.mcp:McpGatewayBinding"
+
+# In-process handlers for local:// Things. filesystem refuses every call until
+# THINGCTX_FS_ROOT names a sandbox directory.
+[project.entry-points."thingctx.local_handlers"]
+filesystem = "thingctx.contrib.filesystem:make_filesystem_handler"
+time = "thingctx.contrib.time:make_time_handler"
 
 [tool.setuptools.packages.find]
 where = ["src"]
