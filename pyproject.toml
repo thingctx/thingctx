@@ -352,11 +352,6 @@ docstring-quotes = "double"
     "PTH123",  # a test may open a path it fully controls
 ]
 "tools/**" = ["T20"]  # the dev-only tool prints its output by design
-# The OAuth consent flow prints the authorize URL the user must open in a browser;
-# that print IS the user-facing prompt, not debug residue. (cli.py and the MCP
-# stdio server also print their result; their T20 ignore is folded into the
-# in-function-import block below, since those files carry both exceptions.)
-"src/thingctx/auth/oauth_consent.py" = ["T20"]
 # Examples are runnable teaching scripts, not shipped code (absent from the wheel).
 # Printing IS the lesson, an assert reads as "expect this", and a local import shows
 # which extra a feature needs. Keep the real-bug rules (F/B/ASYNC blocking) on.
@@ -377,15 +372,7 @@ docstring-quotes = "double"
     "SIM115", "SIM117", "SIM212",  # explicit over clever in illustrative code
     "A002",                  # an example may use `id`/`type` as a parameter to mirror the API
 ]
-
-# Load-bearing in-function imports. PLC0415 is ON everywhere so a NEW casual local
-# import is caught; these files carry imports that MUST stay local and each is
-# annotated here rather than repeating a noqa on every line.
-#
-#   - optional heavy deps (httpx, paho, av/numpy/pillow, litellm, pyjwt, azure,
-#     jsonschema, mcp, yaml): importing at module top would pull the dep into the
-#     lean core and break `import thingctx` with no extras (PRINCIPLES.md #10).
-#   - documented seams: cli.py, connect.py, and integrations/mcp.py import inside
-#     functions to break an import cycle or to keep a monkeypatch seam the suite
-#     relies on. Hoisting connect.py's login import, for one, makes the module do
-#     an OAuth wait at import time and hangs the suite.
+# PLC0415 (imports at module top) is enforced everywhere with no per-file
+# exemption; the few forced local imports each carry a per-line `# noqa: PLC0415`
+# naming the reason (an optional heavy dep kept out of the lean core, an import
+# cycle breaker, or a per-subcommand CLI load).
