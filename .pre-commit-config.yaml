@@ -73,6 +73,17 @@ repos:
         types: [python]
         pass_filenames: false
         require_serial: true
+      # Full offline suite with branch coverage, gated at the floor in
+      # [tool.coverage.report]. Pre-push, not pre-commit: the suite is ~32s (push
+      # cadence, not commit cadence). CI runs the same command, so the gate is not
+      # only local. Skips network-marked tests, same as CI.
+      - id: coverage
+        name: coverage
+        entry: .venv/bin/pytest -m "not network" --cov=thingctx --cov-branch -q
+        language: system
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push]
       # Dependency CVE audit. Scoped to the project's declared dependencies (a
       # `.` audit resolves them fresh), not the ambient dev env, so an optional
       # extra's transitive noise does not mask a real advisory in what ships.
