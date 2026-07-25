@@ -195,6 +195,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Diff coverage needs a merge base, and the default shallow clone has
+          # no common ancestor to find one against.
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -204,7 +208,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Test with branch coverage (fails below the floor)
-        run: pytest -m "not network" --cov=thingctx --cov-branch -q
+        run: pytest -m "not network" --cov=thingctx --cov-branch --cov-report=xml --cov-report=term -q
+      # The floor above protects the codebase; it does not protect the change. At
+      # 82% against a floor of 80, a pull request could add ~180 untested lines and
+      # still pass, because the rest of the tree carries the average. This asks a
+      # narrower question: are the lines THIS branch touched covered? Needs the
+      # base branch present, so it runs only where there is something to diff.
+      - name: Diff coverage (are the lines this branch touched tested?)
+        if: github.event_name == 'pull_request'
+        run: diff-cover coverage.xml --compare-branch="origin/$GITHUB_BASE_REF" --fail-under=90
 
   # The base install must stay dependency-free. Install thingctx with NO extras,
   # import the core and the authorization seam, and fail if any heavy dependency
