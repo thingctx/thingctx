@@ -10,15 +10,19 @@ in a worker thread, never on the event loop. Heavy dependencies (``av``,
 from __future__ import annotations
 
 import contextlib
+import fractions
 import logging
 import os
+import shutil
+import tempfile
 import threading
+import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
 
-from thingctx.auth import redact_url
+from thingctx.auth import av_auth_options, redact_url, ytdlp_auth_options
 from thingctx.bindings.builtin.media.binding import MediaError
 from thingctx.bindings.builtin.media.frame import Frame, MediaBackend
 from thingctx.contracts import implements
@@ -125,7 +129,8 @@ class PyAVBackend:
         return True  # unset or explicit "direct": open directly
 
     def read(self, url: str, *, options: dict, stop: threading.Event) -> Iterator[Frame]:
-        import av
+        # optional dep, kept local so the core imports without the extra
+        import av  # noqa: PLC0415
 
         _install_libav_redaction()
         av_options = dict(options.get("av_options") or {})
@@ -133,8 +138,6 @@ class PyAVBackend:
         if plan is not None:
             # Map the neutral auth plan onto FFmpeg (URL userinfo, headers,
             # query, TLS). All credential-to-engine logic lives in the applier.
-            from thingctx.auth import av_auth_options
-
             url, extra = av_auth_options(plan, url)
             av_options.update(extra)
         if urlparse(url).scheme in ("rtsp", "rtsps"):
@@ -226,14 +229,13 @@ class PyAVBackend:
         the producer supplies it, else a per-track clock (video frame count over
         ``fps``; audio sample count over the sample rate). The shared timeline is
         what keeps a muxed A/V output in sync."""
-        import av
+        # optional dep, kept local so the core imports without the extra
+        import av  # noqa: PLC0415
 
         _install_libav_redaction()
         av_options = dict(options.get("av_options") or {})
         plan = options.get("auth")
         if plan is not None:
-            from thingctx.auth import av_auth_options
-
             target, extra = av_auth_options(plan, target)
             av_options.update(extra)
         if urlparse(target).scheme in ("rtsp", "rtsps"):
@@ -312,7 +314,8 @@ class PyAVBackend:
     def _ensure_video_stream(
         container: Any, vstate: dict, fr: Frame, fps: int, options: dict
     ) -> None:
-        import numpy as np
+        # optional dep, kept local so the core imports without the extra
+        import numpy as np  # noqa: PLC0415
 
         if vstate["stream"] is not None:
             return
@@ -333,10 +336,9 @@ class PyAVBackend:
     def _encode_video(
         cls, container: Any, vstate: dict, fr: Frame, fps: int, options: dict
     ) -> None:
-        import fractions
-
-        import av
-        import numpy as np
+        # optional dep, kept local so the core imports without the extra
+        import av  # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
 
         cls._ensure_video_stream(container, vstate, fr, fps, options)
         stream = vstate["stream"]
@@ -363,7 +365,8 @@ class PyAVBackend:
 
     @staticmethod
     def _ensure_audio_stream(container: Any, astate: dict, fr: Frame) -> None:
-        import av
+        # optional dep, kept local so the core imports without the extra
+        import av  # noqa: PLC0415
 
         if astate["stream"] is not None:
             return
@@ -378,10 +381,9 @@ class PyAVBackend:
 
     @classmethod
     def _encode_audio(cls, container: Any, astate: dict, fr: Frame) -> None:
-        import fractions
-
-        import av
-        import numpy as np
+        # optional dep, kept local so the core imports without the extra
+        import av  # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
 
         cls._ensure_audio_stream(container, astate, fr)
         stream = astate["stream"]
@@ -484,8 +486,6 @@ class PyAVBackend:
         read with its request headers. Sequential full reads are what a CDN
         tolerates; the staged file then muxes locally with no idle-connection
         drop."""
-        import tempfile
-        import urllib.request
 
         # Resolved stream URLs are http(s) CDN links; refuse any other scheme so
         # urlopen cannot be steered to a local file or custom handler.
@@ -523,7 +523,8 @@ class PyAVBackend:
         Each source is a ``(url, http_headers)`` pair; the headers are applied
         when opening that input. Packets are interleaved across inputs by
         presentation time, and every stream is copied (no decode/encode)."""
-        import av
+        # optional dep, kept local so the core imports without the extra
+        import av  # noqa: PLC0415
 
         _install_libav_redaction()
         plan = options.get("auth")
@@ -542,8 +543,6 @@ class PyAVBackend:
                 in_options = dict(options.get("av_options") or {})
                 url = src
                 if plan is not None:
-                    from thingctx.auth import av_auth_options
-
                     url, extra = av_auth_options(plan, url)
                     in_options.update(extra)
                 # Per-format request headers win over any auth headers: the
@@ -651,8 +650,6 @@ class ExtractorBackend(PyAVBackend):
         plan = options.get("auth")
         if plan is not None:
             # Account login for sites that gate content behind one.
-            from thingctx.auth import ytdlp_auth_options
-
             opts.update(ytdlp_auth_options(plan))
         # Cookie-based access (the reliable path for private/members content) is
         # an extractor option, not a credential: a cookie file or a browser to
@@ -669,7 +666,8 @@ class ExtractorBackend(PyAVBackend):
         """Resolve a page to its yt-dlp info dict (no download). The chosen
         stream(s) are in ``requested_formats`` for a merged selector, else the
         info itself names a single stream."""
-        import yt_dlp
+        # optional dep, kept local so the core imports without the extra
+        import yt_dlp  # noqa: PLC0415
 
         with yt_dlp.YoutubeDL(self._ydl_opts(options)) as ydl:
             # yt_dlp is untyped, so extract_info is Any; a resolvable page yields
@@ -696,7 +694,8 @@ class ExtractorBackend(PyAVBackend):
         tokens) fetches a googlevideo DASH stream reliably where a plain GET does
         not; the file is fully written and closed before the mux opens it, so
         there is no live pipe between fetch and mux to break."""
-        import yt_dlp
+        # optional dep, kept local so the core imports without the extra
+        import yt_dlp  # noqa: PLC0415
 
         def _abort(_d: dict) -> None:  # cooperative cancel from the worker's stop
             if stop.is_set():
@@ -756,8 +755,6 @@ class ExtractorBackend(PyAVBackend):
             src = (info["url"], info.get("http_headers") or {})
             super()._mux([src], target, options=opts, stop=stop)
             return
-        import shutil
-        import tempfile
 
         tmpdir = tempfile.mkdtemp(prefix="thingctx-dl-")
         try:

@@ -78,7 +78,8 @@ async def from_url(
     a ``timeout`` and caps the document size (see ``THINGCTX_MAX_TD_BYTES``) so a
     slow or oversized response cannot hang or exhaust the client.
     """
-    import httpx
+    # optional dep, kept local so the core imports without the extra
+    import httpx  # noqa: PLC0415
 
     limit = _max_td_bytes()
     async with httpx.AsyncClient(headers={"User-Agent": _user_agent()}, timeout=timeout) as http:

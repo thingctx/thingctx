@@ -62,15 +62,14 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    # The MQTT reference driver needs paho (the ``mqtt`` extra); load it lazily so
-    # importing thingctx.gateways stays dependency-free.
+    # The reference drivers pull an extra (paho for MQTT, mcp for MCP); load them
+    # lazily so importing thingctx.gateways stays dependency-free.
     if name == "MqttGatewayBinding":
-        from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
+        from thingctx.gateways.builtin.mqtt import MqttGatewayBinding  # noqa: PLC0415
 
         return MqttGatewayBinding
-    # The MCP driver needs the ``mcp`` extra; load it lazily too.
     if name == "McpGatewayBinding":
-        from thingctx.gateways.builtin.mcp import McpGatewayBinding
+        from thingctx.gateways.builtin.mcp import McpGatewayBinding  # noqa: PLC0415
 
         return McpGatewayBinding
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

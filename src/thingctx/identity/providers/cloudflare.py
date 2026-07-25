@@ -53,6 +53,7 @@ the AUD passes, the edge Access policy being the authorization.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from thingctx.identity.jwt_guard import AuthorizationError, Grant, JwtGatewayGuard
 
@@ -168,8 +169,6 @@ class CloudflareAccessGuard(JwtGatewayGuard):
         the bare team name."""
         t = str(team_domain).strip()
         if "://" in t:
-            from urllib.parse import urlparse
-
             host = urlparse(t).hostname or ""
             t = host
         # Strip the cloudflareaccess.com suffix if a full host was given.

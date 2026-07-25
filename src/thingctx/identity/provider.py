@@ -20,6 +20,8 @@ normalized to the one ``.default`` scope Entra's client-credentials flow wants.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -164,8 +166,6 @@ class EntraAuth:
         cache_key = ("entra", ctx.owner_id or getattr(scheme, "name", ""), resource_scope)
         hit = ctx.cache.get(cache_key)
         if hit is not None:
-            import time
-
             token, exp = hit
             if exp - 60 > time.time():  # 60s safety margin, like the built-ins
                 return BearerToken(token=Secret(token))
@@ -173,7 +173,6 @@ class EntraAuth:
         credential = self._build_credential(tenant, cred)
         # azure-identity is sync; get_token blocks. Run it off the event loop so
         # an IMDS / network round trip does not stall the loop.
-        import asyncio
 
         result = await asyncio.to_thread(credential.get_token, resource_scope)
         token = getattr(result, "token", None)
@@ -237,7 +236,8 @@ class EntraAuth:
             client_secret = cred.get("client_secret") or cred.get("clientSecret")
             cert_path = cred.get("certificate_path") or cred.get("certificatePath")
             t = tenant or cred.get("tenant") or cred.get("tenant_id") or cred.get("tenantId")
-            from azure.identity import (
+            # optional dep, kept local so the core imports without the extra
+            from azure.identity import (  # noqa: PLC0415
                 CertificateCredential,
                 ClientSecretCredential,
             )
@@ -253,7 +253,8 @@ class EntraAuth:
 
         # The default chain: covers env client secret, managed identity (IMDS),
         # workload identity federation, and the developer's Azure CLI login.
-        from azure.identity import DefaultAzureCredential
+        # optional dep, kept local so the core imports without the extra
+        from azure.identity import DefaultAzureCredential  # noqa: PLC0415
 
         key = tenant or "*"
         got = self._default_by_tenant.get(key)

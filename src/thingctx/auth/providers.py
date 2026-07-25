@@ -15,8 +15,10 @@ can override a built-in.
 from __future__ import annotations
 
 import base64
+import hashlib
 import time
 from typing import Any, Protocol, cast, runtime_checkable
+from urllib.parse import urlparse
 
 from thingctx.auth.context import AuthContext
 from thingctx.auth.credentials import (
@@ -173,7 +175,6 @@ class ApiKeyAuth(BaseAuth):
 def _guard_tls(url: str, allow_insecure: bool) -> None:
     """Refuse to send a secret to a non-https endpoint unless it is loopback
     or explicitly allowed."""
-    from urllib.parse import urlparse
 
     u = urlparse(url)
     if u.scheme == "https" or allow_insecure:
@@ -190,7 +191,6 @@ def _secret_fp(secret: Any) -> str:
     """A short, non-reversible fingerprint of a client secret, for a cache key.
     Keys the cached access token to the exact credential, so a rotated or revoked
     secret does not reuse a token minted under the old one. Empty when absent."""
-    import hashlib
 
     if not secret:
         return ""
@@ -226,7 +226,8 @@ async def _refresh_grant(
     """Exchange a refresh token for a fresh access token (RFC 6749 section 6).
     Reusable beyond the authorization-code provider; the caller guards TLS and
     persists any rotated refresh token."""
-    import httpx
+    # optional dep, kept local so the core imports without the extra
+    import httpx  # noqa: PLC0415
 
     data: dict[str, str] = {"grant_type": "refresh_token", "refresh_token": refresh_token}
     if client_id:
@@ -324,7 +325,8 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         methods_key = ("cc-method", token_url)
         methods = ["post"] if secret is None else ctx.cache.get(methods_key) or ["basic", "post"]
 
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         tok = None
         async with httpx.AsyncClient(timeout=ctx.timeout) as client:
@@ -382,7 +384,7 @@ class OAuth2JwtBearerAuth(BaseAuth):
 
         _guard_tls(token_url, ctx.allow_insecure_oauth)
         try:
-            import jwt  # PyJWT
+            import jwt  # noqa: PLC0415  # optional dep, kept local so the core imports without the extra (PyJWT)
         except ImportError as e:  # pragma: no cover
             raise RuntimeError(
                 "OAuth2 JWT-bearer needs PyJWT with crypto: pip install 'thingctx[cloud]'"
@@ -406,7 +408,8 @@ class OAuth2JwtBearerAuth(BaseAuth):
             claims, cred["private_key"], algorithm="RS256", headers=headers or None
         )
 
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         async with httpx.AsyncClient(timeout=ctx.timeout) as client:
             resp = await client.post(

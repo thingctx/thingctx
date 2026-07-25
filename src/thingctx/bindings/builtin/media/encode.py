@@ -19,7 +19,8 @@ def frame_to_jpeg(frame: Frame, *, quality: int = 85) -> bytes:
     """Encode an ``rgb24`` video frame to JPEG bytes."""
     if frame.kind != "video":
         raise ValueError("only video frames can be encoded as images")
-    from PIL import Image  # lazy; provided by the media extra
+    # optional dep, kept local so the core imports without the extra
+    from PIL import Image  # noqa: PLC0415
 
     img = Image.fromarray(frame.data)
     buf = io.BytesIO()

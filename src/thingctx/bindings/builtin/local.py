@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any, cast
 
@@ -91,7 +93,6 @@ class LocalBinding:
         fn = self._resolve(key) or self._resolve(action.name)
         if fn is None:
             return {"error": f"no local callable registered for {key!r}"}
-        import inspect
 
         try:
             result = fn(**arguments)
@@ -113,8 +114,6 @@ class LocalBinding:
         key = (form.href.split("://", 1)[-1] if form.href else "") or prop.name
         fn = self._resolve(f"get_{prop.name}") or self._resolve(key) or self._resolve(prop.name)
         if fn is not None:
-            import inspect
-
             r = fn()
             return await r if inspect.isawaitable(r) else r
         # Fall back to a plain attribute on the device object.
@@ -125,7 +124,6 @@ class LocalBinding:
     async def write(self, prop: WoTProperty, form: WoTForm, value: Any) -> Any:
         """Write a property: call ``set_<name>(value)`` on the device,
         else set a same-named attribute."""
-        import inspect
 
         sub = self._sub_for(prop.thing_id)
         if sub is not None:
@@ -149,7 +147,6 @@ class LocalBinding:
         iterator yielding pushed values. The device pushes with :meth:`emit`.
         ``target`` is the affordance (its ``name`` keys the subscriber list);
         ``args`` are ignored locally (an in-process device sees every emit)."""
-        import asyncio
 
         name = target if isinstance(target, str) else target.name
         queue: asyncio.Queue = asyncio.Queue()

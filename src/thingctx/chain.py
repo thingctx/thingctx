@@ -49,6 +49,8 @@ if TYPE_CHECKING:
 
     import httpx
 
+from urllib.request import url2pathname
+
 from thingctx.bindings.base import _decode
 from thingctx.bindings.builtin.http import _http_body
 from thingctx.netpolicy import WEB_SCHEMES, check_url, confine_path
@@ -358,7 +360,8 @@ async def _follow_resumable(
     cert: Any,
 ) -> Any:
     """Layer 2: hand the session URL to the resumable chunk/resume transport."""
-    import httpx
+    # optional dep, kept local so the core imports without the extra
+    import httpx  # noqa: PLC0415
 
     media = _resolve_template(follow.get("media"), arguments)
     if media is None:
@@ -392,7 +395,8 @@ async def _follow_ranged(
     """Resumable download: GET the next URL in Range slices, resuming from the
     last received byte on a dropped connection. With ``dest`` the bytes stream to
     a file; otherwise the assembled bytes are returned."""
-    import httpx
+    # optional dep, kept local so the core imports without the extra
+    import httpx  # noqa: PLC0415
 
     dest = _resolve_template(follow.get("dest"), arguments)
     if dest is not None:
@@ -471,8 +475,6 @@ def _coerce_media(media: Media) -> bytes | bytearray | Path | BinaryIO:
     returns a ``str``, so callers narrow to the seekable/readable members."""
     if isinstance(media, str):
         if media.startswith("file://"):
-            from urllib.request import url2pathname
-
             return Path(url2pathname(urlsplit(media).path))
         return Path(media)
     return media
@@ -612,7 +614,8 @@ async def _get_with_retry(
     """GET ``url`` once, retrying transient transport errors and retryable
     statuses with bounded backoff. A connection dropped mid-body raises, so the
     caller re-requests the same range, resuming from the last completed byte."""
-    import httpx
+    # optional dep, kept local so the core imports without the extra
+    import httpx  # noqa: PLC0415
 
     last_exc: Exception | None = None
     for attempt in range(retries + 1):

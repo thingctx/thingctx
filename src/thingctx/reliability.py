@@ -123,7 +123,8 @@ async def send_with_retry(
 
     ``retries`` overrides ``policy.retries`` for this call; the binding passes
     ``0`` for non-idempotent methods so a write is never silently re-sent."""
-    import httpx
+    # optional dep, kept local so the core imports without the extra
+    import httpx  # noqa: PLC0415
 
     max_retries = policy.retries if retries is None else retries
     for attempt in range(max_retries + 1):

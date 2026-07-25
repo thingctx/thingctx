@@ -33,11 +33,14 @@ registered Thing through these commands; ``skill install`` copies it under
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
+import shutil
 import sys
 import urllib.request
 from collections.abc import Callable
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -56,26 +59,28 @@ def _load_td(source: str) -> dict:
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
-    from .lint import lint_td
+    # loaded per subcommand so the CLI starts fast
+    from .lint import lint_td  # noqa: PLC0415
 
     findings = lint_td(_load_td(args.td))
     for f in findings:
-        print(f"{f.severity:6} {f.target}  [{f.rule}] {f.message}", file=sys.stderr)
+        print(f"{f.severity:6} {f.target}  [{f.rule}] {f.message}", file=sys.stderr)  # noqa: T201  # CLI output
     errors = sum(1 for f in findings if f.severity == "error")
     if not findings:
-        print("ok: no lint findings", file=sys.stderr)
+        print("ok: no lint findings", file=sys.stderr)  # noqa: T201  # CLI output
     return 1 if errors else 0
 
 
 def _cmd_import_openapi(args: argparse.Namespace) -> int:
-    from .openapi import from_openapi, load_spec
+    # loaded per subcommand so the CLI starts fast
+    from .openapi import from_openapi, load_spec  # noqa: PLC0415
 
     spec = load_spec(args.spec)
     td = from_openapi(spec, base_url=args.base_url, id=args.id, title=args.title)
     out = json.dumps(td, indent=2) + "\n"
     if args.out:
         Path(args.out).write_text(out, encoding="utf-8")
-        print(f"wrote {args.out} ({len(td.get('actions', {}))} actions)", file=sys.stderr)
+        print(f"wrote {args.out} ({len(td.get('actions', {}))} actions)", file=sys.stderr)  # noqa: T201  # CLI output
     else:
         sys.stdout.write(out)
     return 0
@@ -123,8 +128,9 @@ def _scheme_from_td(path: str, name: str | None) -> tuple[dict[str, Any], str | 
 
 
 def _cmd_auth_login(args: argparse.Namespace) -> int:
-    from .auth.oauth_consent import login
-    from .auth.store import FileTokenStore
+    # loaded per subcommand so the CLI starts fast
+    from .auth.oauth_consent import login  # noqa: PLC0415
+    from .auth.store import FileTokenStore  # noqa: PLC0415
 
     cfg: dict[str, Any] = {"authorization_url": "", "token_url": "", "scopes": []}
     owner = args.owner
@@ -165,7 +171,7 @@ def _cmd_auth_login(args: argparse.Namespace) -> int:
         offline=not args.no_offline,
         open_browser=not args.no_browser,
     )
-    print(f"thingctx: stored refresh token for owner {owner!r}", file=sys.stderr)
+    print(f"thingctx: stored refresh token for owner {owner!r}", file=sys.stderr)  # noqa: T201  # CLI output
     return 0
 
 
@@ -225,7 +231,8 @@ def _emit(result: Any, out: str | None) -> None:
     else is pretty JSON."""
     dest: Path | None = None
     if out and out != "-":
-        from thingctx.netpolicy import confine_path
+        # loaded per subcommand so the CLI starts fast
+        from thingctx.netpolicy import confine_path  # noqa: PLC0415
 
         # Refuse to write through a symlink, and (when THINGCTX_DOWNLOAD_DIR is
         # set) keep the output inside it: --out often comes from an agent-driven
@@ -235,7 +242,7 @@ def _emit(result: Any, out: str | None) -> None:
         data = bytes(result)
         if dest is not None:
             dest.write_bytes(data)
-            print(f"wrote {out} ({len(data)} bytes)", file=sys.stderr)
+            print(f"wrote {out} ({len(data)} bytes)", file=sys.stderr)  # noqa: T201  # CLI output
         else:
             sys.stdout.buffer.write(data)
         return
@@ -244,7 +251,7 @@ def _emit(result: Any, out: str | None) -> None:
         text += "\n"
     if dest is not None:
         dest.write_text(text, encoding="utf-8")
-        print(f"wrote {out}", file=sys.stderr)
+        print(f"wrote {out}", file=sys.stderr)  # noqa: T201  # CLI output
     else:
         sys.stdout.write(text)
 
@@ -261,8 +268,9 @@ def _registry_client(
     """Build the same client the MCP bridge builds (local handlers + http/media
     bindings, per-Thing env secrets, stored OAuth consent). With no ``source``,
     the per-user default registry (see thingctx.registry.default_sources)."""
-    from .integrations.mcp import _credentials_from_env, client_from_registry
-    from .registry import default_registry, from_args
+    # loaded per subcommand so the CLI starts fast
+    from .integrations.mcp import _credentials_from_env, client_from_registry  # noqa: PLC0415
+    from .registry import default_registry, from_args  # noqa: PLC0415
 
     registry = from_args([source]) if source else default_registry()
     return client_from_registry(
@@ -281,8 +289,6 @@ def _split_source_action(spec: list[str]) -> tuple[str | None, str]:
 
 
 def _cmd_invoke(args: argparse.Namespace) -> int:
-    import asyncio
-
     source, action = _split_source_action(args.spec)
     body = _build_args(args.arg, args.json)
     # The --approve-when flag is argparse-validated, but THINGCTX_APPROVE_WHEN is
@@ -311,15 +317,13 @@ def _cmd_invoke(args: argparse.Namespace) -> int:
     # stderr with a non-zero exit, so stdout stays clean for ``$(...)`` capture
     # and pipes; only a successful result is written to stdout / ``--out``.
     if isinstance(result, dict) and "error" in result:
-        print(json.dumps(result, default=str), file=sys.stderr)
+        print(json.dumps(result, default=str), file=sys.stderr)  # noqa: T201  # CLI output
         return 1
     _emit(result, args.out)
     return 0
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
-    import asyncio
-
     async def run() -> list[dict[str, Any]]:
         client = _registry_client(args.source, "never", verbose=_verbose(args))
         async with client:
@@ -342,16 +346,15 @@ def _cmd_list(args: argparse.Namespace) -> int:
         entries = asyncio.run(run())
     except Exception as exc:
         # A malformed source becomes a clean error, not a traceback.
-        print(json.dumps({"error": str(exc), "type": type(exc).__name__}), file=sys.stderr)
+        print(json.dumps({"error": str(exc), "type": type(exc).__name__}), file=sys.stderr)  # noqa: T201  # CLI output
         return 1
     _emit(entries, args.out)
     return 0
 
 
 def _cmd_registry_add(args: argparse.Namespace) -> int:
-    import shutil
-
-    from .registry import default_registry_dir
+    # loaded per subcommand so the CLI starts fast
+    from .registry import default_registry_dir  # noqa: PLC0415
 
     d = default_registry_dir()
     d.mkdir(parents=True, exist_ok=True)
@@ -368,7 +371,7 @@ def _cmd_registry_add(args: argparse.Namespace) -> int:
         if src not in existing:
             with sources_file.open("a", encoding="utf-8") as fh:
                 fh.write(src + "\n")
-        print(f"thingctx: recorded source {src} in {sources_file}", file=sys.stderr)
+        print(f"thingctx: recorded source {src} in {sources_file}", file=sys.stderr)  # noqa: T201  # CLI output
         return 0
     p = Path(src)
     if not p.exists():
@@ -385,12 +388,13 @@ def _cmd_registry_add(args: argparse.Namespace) -> int:
         else:
             shutil.copy2(f, dest)
     verb = "linked" if args.link else "copied"
-    print(f"thingctx: {verb} {len(files)} TD(s) into {d}", file=sys.stderr)
+    print(f"thingctx: {verb} {len(files)} TD(s) into {d}", file=sys.stderr)  # noqa: T201  # CLI output
     return 0
 
 
 def _cmd_registry_list(args: argparse.Namespace) -> int:
-    from .registry import default_registry_dir, default_sources
+    # loaded per subcommand so the CLI starts fast
+    from .registry import default_registry_dir, default_sources  # noqa: PLC0415
 
     d = default_registry_dir()
     out = {
@@ -403,15 +407,15 @@ def _cmd_registry_list(args: argparse.Namespace) -> int:
 
 
 def _cmd_registry_path(args: argparse.Namespace) -> int:
-    from .registry import default_registry_dir
+    # loaded per subcommand so the CLI starts fast
+    from .registry import default_registry_dir  # noqa: PLC0415
 
-    print(default_registry_dir())
+    print(default_registry_dir())  # noqa: T201  # CLI output
     return 0
 
 
 def _skill_text() -> str:
     """The packaged app-agnostic driver skill (shipped as package data)."""
-    from importlib.resources import files
 
     return (files("thingctx") / "skill" / "SKILL.md").read_text(encoding="utf-8")
 
@@ -428,7 +432,7 @@ def _cmd_skill_install(args: argparse.Namespace) -> int:
         raise SystemExit(f"{dest} exists; pass --force to overwrite")
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest.write_text(_skill_text(), encoding="utf-8")
-    print(f"thingctx: installed driver skill to {dest}", file=sys.stderr)
+    print(f"thingctx: installed driver skill to {dest}", file=sys.stderr)  # noqa: T201  # CLI output
     return 0
 
 

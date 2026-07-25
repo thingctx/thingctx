@@ -23,6 +23,7 @@ write on exactly the writable properties the TD declares, and nothing else.
 
 from __future__ import annotations
 
+import time as _time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -92,7 +93,6 @@ def _token_expired(identity: Any, *, now: float | None = None) -> bool:
     ``exp`` (seconds since the epoch), a wall-clock deadline compared against now.
     A missing ``exp`` is treated as expired (fail-closed): the guard requires exp
     on inbound tokens, so its absence here means an untrusted identity."""
-    import time as _time
 
     if not isinstance(identity, dict):
         return True  # no claims -> cannot prove validity -> treat as expired

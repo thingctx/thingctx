@@ -12,6 +12,8 @@ it cannot guarantee a value is gone from memory.
 from __future__ import annotations
 
 import contextlib
+import ctypes
+import ctypes.util
 import hmac
 import os
 from typing import Any, NoReturn, SupportsIndex
@@ -33,9 +35,6 @@ def _as_bytes(value: str | bytes | bytearray) -> bytearray:
 
 
 def _libc() -> Any:
-    import ctypes
-    import ctypes.util
-
     name = ctypes.util.find_library("c")
     return ctypes.CDLL(name, use_errno=True) if name else None
 
@@ -46,8 +45,6 @@ def _try_lock(buf: bytearray) -> Any:
     if not buf:
         return None
     try:
-        import ctypes
-
         lib = _libc()
         if lib is None or not hasattr(lib, "mlock"):
             return None

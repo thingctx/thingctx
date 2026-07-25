@@ -160,7 +160,8 @@ class McpGatewayBinding:
         build and drive the server in-memory without a stdio transport."""
         if self._server is None:
             raise RuntimeError("serve() must run before run_stdio()")
-        from mcp.server.stdio import stdio_server
+        # optional dep, kept local so the core imports without the extra
+        from mcp.server.stdio import stdio_server  # noqa: PLC0415
 
         async with stdio_server() as (read, write):
             await self._server.run(read, write, self._server.create_initialization_options())

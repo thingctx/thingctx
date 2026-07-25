@@ -4,16 +4,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import inspect
+import json as _json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from urllib.request import url2pathname
 
 from thingctx.auth import AuthRegistry, AuthStrategy, apply_http
 from thingctx.bindings.base import AuthMixin, ProtocolBinding
 from thingctx.contracts import implements
 from thingctx.lifecycle import ActionStatus, status_from_body
+from thingctx.netpolicy import check_url, confine_path
 from thingctx.reliability import IDEMPOTENT_METHODS, RetryPolicy, TransportError, _retry_after
 
 if TYPE_CHECKING:
@@ -156,11 +162,6 @@ def _part_content(content: Any) -> Any:
         return content.read_bytes()
     if isinstance(content, str):
         if content.startswith("file://"):
-            from urllib.parse import urlsplit
-            from urllib.request import url2pathname
-
-            from thingctx.netpolicy import confine_path
-
             raw = url2pathname(urlsplit(content).path)
             base = (os.environ.get("THINGCTX_FS_ROOT") or "").strip() or None
             return confine_path(raw, base=base).read_bytes()
@@ -237,7 +238,6 @@ def _merge_href_query(url: str, params: dict | None) -> tuple[str, dict | None]:
     TD-declared ``?part=...`` would vanish. Split the href's query out and fold
     it under ``params`` (so call-time params win), returning the query-stripped
     url and the merged mapping. A href with no query is returned unchanged."""
-    from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
     parts = urlsplit(url)
     if not parts.query:
@@ -334,7 +334,6 @@ class HttpBinding(AuthMixin):
     async def _sign_request(signers: list[Any], request: httpx.Request) -> None:
         """Run any request-signer callables on the assembled request. A signer
         may be sync or async."""
-        import inspect
 
         for sign in signers:
             result = sign(request)
@@ -344,7 +343,8 @@ class HttpBinding(AuthMixin):
     def _pool(self) -> httpx.AsyncClient:
         """The lazily-created, reused client (created inside the running loop so
         it binds to the right event loop; recreated if closed)."""
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(timeout=self._timeout)
@@ -386,9 +386,9 @@ class HttpBinding(AuthMixin):
         The pooled client serves the common case; when a per-owner client
         certificate is present a short-lived client is used instead, since mTLS
         is owner-specific and cannot share the pool."""
-        import asyncio
 
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         # Keep any query the form href declares (httpx would drop it once
         # params= is passed). Layer call-time params on top.
@@ -398,8 +398,6 @@ class HttpBinding(AuthMixin):
             kwargs["params"] = merged
 
         if self._block_private:
-            from thingctx.netpolicy import check_url
-
             check_url(url, block_private=True, what="request URL")
 
         retryable = retry and (method.upper() in IDEMPOTENT_METHODS or self._retry_non_idempotent)
@@ -599,9 +597,9 @@ class HttpBinding(AuthMixin):
         missing or wrong token) raises ``TransportError`` when iteration begins,
         rather than yielding an empty stream that looks valid. A 2xx stream that
         simply carries no events yet does not raise."""
-        import json as _json
 
-        import httpx
+        # optional dep, kept local so the core imports without the extra
+        import httpx  # noqa: PLC0415
 
         owner = getattr(target, "thing_id", None)
         headers, params, signers, cert = await self._prepare(owner, form)
@@ -609,8 +607,6 @@ class HttpBinding(AuthMixin):
             params = {**params, **args}
         url, merged_params = _merge_href_query(form.href, params)
         if self._block_private:
-            from thingctx.netpolicy import check_url
-
             check_url(url, block_private=True, what="SSE URL")
 
         # An SSE stream is long-lived, so there is no overall read timeout, but

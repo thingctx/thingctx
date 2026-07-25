@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.request
 from collections.abc import Callable
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
+from urllib.parse import urljoin
 
 
 @runtime_checkable
@@ -144,8 +147,6 @@ def _user_agent() -> str:
     ``Python-urllib/x.y`` UA with HTTP 403, which would break fetching a TD
     from a hosted registry."""
     try:
-        from importlib.metadata import version
-
         return f"thingctx/{version('thingctx')}"
     except Exception:
         return "thingctx"
@@ -179,8 +180,6 @@ def _read_json_file(path: str | Path) -> dict:
 
 
 def _get_json(url: str, timeout: float) -> Any:
-    import urllib.request
-
     # Only http(s): a registry URL must not be able to read a local file or reach
     # a custom scheme handler through urlopen.
     if not url.startswith(("http://", "https://")):
@@ -232,7 +231,6 @@ def _tds_from_payload(data: Any, base_url: str, get: Callable[[str], Any]) -> li
         raise ValueError(f"{base_url} did not return a TD or a catalog index")  # noqa: TRY004
     if "@context" in data or not isinstance(data.get("things"), list):
         return [data]
-    from urllib.parse import urljoin
 
     out: list[dict] = []
     for entry in data["things"]:

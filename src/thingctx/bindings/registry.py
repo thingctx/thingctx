@@ -15,6 +15,7 @@ implementation of the :class:`~thingctx.bindings.base.ProtocolBinding` contract.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from importlib import metadata
 from typing import Any
 
 from thingctx.bindings.base import ProtocolBinding, binding_schemes, select_binding
@@ -32,24 +33,26 @@ BUILTIN_BINDINGS: tuple[str, ...] = ("http", "local", "mqtt", "media", "exec")
 def build_builtin(name: str, **kwargs: Any) -> ProtocolBinding:
     """Construct a built-in binding by name. Raises ``KeyError`` for an unknown
     name and the relevant ``ImportError`` if an optional dependency is absent."""
+    # Each builtin is imported only when built, so a caller pulls one binding's
+    # extra (httpx, paho, av) without importing the others'.
     if name == "http":
-        from thingctx.bindings.builtin.http import HttpBinding
+        from thingctx.bindings.builtin.http import HttpBinding  # noqa: PLC0415
 
         return HttpBinding(**kwargs)
     if name == "local":
-        from thingctx.bindings.builtin.local import LocalBinding
+        from thingctx.bindings.builtin.local import LocalBinding  # noqa: PLC0415
 
         return LocalBinding(**kwargs)
     if name == "mqtt":
-        from thingctx.bindings.builtin.mqtt import MqttBinding
+        from thingctx.bindings.builtin.mqtt import MqttBinding  # noqa: PLC0415
 
         return MqttBinding(**kwargs)
     if name == "media":
-        from thingctx.bindings.builtin.media import MediaBinding
+        from thingctx.bindings.builtin.media import MediaBinding  # noqa: PLC0415
 
         return MediaBinding(**kwargs)
     if name == "exec":
-        from thingctx.bindings.builtin.exec import ExecBinding
+        from thingctx.bindings.builtin.exec import ExecBinding  # noqa: PLC0415
 
         return ExecBinding(**kwargs)
     raise KeyError(f"unknown built-in binding: {name!r}")
@@ -149,14 +152,13 @@ def discover_bindings(*, group: str = "thingctx.bindings") -> list[ProtocolBindi
     runs third-party code in process. Each entry point names a zero-argument
     callable that returns a binding instance.
     """
-    from importlib.metadata import entry_points
 
     try:
-        eps = entry_points(group=group)
+        eps = metadata.entry_points(group=group)
     except TypeError:  # older selection API
         # Pre-3.10 dict-style API; typed against the modern EntryPoints, so the
         # empty-list default reads as a bad arg to the deprecated .get shim.
-        eps = entry_points().get(group, [])  # type: ignore[arg-type]
+        eps = metadata.entry_points().get(group, [])  # type: ignore[arg-type]
     return [ep.load()() for ep in eps]
 
 
@@ -173,14 +175,13 @@ def discover_local_handlers(
     present), and nothing runs unless a caller invokes this. ``slugs=None``
     loads every advertised handler.
     """
-    from importlib.metadata import entry_points
 
     try:
-        eps = entry_points(group=group)
+        eps = metadata.entry_points(group=group)
     except TypeError:  # older selection API
         # Pre-3.10 dict-style API; typed against the modern EntryPoints, so the
         # empty-list default reads as a bad arg to the deprecated .get shim.
-        eps = entry_points().get(group, [])  # type: ignore[arg-type]
+        eps = metadata.entry_points().get(group, [])  # type: ignore[arg-type]
     out: dict[str, Any] = {}
     for ep in eps:
         if slugs is not None and ep.name not in slugs:

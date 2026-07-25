@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from thingctx import bindings
+from thingctx.integrations import mcp
 from thingctx.integrations.mcp import client_from_registry
 
 
@@ -17,21 +17,21 @@ def _registry():
 
 
 def test_client_from_registry_silent_by_default(capsys, monkeypatch):
-    monkeypatch.setattr(bindings, "discover_local_handlers", lambda slugs: {"x": object()})
+    monkeypatch.setattr(mcp, "discover_local_handlers", lambda slugs: {"x": object()})
     client_from_registry(_registry())
     err = capsys.readouterr().err
     assert "bound local handler" not in err
 
 
 def test_client_from_registry_logs_when_verbose(capsys, monkeypatch):
-    monkeypatch.setattr(bindings, "discover_local_handlers", lambda slugs: {"x": object()})
+    monkeypatch.setattr(mcp, "discover_local_handlers", lambda slugs: {"x": object()})
     client_from_registry(_registry(), verbose=True)
     err = capsys.readouterr().err
     assert "bound local handler(s) for x" in err
 
 
 def test_no_handlers_is_silent_even_when_verbose(capsys, monkeypatch):
-    monkeypatch.setattr(bindings, "discover_local_handlers", lambda slugs: {})
+    monkeypatch.setattr(mcp, "discover_local_handlers", lambda slugs: {})
     client_from_registry(_registry(), verbose=True)
     assert "bound local handler" not in capsys.readouterr().err
 
