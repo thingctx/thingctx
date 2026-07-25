@@ -539,3 +539,16 @@ def test_resolve_and_pin_refuses_an_unreadable_address_entry(monkeypatch):
     monkeypatch.setattr(_socket, "getaddrinfo", _mixed)
     with pytest.raises(PolicyError, match="URL host .* unreadable address"):
         resolve_and_pin("mixed.example")
+
+
+def test_resolve_and_pin_refuses_a_resolved_name_that_is_not_an_address(monkeypatch):
+    # A str is not enough: a name that came back where an address belongs reads as
+    # "not private" and would be pinned as public.
+    import socket as _socket
+
+    def _name_back(host, *a, **k):
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("internal.corp", 0))]
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _name_back)
+    with pytest.raises(PolicyError, match="URL host .* unreadable address"):
+        resolve_and_pin("sneaky.example")

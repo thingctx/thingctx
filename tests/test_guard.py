@@ -531,3 +531,35 @@ async def test_jwks_with_a_non_list_keys_member_fails_closed(keypair, monkeypatc
     with pytest.raises(AuthorizationError):
         await g.validate(keypair.mint())
     assert g._jwks_cache is None
+
+
+async def test_jwks_with_non_object_key_entries_fails_closed(keypair, monkeypatch):
+    """A list of the right type is still not a key set: a str element reaches
+    jwk.get() and raises past the fail-closed boundary."""
+    import httpx
+
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"keys": ["not-a-dict"]}
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)
+    with pytest.raises(AuthorizationError):
+        await g.validate(keypair.mint())
+    assert g._jwks_cache is None
