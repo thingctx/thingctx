@@ -189,7 +189,7 @@ class JwtGatewayGuard:
         if not isinstance(jwks, dict):
             raise AuthorizationError("the signing key endpoint did not return a JWKS object")
         keys = jwks.get("keys")
-        if not isinstance(keys, list) or not all(isinstance(k, dict) for k in keys):
+        if not keys or not isinstance(keys, list) or not all(isinstance(k, dict) for k in keys):
             raise AuthorizationError("the signing key endpoint returned no usable key list")
         self._jwks_cache = jwks
         self._jwks_fetched_at = time.time()

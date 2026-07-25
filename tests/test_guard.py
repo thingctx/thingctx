@@ -563,3 +563,35 @@ async def test_jwks_with_non_object_key_entries_fails_closed(keypair, monkeypatc
     with pytest.raises(AuthorizationError):
         await g.validate(keypair.mint())
     assert g._jwks_cache is None
+
+
+async def test_jwks_with_an_empty_key_list_fails_closed(keypair, monkeypatch):
+    """An empty key set verifies nothing. Caching it wedges auth for the whole TTL,
+    so refuse it as a 401 rather than serving a cache that can never succeed."""
+    import httpx
+
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"keys": []}
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)
+    with pytest.raises(AuthorizationError):
+        await g.validate(keypair.mint())
+    assert g._jwks_cache is None
