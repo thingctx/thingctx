@@ -256,7 +256,7 @@ class WoTSecurityScheme:
     the TD."""
 
     name: str
-    scheme: str  # nosec, basic, digest, apikey, bearer, psk, oauth2, auto, combo
+    scheme: str  # one of: basic, digest, apikey, bearer, psk, oauth2, auto, combo, nosec
     in_: str = "header"  # credential location: header, query, body, cookie, uri, auto
     key_name: str = "Authorization"  # header/query/cookie name (basic/digest/apikey/bearer)
     # bearer / digest specifics

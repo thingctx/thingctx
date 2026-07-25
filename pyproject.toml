@@ -63,7 +63,7 @@ all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>
 # The gate tools are pinned, not floated: the CI and the pre-commit hook must
 # agree with what a contributor runs locally, or "green here, red in CI" churn
 # follows. ruff 0.14.x is where the in-function-import rule (PLC0415) is stable.
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff==0.14.4", "mypy==1.14.1", "vulture==2.14"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "jsonschema>=4.0", "mcp>=1.0", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "ruff==0.14.4", "mypy==1.14.1", "vulture==2.14", "bandit==1.9.4", "pip-audit==2.9.0", "import-linter==2.3"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
@@ -137,6 +137,97 @@ follow_imports_for_stubs = true
 [tool.vulture]
 paths = ["src/thingctx", ".vulture_whitelist.py"]
 min_confidence = 80
+
+# Security static analysis. ruff already runs the bandit `S` family at edit
+# speed (see [tool.ruff.lint] "S"), and every sink it flags carries a reasoned
+# `# noqa: S...`. bandit runs as a second gate for the checks ruff does NOT
+# implement, chiefly B613 (trojan source: a bidirectional control character
+# that makes reviewed code parse differently than it reads). The `skips` below
+# are exactly the test ids ruff's `S` subset already owns line by line, so
+# bandit does not re-flag a sink ruff has already governed; a genuinely new
+# unguarded sink still fails ruff. What stays live here is the delta ruff lacks.
+[tool.bandit]
+skips = [
+    "B101", # assert: ruff S101 governs; the asserts here are type-narrowing invariants
+    "B105", # hardcoded password string: ruff S105 governs; bandit also false-flags dict keys
+    "B112", # try/except/continue: ruff S112 governs; the two here isolate a plugin, by design
+    "B310", # urlopen scheme: ruff S310 governs; every call site checks the scheme first
+    "B311", # random for jitter: ruff S311 governs; the one use is retry jitter, not a secret
+]
+
+# Dependency-direction guardrail (a fitness function, architecture-principles
+# §13.1). The linter follows the real runtime import graph (TYPE_CHECKING-only
+# imports are excluded) and fails if an edge points the wrong way. The layers
+# run outermost first: an entrypoint may import the engine, never the reverse.
+[tool.importlinter]
+root_package = "thingctx"
+
+# The engine's dependencies point inward: cli/client/contrib depend on the outer
+# surfaces, which depend on the runtime, which depends on transports, which depend
+# on the credential layer. A lower layer importing a higher one is refused.
+# The authorization DECISION kernel (pdp/vocabulary/authzen) and the TD model
+# (thing) sit below every layer here and are pinned inward by their own
+# forbidden contracts below; the PEP (authz.pep) is the enforcement bridge that
+# legitimately reaches the runtime, so it rides in the engine layer, not the
+# kernel.
+[[tool.importlinter.contracts]]
+name = "thingctx layers point inward"
+type = "layers"
+layers = [
+    "cli",
+    "client",
+    "contrib | integrations | gateways",
+    "runtime",
+    "chain",
+    "bindings",
+    "auth",
+]
+containers = "thingctx"
+
+# The authorization decision kernel is the stdlib-only core that the dep-free
+# base install imports (see the dep-free-base CI job). It must never reach a
+# transport, the engine, or the credential layer, or that install would drag a
+# heavy dependency in. This makes the invariant structural, not just a runtime
+# assertion.
+[[tool.importlinter.contracts]]
+name = "authz decision kernel imports nothing outward"
+type = "forbidden"
+source_modules = [
+    "thingctx.authz.pdp",
+    "thingctx.authz.vocabulary",
+    "thingctx.authz.authzen",
+]
+forbidden_modules = [
+    "thingctx.runtime",
+    "thingctx.chain",
+    "thingctx.bindings",
+    "thingctx.auth",
+    "thingctx.gateways",
+    "thingctx.integrations",
+    "thingctx.cli",
+    "thingctx.client",
+    "thingctx.contrib",
+]
+
+# The Thing Description model is the foundation every layer parses against. It
+# defines the domain types; it must not depend on how they are driven, served,
+# or authenticated.
+[[tool.importlinter.contracts]]
+name = "TD model imports nothing outward"
+type = "forbidden"
+source_modules = ["thingctx.thing"]
+forbidden_modules = [
+    "thingctx.runtime",
+    "thingctx.chain",
+    "thingctx.bindings",
+    "thingctx.auth",
+    "thingctx.gateways",
+    "thingctx.integrations",
+    "thingctx.cli",
+    "thingctx.client",
+    "thingctx.contrib",
+    "thingctx.authz",
+]
 
 [tool.ruff]
 line-length = 100

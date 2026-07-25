@@ -102,6 +102,49 @@ jobs:
       - run: pip install "vulture==2.14"
       - run: vulture
 
+  # Security static analysis, a second gate past ruff's S family. ruff owns the
+  # sinks it flags (each carries a reasoned noqa); bandit runs for the checks
+  # ruff lacks, chiefly B613 (trojan source). Config lives in [tool.bandit].
+  security-lint:
+    name: security-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - run: pip install "bandit==1.9.4"
+      - run: bandit -r src/thingctx -c pyproject.toml -q
+
+  # Dependency CVE audit against the project's declared dependencies (a `.`
+  # audit resolves them fresh), so an optional extra's transitive noise does not
+  # mask a real advisory in what ships. The core install is dependency-free.
+  deps-audit:
+    name: deps-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - run: pip install "pip-audit==2.9.0"
+      - run: pip-audit . --progress-spinner off
+
+  # Architecture fitness function: dependency direction. Fails if an import edge
+  # points the wrong way (a lower layer reaching a higher one, or the authz
+  # kernel / TD model reaching outward). Contracts in [tool.importlinter]. The
+  # package must be importable for the graph build, so install it first.
+  architecture:
+    name: architecture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e . "import-linter==2.3"
+      - run: lint-imports
+
   test:
     name: test
     runs-on: ubuntu-latest
@@ -169,7 +212,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [dco, lint, types, dead-code, test, dep-free-base]
+    needs: [dco, lint, types, dead-code, security-lint, deps-audit, architecture, test, dep-free-base]
     runs-on: ubuntu-latest
     steps:
       - name: Check upstream jobs
@@ -180,7 +223,7 @@ jobs:
             echo "dco=${{ needs.dco.result }}"
             exit 1
           fi
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
-            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} test=${{ needs.test.result }} dep-free-base=${{ needs.dep-free-base.result }}"
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.types.result }}" != "success" ] || [ "${{ needs.dead-code.result }}" != "success" ] || [ "${{ needs.security-lint.result }}" != "success" ] || [ "${{ needs.deps-audit.result }}" != "success" ] || [ "${{ needs.architecture.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.dep-free-base.result }}" != "success" ]; then
+            echo "lint=${{ needs.lint.result }} types=${{ needs.types.result }} dead-code=${{ needs.dead-code.result }} security-lint=${{ needs.security-lint.result }} deps-audit=${{ needs.deps-audit.result }} architecture=${{ needs.architecture.result }} test=${{ needs.test.result }} dep-free-base=${{ needs.dep-free-base.result }}"
             exit 1
           fi
