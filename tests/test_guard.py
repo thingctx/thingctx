@@ -371,3 +371,92 @@ async def test_jwks_fetch_non_2xx_fails_closed(keypair, monkeypatch):
     g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)
     with pytest.raises(AuthorizationError):
         await g.validate(keypair.mint())
+
+
+# --------------------------------------------------------------------------- #
+# ID-7: on a kid miss the JWKS is refetched once (key rotation), rate-limited by
+# a cooldown; during cooldown a kid miss is re-raised, never accepted.
+# --------------------------------------------------------------------------- #
+
+
+def _rotating_jwks_client(jwks_by_call: list[dict], counter: dict):
+    """A fake httpx AsyncClient whose JWKS GET returns the next set in the list, so
+    a test can simulate the provider rotating its keys between fetches. ``counter``
+    records how many fetches happened."""
+
+    class Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._data
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            i = min(counter["n"], len(jwks_by_call) - 1)
+            counter["n"] += 1
+            return Resp(jwks_by_call[i])
+
+    return Client
+
+
+@pytest.mark.asyncio
+async def test_kid_miss_refetches_and_picks_up_rotation(keypair, other_keypair, monkeypatch):
+    # invariant ID-7: a token whose kid is absent from the cached JWKS triggers a
+    # single forced refetch; if the provider rotated, the new key is picked up and
+    # the token validates. The old JWKS is served first, the rotated one second.
+    import httpx
+    from conftest import KeyFixture
+
+    rotated = KeyFixture(kid="rotated-key")
+    counter = {"n": 0}
+    fake_client = _rotating_jwks_client([keypair.jwks(), rotated.jwks()], counter)
+    monkeypatch.setattr(httpx, "AsyncClient", fake_client)
+
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)  # fetches its keys
+    # Prime the cache with the old JWKS by validating an old-kid token first.
+    assert (await g.validate(keypair.mint()))["tid"] == TENANT
+    # A token signed by the rotated key (new kid) is a cache miss -> forced refetch
+    # picks up the rotation and the token validates.
+    assert (await g.validate(rotated.mint()))["tid"] == TENANT
+    assert counter["n"] >= 2  # the rotation refetch actually happened
+
+
+@pytest.mark.asyncio
+async def test_kid_miss_during_cooldown_is_rejected(keypair, monkeypatch):
+    # invariant ID-7: a second kid miss inside the cooldown window does NOT refetch
+    # again (a flood of random-kid tokens must not amplify into unbounded fetches);
+    # the miss is re-raised, never accepted.
+    import httpx
+    from conftest import KeyFixture
+
+    counter = {"n": 0}
+    # The provider never serves a matching key: every fetch returns the same JWKS.
+    fake_client = _rotating_jwks_client([keypair.jwks()], counter)
+    monkeypatch.setattr(httpx, "AsyncClient", fake_client)
+
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)
+    await g.validate(keypair.mint())  # prime the cache
+    before = counter["n"]
+    attacker = KeyFixture(kid="never-published")
+    # First unknown-kid token: one forced refetch, still a miss -> rejected.
+    with pytest.raises(AuthorizationError):
+        await g.validate(attacker.mint())
+    after_first = counter["n"]
+    assert after_first == before + 1  # exactly one forced refetch
+    # A second unknown-kid token inside the cooldown must NOT refetch again.
+    with pytest.raises(AuthorizationError):
+        await g.validate(attacker.mint())
+    assert counter["n"] == after_first  # no further fetch during cooldown

@@ -69,6 +69,43 @@ def test_file_store_roundtrip_and_perms(tmp_path):
     assert s.get("k") is None
 
 
+def test_file_store_refuses_a_symlinked_path_on_write(tmp_path):
+    # invariant SEC-7: a token store path that is a symlink is refused on write, so
+    # a swapped link cannot redirect the refresh-token write to another location.
+    # set() reads first (O_NOFOLLOW), so the symlink is refused there; either way no
+    # secret reaches the linked target.
+    real = tmp_path / "elsewhere.json"
+    real.write_text("{}")
+    link = tmp_path / "tokens.json"
+    link.symlink_to(real)
+    s = FileTokenStore(link)
+    with pytest.raises(OSError, match="symlink|refusing"):
+        s.set("k", {"refresh_token": "secret"})
+    assert real.read_text() == "{}"  # the linked target was never written
+
+
+def test_file_store_refuses_a_symlinked_path_on_read(tmp_path):
+    # invariant SEC-7: the read opens with O_NOFOLLOW, so a symlinked store is
+    # refused on read too (not silently followed to another file).
+    real = tmp_path / "elsewhere.json"
+    real.write_text('{"k": {"refresh_token": "secret"}}')
+    link = tmp_path / "tokens.json"
+    link.symlink_to(real)
+    s = FileTokenStore(link)
+    with pytest.raises(OSError, match="refusing to read"):
+        s.get("k")
+
+
+def test_file_store_created_0600_before_any_secret_lands(tmp_path):
+    # invariant SEC-7: the file is 0600 from creation (the fd is fchmod'd before
+    # content is written), so a refresh token is never briefly world-readable.
+    path = tmp_path / "sub" / "tokens.json"
+    FileTokenStore(path).set("k", {"refresh_token": "topsecret"})
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    # the containing dir is owner-only too
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
 # --------------------------------------------------------------------------- #
 # provider: silent refresh only
 # --------------------------------------------------------------------------- #
