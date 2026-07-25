@@ -37,6 +37,7 @@ registry; no flag or TD edit is needed, and the TD names no implementation.
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import logging
 import os
 import secrets
@@ -1125,17 +1126,20 @@ def client_from_registry(
         "true",
         "yes",
     )
-    # Skip a transport whose optional dependency is not installed; a real
-    # construction error must still surface, so catch ImportError only.
-    with contextlib.suppress(ImportError):
+    # Register a transport only when its optional dependency is importable, so a
+    # call on a missing-dep transport gets a clean no-binding result rather than
+    # a raw ImportError at call time. The heavy deps import lazily inside the
+    # bindings, so importing the binding class alone cannot reveal a missing dep;
+    # probe the dependency module directly instead.
+    if importlib.util.find_spec("httpx") is not None:
         from thingctx.bindings import HttpBinding
 
         bindings.append(HttpBinding(credentials=credentials or {}, block_private=block_private))
-    with contextlib.suppress(ImportError):
+    if importlib.util.find_spec("paho") is not None:
         from thingctx.bindings import MqttBinding
 
         bindings.append(MqttBinding())
-    with contextlib.suppress(ImportError):
+    if importlib.util.find_spec("av") is not None:
         from thingctx.bindings.builtin.media import MediaBinding
 
         bindings.append(MediaBinding(credentials=credentials or {}, block_private=block_private))
