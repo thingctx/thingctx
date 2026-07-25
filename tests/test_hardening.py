@@ -154,3 +154,72 @@ def test_transport_error_redacts_url_and_detail():
     d = exc.as_dict()
     assert "SECRETVALUE" not in d["error"]["url"]
     assert "***" in d["error"]["url"]
+
+
+# --- THINGCTX_BLOCK_PRIVATE: env-driven private-host guard -------------------
+
+
+def _probe_td(href):
+    return {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:demo:probe",
+        "title": "Probe",
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "actions": {"probe": {"forms": [{"href": href, "htv:methodName": "GET"}]}},
+    }
+
+
+class _OneTdRegistry:
+    def __init__(self, td):
+        self._td = td
+
+    def fetch(self):
+        return [self._td]
+
+
+async def test_block_private_env_refuses_metadata_host(monkeypatch):
+    """With THINGCTX_BLOCK_PRIVATE=1, the registry-built client's HTTP transport
+    refuses a link-local (cloud metadata) target before any connection."""
+    from thingctx.integrations.mcp import client_from_registry
+
+    monkeypatch.setenv("THINGCTX_BLOCK_PRIVATE", "1")
+    monkeypatch.delenv("THINGCTX_POLICY", raising=False)
+    monkeypatch.delenv("THINGCTX_IDENTITY", raising=False)
+    client = client_from_registry(_OneTdRegistry(_probe_td("http://169.254.169.254/meta")))
+    with pytest.raises(PolicyError, match="private or loopback"):
+        await client.invoke("probe__probe", {})
+
+
+async def test_block_private_unset_keeps_private_hosts_reachable(monkeypatch):
+    """Unset, behavior is unchanged: the same client reaches a loopback server
+    (a WoT client legitimately drives LAN and local devices)."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from thingctx.integrations.mcp import client_from_registry
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"ok": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.delenv("THINGCTX_BLOCK_PRIVATE", raising=False)
+        monkeypatch.delenv("THINGCTX_POLICY", raising=False)
+        monkeypatch.delenv("THINGCTX_IDENTITY", raising=False)
+        href = f"http://127.0.0.1:{srv.server_address[1]}/meta"
+        client = client_from_registry(_OneTdRegistry(_probe_td(href)))
+        assert await client.invoke("probe__probe", {}) == {"ok": True}
+    finally:
+        srv.shutdown()
