@@ -1,16 +1,12 @@
 # Copyright 2026 The thingctx Authors
 # SPDX-License-Identifier: Apache-2.0
-"""01: the MCP baseline. The head-to-head partner to 02.
+"""01: serve the pump as an MCP server.
 
-The MCP server here is a proxy. It reaches the pump over the SAME real
-transports thingctx uses in 02 (HTTP for status/read_sensor, MQTT for
-set_coolant, local for the rest), via a thingctx client. So the only
-thing MCP adds over 02 is the server hop itself: the client talks the MCP
-protocol to this server, which then makes the same call thingctx makes
-directly. The server is a removable middle point.
-
-It also covers MCP's full surface: tools, resources, prompts, and a real
-resources/subscribe -> resources/updated flow.
+The server reaches the pump over its real transports (HTTP for
+status/read_sensor, MQTT for set_coolant, local for the rest) via a
+thingctx client, and exposes the full MCP surface: tools, resources,
+prompts, and a real resources/subscribe -> resources/updated flow. 02
+drives the same pump directly from its description.
 
 Run::  python examples/01_mcp_baseline.py
 """
