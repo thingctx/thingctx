@@ -5,8 +5,9 @@ The integration is a JSON Thing Description, not a server you run.
 
 ## Install
 
-    pip install thingctx[all]
-    # or pick extras: thingctx[llm] [http] [mqtt] [validate] [mcp]
+    pip install 'thingctx[llm,http,validate]'
+    # quote the extras (zsh); other extras: mcp, mqtt, media, authz, entra,
+    # openapi, cloud, mcp-http, filesystem
 
 ## Use
 

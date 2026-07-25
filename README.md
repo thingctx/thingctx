@@ -77,7 +77,10 @@ A whole TD can be this small (a weather API, no hardware in sight):
 }
 ```
 
-Point an agent at it:
+Point an agent at it. The LLM loop needs the `[llm]` extra, your provider's
+API key in its usual env var (for example `OPENAI_API_KEY`), and a model via
+`THINGCTX_MODEL` (a litellm `provider/model` string; the default is
+`openai/gpt-4o-mini`):
 
 ```python
 import asyncio
@@ -99,14 +102,29 @@ here is a placeholder; substitute a real TD endpoint, a TD file, or a folder.)
 ## Install
 
 ```bash
-pip install thingctx[all]      # litellm + httpx + paho-mqtt + jsonschema + mcp + azure-identity
-# or pick extras: thingctx[llm] [http] [mqtt] [validate] [mcp] [authz] [entra]
+pip install 'thingctx[llm,http,validate]'   # the recommended start: LLM loop + HTTP + TD validation
 ```
 
-The base install is dependency-free, including the authorization seam
-(`thingctx.authz`). The `authz` extra adds the token guard (pyjwt + httpx); the
-`entra` extra adds the Entra provider (azure-identity). Nothing heavy ever lands
-in the base install.
+Quote the argument; unquoted brackets fail in zsh (macOS default) with
+`no matches found`. The base `pip install thingctx` is dependency-free,
+including the authorization seam (`thingctx.authz`). Everything else is an
+opt-in extra; add only what you use:
+
+- `llm`: the agent loop, any provider via litellm.
+- `http`: the HTTP(S) transport (httpx).
+- `mqtt`: the MQTT transport (paho-mqtt).
+- `validate`: check TDs against the official W3C TD 1.1 schema (jsonschema).
+- `mcp`: the MCP bridge for closed agents (Claude Desktop, Copilot).
+- `mcp-http`: serve the MCP bridge over streamable HTTP (adds uvicorn).
+- `openapi`: import OpenAPI specs as TDs (YAML support; JSON needs nothing).
+- `cloud`: OAuth2 JWT-bearer assertions for cloud APIs (pyjwt).
+- `authz`: the inbound token guard, JWT to claims (pyjwt + httpx).
+- `entra`: Microsoft Entra identity provider and guard (azure-identity).
+- `media`: continuous audio/video streams (PyAV/FFmpeg, numpy, pillow; heavy).
+- `filesystem`: the sandboxed local filesystem handler (stdlib; inert until
+  `THINGCTX_FS_ROOT` is set).
+- `all`: everything above, including the heavy media and Entra dependencies.
+  Reach for it only when you actually want all of that installed.
 
 ## Drive it directly
 
@@ -270,6 +288,31 @@ Pick the policy with `THINGCTX_APPROVE_WHEN` (`declared` default, or
 `THINGCTX_POLICY` is `read-only` (reads and TD-declared safe actions only;
 writes and state-changing actions are denied) or `full`. Edit the same config
 file as above and restart Claude Desktop after a change.
+
+### Add your keys
+
+A TD names its security scheme but never carries a secret. The bridge reads
+per-Thing secrets from the environment: `THINGCTX_TOKEN_<SLUG>` binds a secret
+to the Thing whose slug is `<SLUG>` (lowercased, `_` maps to `-`, so
+`THINGCTX_TOKEN_GOOGLE_MAPS` serves `google-maps`). The slug is the same one
+used in tool names. To let the agent act on GitHub:
+
+```json
+{ "mcpServers": { "things": {
+  "command": "uvx",
+  "args": ["--from", "thingctx[mcp]", "thingctx-mcp", "https://td.thingctx.com/index.json"],
+  "env": { "THINGCTX_TOKEN_GITHUB": "ghp_yourtoken" } } } }
+```
+
+The secret is applied per the Thing's declared scheme (bearer, basic, apikey)
+and lives only in the process environment, never in a TD or on disk.
+
+Two more environment knobs the bridge and CLI honor:
+
+- `THINGCTX_REGISTRY`: default TD source(s) when no argument is given, path
+  separator delimited (a folder, a TD file, or a directory URL).
+- `THINGCTX_FS_ROOT`: enables the sandboxed filesystem Thing by naming the one
+  directory it may touch; unset (the default) refuses every filesystem call.
 
 MCP is just one way to deliver the description, for agents where direct tool
 calling isn't available.
