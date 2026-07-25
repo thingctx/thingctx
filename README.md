@@ -21,6 +21,40 @@ more). thingctx reads it, hands the actions to your model as tools, and calls
 each against the real system. The system's own endpoints are the server; you
 write nothing server-side.
 
+## First run: no keys, no network
+
+The repo ships a clock Thing: a TD over the in-process time handler bundled
+with thingctx. Paste this into a file and run it from the repo root (after
+`pip install thingctx`; nothing else is needed):
+
+```python
+import asyncio
+import json
+
+import thingctx
+from thingctx.contrib.time import make_time_handler
+
+
+async def main():
+    with open("examples/registry/time.td.json") as f:
+        td = json.load(f)
+    client = thingctx.ThingClient(
+        tds=[td], bindings=[thingctx.LocalBinding(make_time_handler())]
+    )
+    tools, invoke = client.as_tools()  # specs for your model; invoke runs a call
+    print("tools:", [t["function"]["name"] for t in tools])
+    print(await invoke("time__getCurrentTime", {"timezone": "UTC"}))
+
+
+asyncio.run(main())
+```
+
+It prints the two projected tools, then a real timestamp. That is the whole
+model: a TD in, tools out, calls routed. Every other transport (HTTP, MQTT)
+works the same way; only the form's `href` changes.
+
+## The document
+
 A whole TD can be this small (a weather API, no hardware in sight):
 
 ```json
@@ -46,13 +80,21 @@ A whole TD can be this small (a weather API, no hardware in sight):
 Point an agent at it:
 
 ```python
+import asyncio
+
 import thingctx
 
-host = await thingctx.from_url("https://api.example.com/.well-known/wot")
-print(await host.chat("what's the forecast for Cairo, and the current temperature?"))
+
+async def main():
+    host = await thingctx.from_url("https://api.example.com/.well-known/wot")
+    print(await host.chat("what's the forecast for Cairo, and the current temperature?"))
+
+
+asyncio.run(main())
 ```
 
-The model picks the actions; thingctx routes each to its transport.
+The model picks the actions; thingctx routes each to its transport. (The URL
+here is a placeholder; substitute a real TD endpoint, a TD file, or a folder.)
 
 ## Install
 

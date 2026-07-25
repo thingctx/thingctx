@@ -11,11 +11,18 @@ The integration is a JSON Thing Description, not a server you run.
 ## Use
 
 ```python
+import asyncio
+
 import thingctx
 
-# Out-of-the-box agent loop
-host = await thingctx.from_url("https://api.example.com/.well-known/wot")
-print(await host.chat("what's the forecast for Cairo?"))
+
+async def main():
+    # Out-of-the-box agent loop (needs the llm extra and your provider API key)
+    host = await thingctx.from_url("https://api.example.com/.well-known/wot")
+    print(await host.chat("what's the forecast for Cairo?"))
+
+
+asyncio.run(main())
 ```
 
 Own the loop? Get tool specs and route calls yourself:
@@ -23,7 +30,7 @@ Own the loop? Get tool specs and route calls yourself:
 ```python
 client = thingctx.ThingClient.from_registry(thingctx.from_arg("./registry/"))
 specs, invoke = client.as_tools()
-await invoke("pump__set_speed", {"rpm": 1500})
+result = await invoke("pump__set_speed", {"rpm": 1500})
 ```
 
 Closed agent (Claude Desktop, Copilot)? Bridge a registry of descriptions to MCP:

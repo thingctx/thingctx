@@ -1,0 +1,64 @@
+{
+  "@context": "https://www.w3.org/2022/wot/td/v1.1",
+  "id": "urn:thingctx:time",
+  "title": "Time",
+  "description": "A self-contained clock Thing: its actions run on the in-process time handler that ships with thingctx, so it works offline with no credentials and no device.",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": ["nosec_sc"],
+  "actions": {
+    "getCurrentTime": {
+      "description": "Current time in an IANA timezone (default UTC).",
+      "input": {
+        "type": "object",
+        "properties": {
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone name, e.g. Europe/Berlin. Defaults to UTC."
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "timezone": { "type": "string" },
+          "datetime": { "type": "string" },
+          "utc_offset": { "type": "string" }
+        }
+      },
+      "safe": true,
+      "idempotent": true,
+      "forms": [{ "href": "local://getCurrentTime" }]
+    },
+    "convertTime": {
+      "description": "Convert a time between IANA timezones. Accepts a bare wall-clock time (HH:MM or HH:MM:SS, taken as today) or a full ISO 8601 stamp.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string",
+            "description": "The time to convert: HH:MM[:SS] or ISO 8601."
+          },
+          "source_timezone": {
+            "type": "string",
+            "description": "IANA timezone the input time is in."
+          },
+          "target_timezone": {
+            "type": "string",
+            "description": "IANA timezone to convert to."
+          }
+        },
+        "required": ["time", "source_timezone", "target_timezone"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "object" },
+          "target": { "type": "object" }
+        }
+      },
+      "safe": true,
+      "idempotent": true,
+      "forms": [{ "href": "local://convertTime" }]
+    }
+  }
+}
