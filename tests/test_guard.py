@@ -16,6 +16,9 @@ and the JWKS fetch is exercised against a monkeypatched Entra endpoint.
 
 from __future__ import annotations
 
+import time
+
+import jwt
 import pytest
 from conftest import AUDIENCE, ISSUER_V2, TENANT
 
@@ -244,3 +247,127 @@ async def test_signature_verification_is_actually_on(keypair):
     bad = impostor.mint()
     with pytest.raises(AuthorizationError):
         await g.validate(bad)  # must fail: only the signature differs
+
+
+# --------------------------------------------------------------------------- #
+# iat is enforced (GAP 2 fix): the guard's docstring claims iat is verified, so
+# the code must actually verify it, not just say so.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_future_iat_rejected(keypair):
+    # invariant ID-3: iat is verified; a token minted in the future (beyond the
+    # leeway) is rejected, so a token issued "ahead of time" is not honored early.
+    g = guard(keypair)
+    ahead = keypair.mint(extra={"iat": int(time.time()) + 3600})  # issued an hour ahead
+    with pytest.raises(AuthorizationError) as ei:
+        await g.validate(ahead)
+    assert "iat" in str(ei.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_normal_iat_passes(keypair):
+    # invariant ID-3: a token with a normal (present-time) iat still validates, so
+    # enforcing iat does not reject legitimate tokens.
+    g = guard(keypair)
+    claims = await g.validate(keypair.mint())  # mint sets iat = now
+    assert claims["tid"] == TENANT
+
+
+@pytest.mark.asyncio
+async def test_iat_within_leeway_passes(keypair):
+    # invariant ID-3: a slightly-future iat within the clock-skew leeway is
+    # accepted, so a small clock difference between issuer and gateway is tolerated.
+    g = guard(keypair, leeway=60)
+    ok = keypair.mint(extra={"iat": int(time.time()) + 30})  # 30s ahead, inside 60s leeway
+    assert (await g.validate(ok))["tid"] == TENANT
+
+
+@pytest.mark.asyncio
+async def test_missing_iat_rejected(keypair):
+    # invariant ID-3: iat is required; a token that carries no iat at all is
+    # refused, so the guard's "tokens carry iat" policy is real.
+    g = guard(keypair)
+    now = int(time.time())
+    no_iat = jwt.encode(
+        {
+            "iss": ISSUER_V2,
+            "aud": AUDIENCE,
+            "tid": TENANT,
+            "exp": now + 3600,
+            "nbf": now - 10,
+            "sub": "caller",
+        },
+        keypair.private_pem,
+        algorithm="RS256",
+        headers={"kid": keypair.kid},
+    )
+    with pytest.raises(AuthorizationError) as ei:
+        await g.validate(no_iat)
+    assert "iat" in str(ei.value).lower()
+
+
+# --------------------------------------------------------------------------- #
+# ID-6: a JWKS fetch failure fails closed (never admits an unverifiable token).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_jwks_fetch_failure_fails_closed(keypair, monkeypatch):
+    # invariant ID-6: when the JWKS fetch fails (network error, timeout, non-2xx,
+    # bad JSON), validate RAISES and never admits the token; a fetch failure is
+    # never swallowed into a pass.
+    import httpx
+
+    class FailingClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            raise httpx.ConnectError("no route to the identity provider")
+
+    monkeypatch.setattr(httpx, "AsyncClient", FailingClient)
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)  # no static jwks -> must fetch
+    token = keypair.mint()  # a perfectly valid token; only the key fetch fails
+    with pytest.raises(AuthorizationError) as ei:
+        await g.validate(token)
+    assert "signing keys" in str(ei.value).lower() or "fetch" in str(ei.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_jwks_fetch_non_2xx_fails_closed(keypair, monkeypatch):
+    # invariant ID-6: a non-2xx JWKS response also denies; raise_for_status raising
+    # must not fall through to admitting the token.
+    import httpx
+
+    class ErrorResp:
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("500", request=None, response=None)
+
+        def json(self):  # pragma: no cover - never reached; raise_for_status raises first
+            return {}
+
+    class ErrorClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return ErrorResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", ErrorClient)
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)
+    with pytest.raises(AuthorizationError):
+        await g.validate(keypair.mint())
