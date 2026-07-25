@@ -114,6 +114,29 @@ def test_describe_returns_input_schema_at_call_time():
     assert out["input_schema"]["properties"]["verbose"]["type"] == "boolean"
 
 
+def test_describe_event_returns_its_data_schema():
+    """Describing an event must return the event's declared data schema, so the
+    model knows the shape of each notification it will receive."""
+    data_schema = {"type": "object", "properties": {"temp": {"type": "number"}}}
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:demo:pump:v1",
+        "title": "Pump",
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "events": {
+            "overheat": {
+                "data": data_schema,
+                "forms": [{"href": "local://overheat", "op": ["subscribeevent"]}],
+            }
+        },
+    }
+    gw = ThingClient(tds=[td], bindings=[]).gateway()
+    out = gw._describe({"thing_id": "pump", "affordance": "overheat"})
+    assert out["kind"] == "event"
+    assert out["data_schema"] == data_schema  # not None
+
+
 @pytest.mark.asyncio
 async def test_invoke_round_trip(local_binding):
     client = ThingClient(tds=[_local_td("pump", "Pump", "x")], bindings=[local_binding])
