@@ -1211,6 +1211,34 @@ async def serve(registry) -> None:
         await server.run(read, write, server.create_initialization_options())
 
 
+def _check_http_exposure(host: str) -> None:
+    """Warn (or refuse) when the HTTP transport binds a non-loopback host.
+
+    The streamable-http endpoint performs no inbound authentication, so binding
+    beyond loopback hands the whole tool surface, driven with this process's
+    credentials, to anyone who can reach the port. A warning (not a refusal)
+    keeps a deploy behind an authenticating reverse proxy working; setting
+    ``THINGCTX_REQUIRE_AUTH=1`` turns the same condition into a startup error
+    for operators who want the hard stop."""
+    if (host or "").strip().lower() in ("127.0.0.1", "localhost", "::1"):
+        return
+    if (os.environ.get("THINGCTX_REQUIRE_AUTH") or "").strip().lower() in ("1", "true", "yes"):
+        raise SystemExit(
+            "thingctx-mcp: refusing to serve HTTP on a non-loopback host: "
+            "THINGCTX_REQUIRE_AUTH=1 is set and the HTTP transport has no inbound "
+            "authentication. Bind 127.0.0.1, or put an authenticating reverse "
+            "proxy or gateway guard in front and unset THINGCTX_REQUIRE_AUTH."
+        )
+    print(
+        "thingctx-mcp: WARNING: serving HTTP on a non-loopback host with NO inbound "
+        "authentication. Anyone who can reach this port can drive every exposed tool "
+        "with this process's credentials. Do not expose it to an untrusted network; "
+        "put an authenticating reverse proxy or gateway guard in front. Set "
+        "THINGCTX_REQUIRE_AUTH=1 to make this condition fatal.",
+        file=sys.stderr,
+    )
+
+
 def serve_http(registry, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     """Run the MCP server over streamable HTTP (the remote transport).
 
@@ -1218,6 +1246,8 @@ def serve_http(registry, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     cloud agent runtime that only accepts a remote MCP endpoint. streamable-http is
     the go forward remote transport; legacy SSE is not served. Bind 0.0.0.0 in a
     container; keep 127.0.0.1 as the default so a bare run is not exposed by accident.
+    The endpoint itself performs no inbound authentication: a non-loopback bind
+    warns at startup, and refuses when ``THINGCTX_REQUIRE_AUTH=1`` is set.
     """
     import contextlib
 
@@ -1226,6 +1256,7 @@ def serve_http(registry, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     from starlette.applications import Starlette
     from starlette.routing import Mount
 
+    _check_http_exposure(host)
     server = _build_server(registry)
     manager = StreamableHTTPSessionManager(app=server)
 

@@ -72,3 +72,31 @@ async def test_streamable_http_initializes():
     assert r.status_code == 200
     assert "mcp-session-id" in r.headers
     assert "capabilities" in r.text
+
+
+def test_non_loopback_bind_warns_without_inbound_auth(capsys, monkeypatch):
+    """The HTTP transport has no inbound auth, so a non-loopback bind must say so
+    loudly at startup; a loopback bind stays quiet."""
+    from thingctx.integrations.mcp import _check_http_exposure
+
+    monkeypatch.delenv("THINGCTX_REQUIRE_AUTH", raising=False)
+    _check_http_exposure("0.0.0.0")
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "no inbound authentication" in err.lower()
+    assert "reverse proxy" in err
+    for quiet in ("127.0.0.1", "localhost", "::1"):
+        _check_http_exposure(quiet)
+        assert capsys.readouterr().err == ""
+
+
+def test_require_auth_refuses_non_loopback_bind(monkeypatch):
+    """THINGCTX_REQUIRE_AUTH=1 turns the exposure warning into a startup error,
+    while a loopback bind still starts."""
+    from thingctx.integrations.mcp import _check_http_exposure
+
+    monkeypatch.setenv("THINGCTX_REQUIRE_AUTH", "1")
+    with pytest.raises(SystemExit) as exc:
+        _check_http_exposure("0.0.0.0")
+    assert "refusing" in str(exc.value)
+    _check_http_exposure("127.0.0.1")  # loopback is never refused
