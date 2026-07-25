@@ -336,7 +336,7 @@ class GatewayProjection:
                         "thing_id": thing_slug(thing.id),
                         "affordance": name,
                         "kind": "event",
-                        "data_schema": getattr(e, "schema", None),
+                        "data_schema": e.data_schema,
                     }
                 )
             return {"error": f"no affordance {name!r} on {thing_slug(thing.id)!r}"}
