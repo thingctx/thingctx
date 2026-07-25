@@ -86,6 +86,13 @@ class _DeclineSession:
         return R()
 
 
+class _CannotElicitSession:
+    """A client with no elicitation support, which raises instead of prompting."""
+
+    async def elicit(self, message, requestedSchema, **kw):
+        raise RuntimeError("client does not support elicitation")
+
+
 def _client():
     return ThingClient(tds=[CAL_TD], bindings=[])
 
@@ -124,6 +131,23 @@ async def test_declining_does_not_connect(env):
 
     client = _client()
     res = await connect_tool(client, {"thing": "calendar"}, _DeclineSession())
+    assert "error" in res or res.get("connected") is not True
+    assert connect_status(client)[0]["connected"] is False
+
+
+async def test_a_client_that_cannot_confirm_never_opens_a_browser(env, monkeypatch):
+    """The confirmation is the gate. If the client cannot show it, refuse rather
+    than open a browser the human never agreed to."""
+    from thingctx.integrations import connect
+    from thingctx.integrations.connect import connect_status, connect_tool
+
+    opened = []
+    monkeypatch.setattr(connect, "login", lambda **kw: opened.append(kw))
+
+    client = _client()
+    res = await connect_tool(client, {"thing": "calendar"}, _CannotElicitSession())
+
+    assert opened == [], "a login was started without the human confirming"
     assert "error" in res or res.get("connected") is not True
     assert connect_status(client)[0]["connected"] is False
 
