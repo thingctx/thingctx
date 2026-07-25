@@ -87,28 +87,67 @@ def test_body_multipart_splits_files_and_fields():
 
 
 def test_part_content_coerces_str_path_bytes(tmp_path):
-    # A str with no matching file is inline text; a real path / file:// URL is
-    # read; bytes and a file-like object pass through.
+    # A plain str is inline text, never read from disk: only an explicit
+    # file:// URL is read. bytes and a file-like object pass through; a Path
+    # (in-process only) is read.
     assert _part_content("<srt text>") == b"<srt text>"
     p = tmp_path / "c__srt"
     p.write_bytes(b"SRTDATA")
-    assert _part_content(str(p)) == b"SRTDATA"
+    assert _part_content(str(p)) == str(p).encode("utf-8")  # bare path is literal, NOT read
     assert _part_content(p) == b"SRTDATA"
-    assert _part_content(p.as_uri()) == b"SRTDATA"
+    assert _part_content(p.as_uri()) == b"SRTDATA"  # explicit file:// IS read
     assert _part_content(b"raw") == b"raw"
     fh = io.BytesIO(b"y")
     assert _part_content(fh) is fh
 
 
+def test_part_content_does_not_read_a_bare_path_string(tmp_path):
+    # Regression: a bare path string that names a real, sensitive file must be
+    # sent as literal content, never read from disk. A model driving a multipart
+    # action cannot exfiltrate a local file by passing its path as a string.
+    secret = tmp_path / "passwd"
+    secret.write_bytes(b"root:x:0:0:SECRET")
+    out = _part_content(str(secret))
+    assert out == str(secret).encode("utf-8")
+    assert b"SECRET" not in out  # the file contents never left disk
+
+
+def test_part_content_reads_file_url(tmp_path):
+    # The one explicit read path: a file:// URL is resolved and read.
+    p = tmp_path / "cap.srt"
+    p.write_bytes(b"FROMDISK")
+    assert _part_content(p.as_uri()) == b"FROMDISK"
+
+
+def test_part_content_file_url_confined_to_fs_root(tmp_path, monkeypatch):
+    # When THINGCTX_FS_ROOT is set, a file:// target outside it is refused; a
+    # target inside it is read.
+    from thingctx.netpolicy import PolicyError
+
+    root = tmp_path / "root"
+    root.mkdir()
+    inside = root / "ok.srt"
+    inside.write_bytes(b"INSIDE")
+    outside = tmp_path / "secret.srt"
+    outside.write_bytes(b"OUTSIDE")
+    monkeypatch.setenv("THINGCTX_FS_ROOT", str(root))
+    assert _part_content(inside.as_uri()) == b"INSIDE"
+    with pytest.raises(PolicyError):
+        _part_content(outside.as_uri())
+
+
 def test_file_part_list_inline_and_path(tmp_path):
     # A [filename, content, content-type?] part from JSON arrives as a list; its
-    # content element must be coerced to bytes for httpx files=.
+    # str content element is coerced to bytes verbatim (inline), not read from
+    # disk. A file:// element is the only one read.
     name, content, ctype = _file_part(["c__srt", "<srt>", "application/octet-stream"])
     assert (name, content, ctype) == ("c__srt", b"<srt>", "application/octet-stream")
     p = tmp_path / "s.srt"
     p.write_bytes(b"FILE")
     _, content, _ = _file_part(["c__srt", str(p), "application/octet-stream"])
-    assert content == b"FILE"
+    assert content == str(p).encode("utf-8")  # bare path is literal, NOT read from disk
+    _, content, _ = _file_part(["c__srt", p.as_uri(), "application/octet-stream"])
+    assert content == b"FILE"  # explicit file:// IS read
     name, content = _file_part(["c__srt", "hi"])  # two-element part, no content type
     assert (name, content) == ("c__srt", b"hi")
 
@@ -201,7 +240,9 @@ async def test_invoke_multipart_list_part_from_json(routed):
 
 
 @pytest.mark.asyncio
-async def test_invoke_multipart_list_part_path_from_json(routed, tmp_path):
+async def test_invoke_multipart_list_part_bare_path_sent_literally(routed, tmp_path):
+    # A bare path string is sent as literal content, never read from disk: a
+    # model cannot exfiltrate a local file by naming its path in a part.
     p = tmp_path / "sk.srt"
     p.write_bytes(b"CAPTIONBYTES")
     routed["responses"] = [httpx.Response(200, json={"ok": True})]
@@ -209,8 +250,24 @@ async def test_invoke_multipart_list_part_path_from_json(routed, tmp_path):
     async with HttpBinding() as b:
         await b.invoke(action, form, {"caption": ["c__srt", str(p), "application/octet-stream"]})
     req = routed["requests"][0]
+    assert b"CAPTIONBYTES" not in req.content  # file contents never read
+    assert str(p).encode() in req.content  # the path went on the wire as text
+
+
+@pytest.mark.asyncio
+async def test_invoke_multipart_list_part_file_url_from_json(routed, tmp_path):
+    # An explicit file:// element IS read from disk and uploaded.
+    p = tmp_path / "sk.srt"
+    p.write_bytes(b"CAPTIONBYTES")
+    routed["responses"] = [httpx.Response(200, json={"ok": True})]
+    action, form = _af(content_type="multipart/form-data")
+    async with HttpBinding() as b:
+        await b.invoke(
+            action, form, {"caption": ["c__srt", p.as_uri(), "application/octet-stream"]}
+        )
+    req = routed["requests"][0]
     assert b"CAPTIONBYTES" in req.content
-    assert str(p).encode() not in req.content  # the path was read, not sent literally
+    assert p.as_uri().encode() not in req.content  # the file:// URL itself is not sent
 
 
 @pytest.mark.asyncio

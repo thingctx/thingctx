@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -140,29 +141,30 @@ def _is_file_part(v: Any) -> bool:
 
 def _part_content(content: Any) -> Any:
     """Coerce the content element of a multipart part to bytes/file-like that
-    httpx ``files=`` accepts. A part assembled from JSON can only carry a str,
-    so a str is read from disk when it names an existing file (or a ``file://``
-    URL, matching the media ``{media}`` path), else taken as inline text. bytes
-    and a file-like object pass through; a ``Path`` is read."""
+    httpx ``files=`` accepts. A part assembled from JSON can only carry a str.
+
+    Security: only an explicit ``file://`` URL is read from disk. A plain str is
+    sent verbatim as inline content, never treated as a path to read, so a
+    caller (or a model driving this action) cannot turn an arbitrary string into
+    a local-file read. When ``THINGCTX_FS_ROOT`` is set the ``file://`` target
+    is confined under it (and a symlink at the target is refused); otherwise the
+    explicit path is read as given. bytes and a file-like object pass through; a
+    ``Path`` is read (it can only originate in-process, not from JSON args)."""
     if isinstance(content, bytes | bytearray) or _is_filelike(content):
         return content
     if isinstance(content, Path):
         return content.read_bytes()
     if isinstance(content, str):
-        path: Path | None = None
         if content.startswith("file://"):
             from urllib.parse import urlsplit
             from urllib.request import url2pathname
 
-            path = Path(url2pathname(urlsplit(content).path))
-        else:
-            try:
-                cand = Path(content)
-                if cand.is_file():
-                    path = cand
-            except (OSError, ValueError):  # not a usable path (e.g. embedded NUL)
-                path = None
-        return path.read_bytes() if path is not None else content.encode("utf-8")
+            from thingctx.netpolicy import confine_path
+
+            raw = url2pathname(urlsplit(content).path)
+            base = (os.environ.get("THINGCTX_FS_ROOT") or "").strip() or None
+            return confine_path(raw, base=base).read_bytes()
+        return content.encode("utf-8")
     return content
 
 
