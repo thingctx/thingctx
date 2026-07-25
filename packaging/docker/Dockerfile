@@ -28,6 +28,11 @@ USER 10001
 # Mount TDs at /things and secrets/credentials via env or a mounted file (NEVER baked
 # into the image) so the image stays a stateless enforcer in front of the secret store.
 ENV THINGCTX_APPROVE_WHEN=destructive
+# The HTTP endpoint performs no inbound authentication. Front the published port with
+# an authenticating reverse proxy or gateway guard; never expose it directly to an
+# untrusted network. Default the operation policy to read-only so a bare deploy is
+# least privilege; set THINGCTX_POLICY=full (behind auth) to allow writes.
+ENV THINGCTX_POLICY=read-only
 # The container serves streamable-http (the remote transport) so a hosted gateway or a
 # cloud agent runtime (Azure Foundry, Vertex) can reach it by URL. Bind 0.0.0.0 inside
 # the container. Override the CMD for a different mode.

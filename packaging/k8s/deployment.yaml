@@ -22,12 +22,17 @@ spec:
           # Pin by DIGEST in production (ghcr.io/thingctx/thingctx@sha256:...).
           image: ghcr.io/thingctx/thingctx:0.2.0
           # Serve streamable-http so callers (and cloud agent runtimes) reach it by URL.
+          # The endpoint performs no inbound authentication: route traffic to this port
+          # only through an authenticating ingress/proxy, never a plain LoadBalancer.
           args: ["--http", "--host", "0.0.0.0", "--port", "8080", "/things/"]
           ports:
             - { name: mcp, containerPort: 8080 }
           env:
             - name: THINGCTX_APPROVE_WHEN
               value: "destructive"
+            # Least-privilege default: reads only. Set "full" (behind auth) for writes.
+            - name: THINGCTX_POLICY
+              value: "read-only"
           envFrom:
             # Credentials come from the Secret, never the image.
             - secretRef: { name: thingctx-credentials }
