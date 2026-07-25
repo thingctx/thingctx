@@ -593,7 +593,12 @@ class HttpBinding(AuthMixin):
         events / observable properties). Yields each ``data:`` payload as it
         arrives. ``target`` is the affordance, so the stream authenticates as
         its owner; ``args`` are sent as query parameters (an event's
-        ``subscription`` schema, e.g. a filter)."""
+        ``subscription`` schema, e.g. a filter).
+
+        A denied or failed subscription (a 4xx/5xx response, e.g. a 401 for a
+        missing or wrong token) raises ``TransportError`` when iteration begins,
+        rather than yielding an empty stream that looks valid. A 2xx stream that
+        simply carries no events yet does not raise."""
         import json as _json
 
         import httpx
@@ -618,6 +623,17 @@ class HttpBinding(AuthMixin):
                 req = client.build_request("GET", url, headers=headers, params=merged_params)
                 await self._sign_request(signers, req)
                 resp = await client.send(req, stream=True)
+                # Fail loud on a denied or failed subscription (401/403/5xx):
+                # without this the stream would iterate to an empty end and look
+                # like a valid stream that never emits. A normally-empty 2xx
+                # stream is fine and must not raise. Read the (usually small)
+                # error body for the detail before closing the stream.
+                if resp.is_error:
+                    detail = ""
+                    with contextlib.suppress(Exception):
+                        detail = (await resp.aread()).decode("utf-8", "replace")[:200]
+                    await resp.aclose()
+                    raise TransportError("GET", url, status=resp.status_code, detail=detail)
                 try:
                     async for line in resp.aiter_lines():
                         if line.startswith("data:"):

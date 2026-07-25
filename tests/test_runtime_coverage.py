@@ -127,10 +127,13 @@ async def test_subscribe_authenticates_as_owner(pump_client):
     assert evt == {"temp": 95, "limit": 80}
 
 
-async def test_subscribe_unauthed_owner_gets_no_events():
-    """Without credentials the authenticated SSE endpoint returns 401, so the
-    stream is empty rather than silently unauthenticated."""
+async def test_subscribe_unauthed_owner_raises():
+    """Without credentials the authenticated SSE endpoint returns 401; the
+    subscription must fail loud with TransportError, not yield an empty stream
+    that looks like a valid subscription which never emits."""
     import asyncio
+
+    from thingctx import TransportError
 
     pump = PumpDevice()
     url, server = start_http_server(pump)
@@ -139,10 +142,9 @@ async def test_subscribe_unauthed_owner_gets_no_events():
     try:
         pump.start_telemetry(temps=(95,), period=0.05)
         stream = await client.subscribe("pump__overheat")
-        # 401 closes the stream (no events) rather than yielding unauthenticated:
-        # either the iterator ends or nothing arrives in the window.
-        with pytest.raises((StopAsyncIteration, asyncio.TimeoutError)):
+        with pytest.raises(TransportError) as exc:
             await asyncio.wait_for(anext(aiter(stream)), timeout=0.6)
+        assert exc.value.status == 401
     finally:
         server.shutdown()
 
