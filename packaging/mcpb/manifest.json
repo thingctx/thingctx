@@ -20,13 +20,14 @@
   ],
   "server": {
     "type": "uv",
-    "entry_point": "thingctx.integrations.mcp",
+    "entry_point": "src/server.py",
     "mcp_config": {
-      "command": "uvx",
+      "command": "uv",
       "args": [
-        "--from",
-        "thingctx[mcp,http,mqtt,media,filesystem,authz]",
-        "thingctx-mcp",
+        "run",
+        "--directory",
+        "${__dirname}",
+        "src/server.py",
         "${user_config.tds}"
       ],
       "env": {
@@ -36,12 +37,61 @@
       }
     }
   },
+  "tools": [
+    {
+      "name": "search_things",
+      "description": "Find Things by capability, name, or keyword"
+    },
+    {
+      "name": "describe",
+      "description": "Read a Thing's full interface: actions, properties, events"
+    },
+    {
+      "name": "invoke_action",
+      "description": "Run an action a Thing declares"
+    },
+    {
+      "name": "read_property",
+      "description": "Read a property a Thing declares"
+    },
+    {
+      "name": "write_property",
+      "description": "Write a property a Thing declares"
+    },
+    {
+      "name": "start_subscription",
+      "description": "Start collecting an event a Thing declares"
+    },
+    {
+      "name": "read_subscription",
+      "description": "Read events collected by a subscription"
+    },
+    {
+      "name": "stop_subscription",
+      "description": "Stop a running subscription"
+    },
+    {
+      "name": "approve",
+      "description": "Run an action parked awaiting the user's confirmation"
+    }
+  ],
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
   "user_config": {
     "tds": {
       "type": "string",
       "title": "Things to serve",
       "description": "A TD Directory URL, a folder of Thing Descriptions, or a TD file. Defaults to the curated thingctx registry.",
-      "default": "https://td.thingctx.com/v0/",
+      "default": "https://td.thingctx.com/index.json",
       "required": true
     },
     "policy": {

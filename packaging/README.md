@@ -14,6 +14,24 @@ Local (no packaging): `uvx --from 'thingctx[mcp,http,media]' thingctx-mcp <tds>`
 MCP client; `pip install thingctx` for the library and CLI. Add `mqtt` / `filesystem` when
 those Things are in the served set.
 
+## The Claude Desktop bundle (mcpb/)
+
+`mcpb/` holds three files that ship together: `manifest.json` (server config and
+the user settings surface), `pyproject.toml` (the dependency pin), and
+`src/server.py` (the stdio entry point). The manifest uses `server.type: uv`
+with `command: uv` and `args: ["run", "--directory", "${__dirname}", "src/server.py", ...]`;
+Claude Desktop substitutes `${__dirname}` with the install directory and uv
+resolves the pinned thingctx release from PyPI at first launch. Two rules the
+host enforces: the command must be `uv` (uvx is not honored inside a bundle),
+and the dependency belongs in `pyproject.toml`, not in the args. Build with
+`scripts/build-mcpb.sh`; test the exact launch path with
+
+```
+env -i PATH=/usr/bin:/bin HOME="$HOME" uv run --directory packaging/mcpb src/server.py <tds>
+```
+
+which mirrors the stripped environment an extension process gets.
+
 ## OAuth client (Gmail, YouTube, other Google Things)
 
 User-authorized Things need your OAuth client on disk once. Drop the JSON Google
