@@ -468,12 +468,42 @@ the latest published tag.)
 A Kubernetes example (stateless Deployment + Service, credentials from a mounted
 Secret) is in [`packaging/k8s/`](packaging/k8s/).
 
-## Write or generate a description
+## No Thing Description? Compile one from OpenAPI
 
-A Thing Description is a static file: write it by hand, or compile one from an
-existing spec (`thingctx import openapi <spec>` turns an OpenAPI file or URL
-into a TD), then check it into git or serve it from a URL. The same document
-is read by the direct client, the LLM loop, and the MCP bridge.
+You do not have to author one. If your system already has an OpenAPI 3.x spec,
+that is a description too, and thingctx compiles it:
+
+```bash
+pip install "thingctx[openapi,http]"
+thingctx import openapi https://api.example.com/openapi.json --out weather.td.json
+```
+
+The spec can be a file or a URL, JSON or YAML. `--base-url`, `--id` and
+`--title` override what the spec says. The same thing in Python, when you would
+rather not keep a file around:
+
+```python
+from thingctx.openapi import from_openapi, load_spec
+
+td = from_openapi(load_spec("openapi.json"))   # a TD dict, ready to drive
+```
+
+Either way you get a normal Thing Description, so everything else in this README
+applies to it unchanged. A three line spec above became `urn:thingctx:weather`
+with one action, projected to the tool `weather__getForecast`, and it passes
+`validate_td` against the W3C schema.
+
+Each `get`, `put`, `post`, `delete` and `patch` operation becomes an action.
+`GET` is marked safe, so a read-only policy allows it and refuses the writes,
+and `PUT` and `DELETE` are marked idempotent even though they are not safe,
+which is what makes them retryable. Path parameters stay as `{city}`
+placeholders the runtime fills at call time.
+
+## Write a description by hand
+
+A Thing Description is a static file: write it, or generate it, then check it
+into git or serve it from a URL. The same document is read by the direct client,
+the LLM loop, and the MCP bridge.
 
 A messy device (binary protocol, a session dance) gets one thin connector that
 exposes a clean WoT face; the TD describes *that*. The connector is consumed
@@ -501,22 +531,37 @@ by standards compliant producers, not just hand written ones. Two demos under
 Same consumer, different producers, zero glue: any conformant TD producer →
 thingctx.
 
-## Built on a ratified standard
+## Why a Thing Description, and not another tool format
 
-thingctx builds on the ratified [W3C Web of Things](https://www.w3.org/WoT/)
-Thing Description:
+Being a standard is the least interesting reason. Two others decide it.
 
-- **One format for devices and APIs.** A TD describes a REST endpoint, an MQTT
-  topic, an SSE event stream, or a piece of hardware in the same document, so an
-  agent reaches an industrial gateway and a cloud API through one interface.
+**It is general enough to describe anything you would point an agent at.** One
+format covers a REST endpoint, an MQTT topic, an SSE stream and a piece of
+hardware, with properties, actions and events as first class ideas rather than
+one flat list of functions. Most tool formats describe a function you call. A TD
+describes a system you interact with, which is why a camera and a Stripe
+endpoint fit the same document.
+
+**You can get there from the descriptions you already have.** A format you must
+hand author is a format nobody adopts. An OpenAPI spec compiles to a TD today
+with `thingctx import openapi`, and the same translation is possible from other
+self describing systems: an OPC UA server publishes an address space you can
+browse, and the OPC Foundation has standardised the mapping in
+[OPC 10101](https://reference.opcfoundation.org/specs/OPC-10101/1), its official
+OPC UA to WoT binding. That importer is not written yet, it is
+[issue #38](https://github.com/thingctx/thingctx/issues/38), but the standard it
+would follow already exists. A TD is a destination you can reach by compiling,
+rather than one more format asking you to start over.
+
+The rest is what you would expect from a ratified
+[W3C Web of Things](https://www.w3.org/WoT/) Recommendation:
+
 - **Discovery built in.** The [WoT Thing Description Directory](https://www.w3.org/TR/wot-discovery/)
   is a standard for serving and searching a whole fleet of Things; thingctx reads
   any compliant TDD.
-- **Vendor neutral and stable.** It is a W3C Recommendation, so a TD you write
-  is portable across consumers.
-- **Built for device interaction patterns.** A TD models properties, actions,
-  and **events** as first class affordances, so a consumer can observe a
-  property or subscribe to a stream of readings straight from the description.
+- **Vendor neutral and stable.** It is a W3C Recommendation, so a TD you write is
+  portable across consumers. Nothing here is specific to thingctx, and another
+  WoT consumer reads the same file.
 
 ## Reference
 
