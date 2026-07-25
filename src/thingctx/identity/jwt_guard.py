@@ -23,12 +23,26 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 __all__ = ["AuthorizationError", "Grant", "JwtGatewayGuard"]
 
 _JWKS_TTL = 3600.0  # cache the provider's signing keys for an hour
 _JWKS_FORCE_COOLDOWN = 30.0  # min seconds between forced refetches (rotation), a DoS guard
+
+
+def _is_usable_jwks(jwks: object) -> TypeGuard[dict[str, Any]]:
+    """Whether ``jwks`` can actually be searched for a signing key.
+
+    Checked at both doors, the constructor's static jwks and a fetched response,
+    because ``_signing_key`` indexes into the entries and anything short of this
+    raises from inside it, past the fail-closed boundary the guard promises. An
+    empty key set is unusable too: it verifies nothing and would only wedge the
+    caller until it is replaced."""
+    if not isinstance(jwks, dict):
+        return False
+    keys = jwks.get("keys")
+    return bool(keys) and isinstance(keys, list) and all(isinstance(k, dict) for k in keys)
 
 
 class AuthorizationError(Exception):
@@ -134,6 +148,8 @@ class JwtGatewayGuard:
             raise ValueError("audience is required")
         if jwks is None and not jwks_url:
             raise ValueError("either jwks_url or a static jwks is required")
+        if jwks is not None and not _is_usable_jwks(jwks):
+            raise ValueError("the static jwks must be an object with a non-empty list of keys")
         self._issuers = issuers
         self.audience = str(audience)
         self.grants = tuple(grants)
@@ -186,11 +202,8 @@ class JwtGatewayGuard:
         # from inside _signing_key, past this guard's fail-closed boundary, which
         # surfaces as a 500 rather than the 401 it promises. Both levels matter,
         # because a str "keys" iterates into characters before it fails.
-        if not isinstance(jwks, dict):
-            raise AuthorizationError("the signing key endpoint did not return a JWKS object")
-        keys = jwks.get("keys")
-        if not keys or not isinstance(keys, list) or not all(isinstance(k, dict) for k in keys):
-            raise AuthorizationError("the signing key endpoint returned no usable key list")
+        if not _is_usable_jwks(jwks):
+            raise AuthorizationError("the signing key endpoint returned no usable key set")
         self._jwks_cache = jwks
         self._jwks_fetched_at = time.time()
         return jwks

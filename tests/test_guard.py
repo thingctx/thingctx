@@ -595,3 +595,15 @@ async def test_jwks_with_an_empty_key_list_fails_closed(keypair, monkeypatch):
     with pytest.raises(AuthorizationError):
         await g.validate(keypair.mint())
     assert g._jwks_cache is None
+
+
+def test_a_malformed_static_jwks_is_refused_at_construction(keypair):
+    """The static jwks argument is the other door into _signing_key, and it never
+    passes through the fetch path's checks. Refuse it where it is configured, so a
+    typo fails at startup rather than on the first token."""
+    for bad in ([], {"keys": []}, {"keys": "not-a-list"}, {"keys": ["not-a-dict"]}, {}):
+        with pytest.raises(ValueError, match="static jwks"):
+            EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE, jwks=bad)
+
+    # the good one still constructs
+    EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE, jwks=keypair.jwks())
