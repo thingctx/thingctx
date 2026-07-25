@@ -282,8 +282,17 @@ async def _follow(
         raise ChainError(f"no next address from {src!r} (status {result.status})")
     nxt = urljoin(initiate_url, str(nxt))  # a Location may be relative
     # A chain is HTTP(S) end to end: refuse a next address that jumps to another
-    # scheme (file:, data:, ...) before it reaches the transport.
-    check_url(nxt, allowed_schemes=_CHAIN_SCHEMES, what="chain next URL")
+    # scheme (file:, data:, ...) before it reaches the transport. Carry the
+    # binding's private-host policy too: every follow mode routes through here,
+    # but the resumable/ranged sends bypass HttpBinding._send (where the direct
+    # path applies it), so a next URL that resolves to a private/metadata host
+    # must be refused at this one point or those modes would be an SSRF hole.
+    check_url(
+        nxt,
+        allowed_schemes=_CHAIN_SCHEMES,
+        block_private=getattr(binding, "_block_private", False),
+        what="chain next URL",
+    )
 
     allowed = tuple(spec.get("allowOrigins") or ()) + tuple(allow_origins)
     allowed_same = same_origin(initiate_url, nxt)
