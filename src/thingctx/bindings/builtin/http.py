@@ -556,7 +556,7 @@ class HttpBinding(AuthMixin):
             params=params,
             json=arguments,
         )
-        return status_from_body(body, form, thing_id=owner)
+        return status_from_body(body, form, thing_id=owner, name=action.name)
 
     async def query_action(self, status: Any) -> ActionStatus:
         """GET the action's status resource (the ``queryaction`` op)."""
@@ -567,7 +567,7 @@ class HttpBinding(AuthMixin):
         body = await self._send(
             "GET", status.href, signers=signers, cert=cert, headers=headers, params=params
         )
-        return status_from_body(body, form, href=status.href, thing_id=owner)
+        return status_from_body(body, form, href=status.href, thing_id=owner, name=status.name)
 
     async def cancel_action(self, status: Any) -> ActionStatus:
         """DELETE the action's status resource (the ``cancelaction`` op)."""
@@ -584,7 +584,7 @@ class HttpBinding(AuthMixin):
             params=params,
             empty={"status": "cancelled"},
         )
-        return status_from_body(body, form, href=status.href, thing_id=owner)
+        return status_from_body(body, form, href=status.href, thing_id=owner, name=status.name)
 
     async def subscribe(
         self, target: Any, form: WoTForm, args: dict[str, Any] | None = None

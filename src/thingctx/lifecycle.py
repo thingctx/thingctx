@@ -30,6 +30,10 @@ class ActionStatus:
     href: str | None = None
     form: Any = field(default=None, repr=False)
     thing_id: str | None = None
+    # The affordance name, carried so a later poll/cancel authorizes the
+    # queryaction/cancelaction op on the right action (thing_id names the owner
+    # but not which affordance).
+    name: str | None = None
 
     @property
     def terminal(self) -> bool:
@@ -45,15 +49,20 @@ class ActionStatus:
 
 
 def status_from_body(
-    body: Any, form: Any, href: str | None = None, thing_id: str | None = None
+    body: Any,
+    form: Any,
+    href: str | None = None,
+    thing_id: str | None = None,
+    name: str | None = None,
 ) -> ActionStatus:
     """Map a transport's status payload to an ``ActionStatus``. A non-dict body
     is treated as the completed output of a synchronous-style response.
     ``thing_id`` names the owning Thing so a later poll/cancel re-authenticates
-    as it."""
+    as it; ``name`` names the affordance so the same poll/cancel authorizes the
+    right action."""
     if not isinstance(body, dict):
         return ActionStatus(
-            status="completed", output=body, href=href, form=form, thing_id=thing_id
+            status="completed", output=body, href=href, form=form, thing_id=thing_id, name=name
         )
     return ActionStatus(
         status=body.get("status", "completed"),
@@ -62,4 +71,5 @@ def status_from_body(
         href=body.get("href", href),
         form=form,
         thing_id=thing_id,
+        name=name,
     )

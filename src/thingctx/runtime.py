@@ -697,6 +697,10 @@ class ThingClient:
             return {"error": f"action {tool_name} has no lifecycle transport"}
         filled, rest = _filled_form(form, arguments or {})
         status = await binding.invoke_async(action, filled, rest)
+        # Carry the affordance name so a later poll/cancel authorizes the right
+        # action, even if a custom lifecycle binding did not set it.
+        if hasattr(status, "name") and status.name is None:
+            status.name = action.name
         if not wait:
             return status
         # Register the handle while blocking so a concurrent cancel can find it.
@@ -710,18 +714,74 @@ class ThingClient:
         deadline = time.monotonic() + timeout
         while not status.terminal and time.monotonic() < deadline:
             await asyncio.sleep(_POLL_INTERVAL)
-            status = await self.query_action(status)
+            # The blocking poll is part of the invoke the caller already passed
+            # invokeaction for, so it does not re-authorize queryaction here; the
+            # public query_action re-entry point does.
+            status = await self._poll_once(status)
         return status
 
-    async def query_action(self, status: Any) -> Any:
-        """Poll a long-running action's status (the ``queryaction`` op)."""
+    async def _poll_once(self, status: Any) -> Any:
+        """Poll the status resource once over its transport, no authorization."""
         binding = self._registry.resolve(status.form) if status.form else None
         if binding is None or not hasattr(binding, "query_action"):
             return status
         return await binding.query_action(status)
 
+    def _action_for_status(self, status: Any) -> Any:
+        """The WoTAction a status handle belongs to, matched by owning Thing and
+        affordance name, or None. Used to authorize the queryaction/cancelaction
+        op on the right action before a poll or cancel reaches the device."""
+        thing_id = getattr(status, "thing_id", None)
+        name = getattr(status, "name", None)
+        if thing_id is None or name is None:
+            return None
+        return next(
+            (a for a in self._route.values() if a.thing_id == thing_id and a.name == name),
+            None,
+        )
+
+    async def _authorize_lifecycle(self, status: Any, op: str) -> dict[str, Any] | None:
+        """Authorize a lifecycle op (queryaction/cancelaction) on the action a
+        status handle belongs to. queryaction and cancelaction are distinct
+        grantable ops, so this runs before the binding is touched, exactly as the
+        other device-reaching methods do. Fail closed: with a PDP set, a status
+        whose action cannot be resolved is denied (raised, or an envelope when
+        ``authz_raise`` is off), never run unchecked."""
+        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied
+
+        action = self._action_for_status(status)
+        if action is None:
+            request = AccessRequest(
+                thing_id=getattr(status, "thing_id", None) or "",
+                affordance=getattr(status, "name", None) or "",
+                op=op,
+            )
+            reason = "cannot resolve the action for this status handle"
+            if self._authz_raise:
+                raise AuthorizationDenied(request, reason)
+            return {
+                "error": "authorization denied",
+                "thing": request.thing_id,
+                "affordance": request.affordance,
+                "op": op,
+                "reason": reason,
+            }
+        return await self._authorize(action, op)
+
+    async def query_action(self, status: Any) -> Any:
+        """Poll a long-running action's status (the ``queryaction`` op)."""
+        if self._pdp is not None:
+            denied = await self._authorize_lifecycle(status, "queryaction")
+            if denied is not None:
+                return denied
+        return await self._poll_once(status)
+
     async def cancel_action(self, status: Any) -> Any:
         """Cancel a long-running action (the ``cancelaction`` op)."""
+        if self._pdp is not None:
+            denied = await self._authorize_lifecycle(status, "cancelaction")
+            if denied is not None:
+                return denied
         binding = self._registry.resolve(status.form) if status.form else None
         if binding is None or not hasattr(binding, "cancel_action"):
             return status
