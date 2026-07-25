@@ -94,7 +94,7 @@ async def test_client_from_registry_binds_discovered_handler(fake_entry_points):
     client = client_from_registry(_Reg())
     # The local:// action is reachable through the binary's client, with no
     # bridge shim and no TD edit.
-    assert await client.invoke("pump.status") == {"who": "pump"}
+    assert await client.invoke("pump__status") == {"who": "pump"}
 
 
 @pytest.mark.asyncio
@@ -105,5 +105,5 @@ async def test_register_thing_isolates_colliding_action_names():
 
     client = ThingClient(tds=[_td("pump", "pump"), _td("fan", "fan")], bindings=[binding])
     # Same action name on both Things resolves to each Thing's own handler.
-    assert await client.invoke("pump.status") == {"who": "pump"}
-    assert await client.invoke("fan.status") == {"who": "fan"}
+    assert await client.invoke("pump__status") == {"who": "pump"}
+    assert await client.invoke("fan__status") == {"who": "fan"}
