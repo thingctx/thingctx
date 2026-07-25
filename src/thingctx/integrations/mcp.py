@@ -38,7 +38,9 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import sys
+import time
 from typing import Any
 
 from thingctx.runtime import ThingClient, to_text
@@ -49,6 +51,11 @@ logger = logging.getLogger("thingctx.mcp")
 # Upper bound on frames a single snapshot tool call will decode and return, so a
 # client cannot request an arbitrarily large in-memory image batch.
 _MAX_SNAPSHOT_FRAMES = 32
+
+# How long a parked approval stays redeemable. Bounds the window in which a
+# leaked token could release a parked destructive call; a confirm that arrives
+# later than this re-runs the action and parks it afresh.
+_APPROVAL_TTL_S = 300.0
 
 
 def _credentials_from_env() -> dict[str, str]:
@@ -670,9 +677,11 @@ def build_mcp_server(
     # Pending approvals: when a gated call can't be confirmed by an elicitation
     # dialog (the client has none), it is parked here under a token, and the user
     # completes it by calling the approve tool. This makes the human-in-the-loop
-    # work on any client, not only elicitation-capable ones.
+    # work on any client, not only elicitation-capable ones. The token is a
+    # random secret (never a guessable sequence: on a shared HTTP transport a
+    # predictable token would let one caller release another's parked call) and
+    # each entry expires after _APPROVAL_TTL_S.
     _pending: dict[str, dict] = {}
-    _pending_counter = [0]
 
     async def _sub_pump(sub_id: str, tool: str, sub_args: dict) -> None:
         state = _subs[sub_id]
@@ -819,9 +828,8 @@ def build_mcp_server(
             if not _approvals_on:
                 # Shouldn't happen (gate off => no approver raises), but fail safe.
                 return _tool_result({"error": "approval required but the gate is off"})
-            _pending_counter[0] += 1
-            token = f"approval-{_pending_counter[0]}"
-            _pending[token] = {"tool": tool, "args": args}
+            token = secrets.token_urlsafe(32)
+            _pending[token] = {"tool": tool, "args": args, "created": time.monotonic()}
             summary = tool
             if isinstance(args, dict) and args.get("thing_id") and args.get("action"):
                 summary = f"{args['action']} on {args['thing_id']}"
@@ -903,6 +911,11 @@ def build_mcp_server(
         # The approve tool: run a call the user just confirmed, with the gate
         # bypassed for THIS call only (the human already said yes).
         if tool == "approve" and _approvals_on:
+            # Expire stale entries first, so an abandoned approval cannot sit
+            # redeemable forever and an aged token is refused, not run.
+            now = time.monotonic()
+            for stale in [k for k, v in _pending.items() if now - v["created"] > _APPROVAL_TTL_S]:
+                _pending.pop(stale, None)
             token = str(args.get("approval_token") or "")
             parked = _pending.pop(token, None)
             if parked is None:

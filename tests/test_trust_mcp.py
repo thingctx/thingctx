@@ -94,6 +94,45 @@ async def test_gated_action_falls_back_to_approve_tool_when_client_cannot_elicit
 
 
 @pytest.mark.asyncio
+async def test_approval_tokens_are_random_and_expire(monkeypatch):
+    """An approval token must be unguessable (not a shared counter another
+    caller on the same transport could predict) and time-bounded: an entry
+    older than the TTL is refused and dropped, never run."""
+    pytest.importorskip("mcp")
+    import json
+    import re
+
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations import mcp as mcp_mod
+
+    def _cannot_elicit(req):
+        raise mcp_mod._NeedsManualApproval()
+
+    server = mcp_mod.build_mcp_server(
+        ThingClient(tds=[TD], bindings=[_inv()]), approve=_cannot_elicit
+    )
+    async with connect(server) as s:
+        await s.initialize()
+        first = json.loads((await s.call_tool("vault__wipe", {})).content[0].text)
+        second = json.loads((await s.call_tool("vault__wipe", {})).content[0].text)
+        t1, t2 = first["approval_token"], second["approval_token"]
+        assert t1 != t2
+        for tok in (t1, t2):
+            assert not re.fullmatch(r"approval-\d+", tok)
+            assert len(tok) >= 32  # token_urlsafe(32) -> 43 chars of entropy
+        # Age every pending entry past the TTL: an expired token is refused.
+        monkeypatch.setattr(mcp_mod, "_APPROVAL_TTL_S", -1.0)
+        expired = json.loads((await s.call_tool("approve", {"approval_token": t1})).content[0].text)
+        assert "no pending approval" in expired["error"]
+        # And the expired entries were dropped, not left redeemable: restoring
+        # the TTL must not resurrect the second token.
+        monkeypatch.setattr(mcp_mod, "_APPROVAL_TTL_S", 300.0)
+        gone = json.loads((await s.call_tool("approve", {"approval_token": t2})).content[0].text)
+        assert "no pending approval" in gone["error"]
+
+
+@pytest.mark.asyncio
 async def test_mcp_safe_action_not_gated():
     pytest.importorskip("mcp")
     from thingctx.integrations.mcp import build_mcp_server
