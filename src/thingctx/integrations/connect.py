@@ -18,10 +18,15 @@ providers with no secret in the agent.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+from thingctx.auth.oauth_consent import login
+from thingctx.auth.store import default_token_store, token_key
+from thingctx.thing import _tool_slug, thing_slug
 
 
 def _clients_dir() -> Path:
@@ -52,8 +57,6 @@ def _client_file_for(token_url: str) -> Path | None:
 
 
 def _load_client(path: Path) -> dict:
-    import json
-
     data = json.loads(path.read_text(encoding="utf-8"))
     blob = data.get("installed") or data.get("web") or data
     return {
@@ -64,8 +67,6 @@ def _load_client(path: Path) -> dict:
 
 def _has_token(thing_id: str, scheme: Any) -> bool:
     """Whether the store already holds a refresh token for this Thing + scope."""
-    from thingctx.auth.store import default_token_store, token_key
-
     scopes = tuple(getattr(scheme, "scopes", ()) or ())
     key = token_key(thing_id, getattr(scheme, "token", ""), scopes)
     return bool(default_token_store().get(key))
@@ -76,11 +77,7 @@ def thing_for_tool(client: Any, tool: str) -> Any:
     action = client.action_for(tool) if hasattr(client, "action_for") else None
     tid = getattr(action, "thing_id", None)
     if tid is None:
-        from thingctx.thing import _tool_slug
-
         slug = _tool_slug(tool)
-        from thingctx.thing import thing_slug
-
         for t in client.things:
             if thing_slug(t.id) == slug:
                 return t
@@ -117,8 +114,6 @@ def _thing_by_name(client: Any, name: str) -> Any:
     """Match a Thing by id, title, or tool-namespace slug, exact or as a
     substring of the title (what a user would type: "calendar", "google
     calendar"). Returns the single match, or None when zero or ambiguous."""
-    from thingctx.thing import thing_slug
-
     n = (name or "").strip().lower()
     if not n:
         return None
@@ -192,8 +187,6 @@ async def _run_connect(thing: Any, scheme: Any, session: Any) -> str | None:
             )
             if getattr(result, "action", None) != "accept":
                 return f"{label} was not connected (sign in declined)."
-
-    from thingctx.auth.oauth_consent import login
 
     creds = _load_client(client_file)
     try:
