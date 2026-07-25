@@ -181,9 +181,15 @@ class JwtGatewayGuard:
             raise AuthorizationError(
                 "could not fetch the signing keys to verify the token"
             ) from exc
+        # A 2xx says nothing about the shape. Check before caching: a provider that
+        # answers a bare list wedges the cache for the whole TTL, and every later
+        # lookup then raises AttributeError past the fail-closed boundary, which
+        # surfaces as a 500 rather than the 401 this guard promises.
+        if not isinstance(jwks, dict):
+            raise AuthorizationError("the signing key endpoint did not return a JWKS object")
         self._jwks_cache = jwks
         self._jwks_fetched_at = time.time()
-        return self._jwks_cache  # type: ignore[return-value]
+        return jwks
 
     def _signing_key(self, jwks: dict[str, Any], kid: str | None) -> Any:
         """Build a public key for the token's ``kid`` from the JWKS, or raise."""

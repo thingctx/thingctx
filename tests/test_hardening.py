@@ -20,6 +20,7 @@ from thingctx.netpolicy import (
     is_private_host,
     require_scheme,
     resolve_and_pin,
+    resolve_is_private,
 )
 from thingctx.reliability import TransportError
 from thingctx.runtime import ThingClient
@@ -497,3 +498,44 @@ def test_loopback_bind_leaves_block_private_unset(monkeypatch):
     monkeypatch.delenv("THINGCTX_BLOCK_PRIVATE", raising=False)
     _default_block_private_when_exposed("127.0.0.1")
     assert "THINGCTX_BLOCK_PRIVATE" not in os.environ
+
+
+def test_resolve_is_private_detects_a_private_resolution(monkeypatch):
+    # invariant NET-3, on the path nothing covered: a public-looking name whose
+    # A-record is private must read as private, or an SSRF check on a name is
+    # decided by its spelling.
+    import socket as _socket
+
+    def _private(host, *a, **k):
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("10.0.0.5", 0))]
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _private)
+    assert resolve_is_private("internal.example") is True
+
+
+def test_resolve_is_private_treats_an_unreadable_address_as_private(monkeypatch):
+    # An entry the policy cannot read must not be reported as public: it has not
+    # been shown to be safe, so the gate assumes the worse of the two.
+    import socket as _socket
+
+    def _unreadable(host, *a, **k):
+        return [(0, _socket.SOCK_RAW, 0, "", (0, b"\x00\x00"))]
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _unreadable)
+    assert resolve_is_private("weird.example") is True
+
+
+def test_resolve_and_pin_refuses_an_unreadable_address_entry(monkeypatch):
+    # Refuse, never skip: skipping the entry it cannot parse would let a name that
+    # also answers a private record be pinned to its public one.
+    import socket as _socket
+
+    def _mixed(host, *a, **k):
+        return [
+            (_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+            (0, _socket.SOCK_RAW, 0, "", (0, b"\x00\x00")),
+        ]
+
+    monkeypatch.setattr(_socket, "getaddrinfo", _mixed)
+    with pytest.raises(PolicyError, match="unreadable address entry"):
+        resolve_and_pin("mixed.example")

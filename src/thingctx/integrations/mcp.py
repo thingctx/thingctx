@@ -317,7 +317,7 @@ def build_mcp_server(
     # captured as an image. In gateway mode it gets its own verb so the surface
     # stays consistent (one shape for every affordance), instead of a per-Thing
     # <slug>__snapshot tool the model must cross over to.
-    _snapshot_verb = {
+    _snapshot_verb: dict[str, Any] = {
         "type": "function",
         "function": {
             "name": "snapshot",
@@ -352,7 +352,7 @@ def build_mcp_server(
     # action can't be confirmed by an elicitation dialog, the bridge parks it and
     # returns a token; the user says "yes" and the agent calls approve(token) to
     # run it. Present unless the approval gate is off (approve_when="never").
-    _approve_tool = {
+    _approve_tool: dict[str, Any] = {
         "type": "function",
         "function": {
             "name": "approve",

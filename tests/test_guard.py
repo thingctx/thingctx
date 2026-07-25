@@ -460,3 +460,40 @@ async def test_kid_miss_during_cooldown_is_rejected(keypair, monkeypatch):
     with pytest.raises(AuthorizationError):
         await g.validate(attacker.mint())
     assert counter["n"] == after_first  # no further fetch during cooldown
+
+
+async def test_jwks_endpoint_answering_a_bare_list_fails_closed(keypair, monkeypatch):
+    """A 2xx says nothing about shape. A provider that answers a bare key array
+    must be refused as a 401, not cached: caching it wedges every later request
+    for the whole TTL, and the AttributeError that follows escapes past this
+    guard's fail-closed boundary as a 500."""
+    import httpx
+
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return keypair.jwks()["keys"]  # the array, not the {"keys": [...]} object
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            return FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+
+    g = EntraGatewayGuard(tenant_id=TENANT, audience=AUDIENCE)
+    with pytest.raises(AuthorizationError):
+        await g.validate(keypair.mint())
+
+    # and the bad shape was never cached, so a later good fetch still works
+    assert g._jwks_cache is None
