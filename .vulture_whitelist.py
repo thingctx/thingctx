@@ -4,7 +4,7 @@
 # Vulture whitelist: names that ARE invoked, but only through indirection static
 # analysis cannot follow. Every entry names the concrete dynamic caller. This is
 # NOT a place to silence a finding; a flagged symbol with no named dynamic caller
-# is dead code to DELETE (PRINCIPLES.md #2), never to whitelist.
+# is dead code to delete, never to whitelist.
 #
 # Run: vulture (config in pyproject [tool.vulture]).
 
