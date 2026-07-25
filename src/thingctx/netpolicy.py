@@ -98,19 +98,41 @@ def is_private_host(host: str) -> bool:
     )
 
 
+def _resolved_addrs(host: str) -> list[str]:
+    """The addresses ``host`` resolves to, as IP strings.
+
+    A sockaddr is family shaped: AF_INET and AF_INET6 start with the address
+    string, while a family the socket module does not model arrives as
+    ``(sa_family, raw_bytes)``. An entry carrying no address string cannot be
+    judged by :func:`is_private_host`, so it is refused rather than skipped:
+    this is the SSRF gate, and an answer that cannot be read must not read as
+    public. Propagates ``OSError`` from ``getaddrinfo``; each caller sets its
+    own policy for a failed resolution."""
+    addrs: list[str] = []
+    for info in socket.getaddrinfo(host, None):
+        addr = info[4][0]
+        if not isinstance(addr, str):
+            raise PolicyError(f"host {host!r} resolved to an unreadable address entry")
+        addrs.append(addr)
+    return addrs
+
+
 def resolve_is_private(host: str) -> bool:
     """Like :func:`is_private_host`, but resolves a hostname first and returns
     ``True`` if any resolved address is private.
 
     A resolution failure is treated as not-private; the connection attempt will
-    fail on its own."""
+    fail on its own. An address the policy cannot read is treated as private,
+    since it cannot be shown to be public."""
     if is_private_host(host):
         return True
     try:
-        infos = socket.getaddrinfo(host, None)
+        addrs = _resolved_addrs(host)
     except OSError:
         return False
-    return any(is_private_host(ai[4][0]) for ai in infos)
+    except PolicyError:
+        return True
+    return any(is_private_host(addr) for addr in addrs)
 
 
 def resolve_and_pin(host: str, *, what: str = "URL") -> str:
@@ -139,10 +161,9 @@ def resolve_and_pin(host: str, *, what: str = "URL") -> str:
         # A literal IP: already validated as public above; connect to it directly.
         return host
     try:
-        infos = socket.getaddrinfo(host, None)
+        addrs = _resolved_addrs(host)
     except OSError as exc:
         raise PolicyError(f"{what} host {host!r} could not be resolved") from exc
-    addrs = [ai[4][0] for ai in infos]
     if not addrs:
         raise PolicyError(f"{what} host {host!r} resolved to no address")
     # Every resolved address must be public: a name that answers both a public and

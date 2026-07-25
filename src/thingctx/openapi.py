@@ -451,8 +451,8 @@ def _parse_spec(text: str) -> dict:
         return cast(dict, json.loads(text))
     except ValueError:
         try:
-            # optional dep, kept local so the core imports without the extra; pyyaml ships no stubs
-            import yaml  # type: ignore[import-untyped]  # noqa: PLC0415
+            # optional dep, kept local so the core imports without the extra
+            import yaml  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover - guidance path
             raise ValueError(
                 "spec is not JSON and PyYAML is not installed; "
