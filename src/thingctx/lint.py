@@ -89,12 +89,12 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
 
     for name, action in (td.get("actions") or {}).items():
         if isinstance(action, dict):
-            _lint_action_risk(name, action, f"actions/{name}", out)
-            _lint_empty_input(name, action, f"actions/{name}", out)
+            _lint_action_risk(action, f"actions/{name}", out)
+            _lint_empty_input(action, f"actions/{name}", out)
 
     for name, prop in (td.get("properties") or {}).items():
         if isinstance(prop, dict):
-            _lint_property_units(name, prop, f"properties/{name}", out)
+            _lint_property_units(prop, f"properties/{name}", out)
 
     return out
 
@@ -200,7 +200,7 @@ def _lint_affordance_type(
         )
 
 
-def _lint_action_risk(name: str, action: dict[str, Any], base: str, out: list[LintFinding]) -> None:
+def _lint_action_risk(action: dict[str, Any], base: str, out: list[LintFinding]) -> None:
     # thing.py treats an action as idempotent when either ``safe`` or
     # ``idempotent`` is set; the trust gate must otherwise assume worst case.
     safe = action.get("safe")
@@ -220,7 +220,7 @@ def _lint_action_risk(name: str, action: dict[str, Any], base: str, out: list[Li
         )
 
 
-def _lint_empty_input(name: str, action: dict[str, Any], base: str, out: list[LintFinding]) -> None:
+def _lint_empty_input(action: dict[str, Any], base: str, out: list[LintFinding]) -> None:
     inp = action.get("input")
     if not isinstance(inp, dict):
         return
@@ -236,9 +236,7 @@ def _lint_empty_input(name: str, action: dict[str, Any], base: str, out: list[Li
         )
 
 
-def _lint_property_units(
-    name: str, prop: dict[str, Any], base: str, out: list[LintFinding]
-) -> None:
+def _lint_property_units(prop: dict[str, Any], base: str, out: list[LintFinding]) -> None:
     if prop.get("type") in ("number", "integer") and not prop.get("unit") and not prop.get("@type"):
         out.append(
             LintFinding(

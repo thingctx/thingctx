@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
 import threading
 import time
@@ -270,10 +271,7 @@ class MediaBinding(AuthMixin):
         """Confine a local output target (a bare path or ``file://``): refuse a
         symlink, and keep it inside ``THINGCTX_DOWNLOAD_DIR`` when set. A network
         ingest target (rtmp/http/...) passes through unchanged."""
-        import os
-        from urllib.parse import urlparse as _up
-
-        scheme = _up(str(target)).scheme
+        scheme = urlparse(str(target)).scheme
         if scheme not in ("", "file"):
             return target
 

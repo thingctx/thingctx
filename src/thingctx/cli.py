@@ -305,7 +305,7 @@ def _cmd_invoke(args: argparse.Namespace) -> int:
     try:
         result = asyncio.run(run())
     except Exception as exc:
-        # failure becomes a clean error, not a traceback dumped at a script.)
+        # A failure becomes a clean error, not a traceback dumped at a script.
         result = {"error": str(exc), "type": type(exc).__name__}
     # Failure (a raised error or an error envelope from the runtime) goes to
     # stderr with a non-zero exit, so stdout stays clean for ``$(...)`` capture
@@ -341,7 +341,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
     try:
         entries = asyncio.run(run())
     except Exception as exc:
-        # malformed source becomes a clean error, not a traceback.)
+        # A malformed source becomes a clean error, not a traceback.
         print(json.dumps({"error": str(exc), "type": type(exc).__name__}), file=sys.stderr)
         return 1
     _emit(entries, args.out)
