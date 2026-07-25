@@ -60,9 +60,10 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at
-conduct@thingctx.com. If that address fails, or you get no reply within a few
-days, reach the maintainer directly at https://github.com/zasherif so a report
-never dies in one mailbox.
+conduct@thingctx.com. If you get no reply within a few days, or you would rather
+not use email, open a private report at
+https://github.com/thingctx/thingctx/security/advisories/new and say it concerns
+conduct.
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
