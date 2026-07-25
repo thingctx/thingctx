@@ -57,6 +57,39 @@ repos:
         types: [python]
         pass_filenames: false
         require_serial: true
+      # Security static analysis, a second gate past ruff's S family. ruff owns
+      # the sinks it flags (each carries a reasoned noqa); bandit runs for the
+      # checks ruff lacks, chiefly B613 (trojan source). Config in [tool.bandit].
+      - id: bandit
+        name: bandit
+        entry: bandit -r src/thingctx -c pyproject.toml -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+      # Dependency CVE audit. Scoped to the project's declared dependencies (a
+      # `.` audit resolves them fresh), not the ambient dev env, so an optional
+      # extra's transitive noise does not mask a real advisory in what ships.
+      # Runs on pre-push, not every commit: it resolves the dependency set and
+      # queries the advisory database over the network (seconds, not instant),
+      # which is push-cadence work. CI runs the same command on every push/PR.
+      - id: pip-audit
+        name: pip-audit
+        entry: pip-audit . --progress-spinner off
+        language: system
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-push]
+      # Architecture fitness function: dependency direction. Fails if an import
+      # edge points the wrong way (a lower layer reaching a higher one, or the
+      # authz kernel / TD model reaching outward). Contracts in [tool.importlinter].
+      - id: import-linter
+        name: import-linter
+        entry: lint-imports
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
 
   # Local guard: block internal/private strings. The forbidden list is NOT in
   # this repo (it lives in a gitignored file); without it this hook is a no-op.
