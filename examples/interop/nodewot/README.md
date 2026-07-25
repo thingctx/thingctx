@@ -31,7 +31,8 @@ contract.
 
 ```bash
 # 1. Start the node-wot producer (needs Node 18+)
-npm install               # deps are pinned in package.json
+cd examples/interop/nodewot
+npm install               # deps are declared in package.json
 node producer.js          # serves http://localhost:8080/counter
 
 # 2. In another shell, drive it with thingctx

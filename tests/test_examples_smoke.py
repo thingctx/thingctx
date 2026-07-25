@@ -100,10 +100,12 @@ def test_every_example_td_is_schema_valid():
 
     found = []
     for path in sorted(EXAMPLES.rglob("*.json")):
+        # A shipped file that will not parse is a failure whatever it is; skipping
+        # it here would hide the very breakage this test exists to catch.
         try:
             doc = json.loads(path.read_text())
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"{path.relative_to(REPO)} is not valid JSON: {exc}") from exc
         # A TD is identified by its @context, which is what tells the registry
         # loader this file is a Thing Description and not adjacent config.
         if not isinstance(doc, dict) or "wot/td" not in str(doc.get("@context", "")):
