@@ -143,7 +143,7 @@ async def main() -> None:
     issuer = Issuer()
 
     # ------------------------------------------------------------------ #
-    # AUTHN: validate a REAL token into claims. This is the guard package.
+    # AUTHN: validate a REAL token into claims. This is thingctx.identity.
     # ------------------------------------------------------------------ #
     # The guard is pointed at the issuer's PUBLIC JWKS (offline: no network,
     # like the guard's tests). It requires the 'operator' role via a Grant, so
