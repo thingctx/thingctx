@@ -73,3 +73,7 @@ folder of descriptions:
 Full README, examples, and design notes: https://github.com/thingctx/thingctx
 
 Apache-2.0
+
+<!-- The MCP registry reads this line to confirm the listing and this package
+     have the same owner. -->
+mcp-name: com.thingctx/thingctx

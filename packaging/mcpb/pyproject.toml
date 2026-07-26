@@ -2,7 +2,7 @@
 # with uv at first launch; nothing is vendored in the bundle itself.
 [project]
 name = "thingctx-bundle"
-version = "0.2.1"
+version = "0.2.2"
 description = "Claude Desktop bundle launcher for the thingctx MCP bridge"
 requires-python = ">=3.10"
 dependencies = [
