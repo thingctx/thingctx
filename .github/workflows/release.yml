@@ -14,13 +14,13 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: pip install build
       - run: python -m build
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist
           path: dist/
@@ -33,7 +33,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
@@ -54,8 +54,8 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install from TestPyPI (retry until index propagates)
@@ -103,15 +103,46 @@ jobs:
           cd "$RUNNER_TEMP/t"
           pytest -m "not network" -q
 
+  # Built BEFORE the PyPI gate so the paused run already carries an installable
+  # bundle. Download it from the run's artifacts, install it in Claude Desktop,
+  # and dogfood the approve flow before approving the publish. The bundle is a
+  # launcher: uv resolves thingctx from PyPI at first launch, so it can only be
+  # driven end to end once the publish is approved.
+  bundle:
+    name: build the Claude Desktop bundle
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+      - name: Bundle version must match the release tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          # node, not python3: this job already sets node up for the packer, so
+          # reading the manifest with it avoids depending on the runner's python.
+          MANIFEST=$(node -p "require('./packaging/mcpb/manifest.json').version")
+          if [ "$TAG" != "$MANIFEST" ]; then
+            echo "::error::manifest.json says $MANIFEST, tag says $TAG"
+            exit 1
+          fi
+          echo "bundle version $MANIFEST matches the tag"
+      - run: bash packaging/scripts/build-mcpb.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mcpb
+          path: packaging/dist/thingctx.mcpb
+
   pypi:
     name: publish to PyPI
-    needs: smoke
+    needs: [smoke, bundle]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
@@ -127,11 +158,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
-      - uses: softprops/action-gh-release@v3
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: mcpb
+          path: dist/
+      - uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
         with:
           generate_release_notes: true
           files: dist/*
