@@ -30,19 +30,23 @@ def _declared_floors(package: str) -> set[str]:
 
 
 @pytest.mark.skipif(not _PYPROJECT.exists(), reason="runs against the source tree")
-def test_mcp_floor_matches_what_the_bridge_calls():
+def test_every_mcp_pin_declares_the_same_floor():
+    """Reading the pins needs no SDK, so this must not hide behind an importorskip:
+    the guard is worth least on the machine that happens to have mcp installed."""
+    assert _declared_floors("mcp") == {"1.3"}, (
+        "every mcp pin must declare the floor the bridge actually builds on"
+    )
+
+
+def test_installed_mcp_accepts_what_the_bridge_passes():
     pytest.importorskip("mcp")
     import inspect
 
     from mcp.server.lowlevel import Server
 
     # Both are passed by build_mcp_server. instructions is the later of the two,
-    # so the floor is the release that has it.
+    # so the floor above is the release that has it.
     accepted = set(inspect.signature(Server.__init__).parameters)
     assert {"version", "instructions"} <= accepted, (
         f"the installed mcp is missing {sorted({'version', 'instructions'} - accepted)}"
-    )
-
-    assert _declared_floors("mcp") == {"1.3"}, (
-        "every mcp pin must declare the floor the bridge actually builds on"
     )
