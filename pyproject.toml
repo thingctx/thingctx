@@ -36,10 +36,10 @@ mqtt = ["paho-mqtt>=2.0"]
 # Validate TDs against the official W3C WoT TD 1.1 schema.
 validate = ["jsonschema>=4.0"]
 # Expose a Thing (or a whole fleet of TDs) to any MCP client.
-mcp = ["mcp>=1.2"]
+mcp = ["mcp>=1.3"]
 # Serve the bridge over streamable HTTP (thingctx-mcp --http) for a hosted gateway or
 # a cloud agent runtime that only takes a remote MCP URL. starlette ships with mcp.
-mcp-http = ["mcp>=1.2", "uvicorn>=0.27"]
+mcp-http = ["mcp>=1.3", "uvicorn>=0.27"]
 # Import OpenAPI specs (YAML support; JSON works without it).
 openapi = ["httpx>=0.25", "pyyaml>=6"]
 # Cloud auth: OAuth2 JWT-bearer assertions need RS256 JWT signing (pyjwt);
@@ -59,14 +59,14 @@ entra = ["azure-identity>=1.20", "pyjwt[crypto]>=2.8", "httpx>=0.27"]
 # still refuses every call until THINGCTX_FS_ROOT is set.
 filesystem = []
 # Everything.
-all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.2", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "av>=11", "numpy>=1.23", "pillow>=10"]
+all = ["litellm>=1.0", "httpx>=0.27", "paho-mqtt>=2.0", "jsonschema>=4.0", "mcp>=1.3", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "av>=11", "numpy>=1.23", "pillow>=10"]
 # The gate tools are pinned, not floated: the CI and the pre-commit hook must
 # agree with what a contributor runs locally, or "green here, red in CI" churn
 # follows. ruff 0.14.x is where the in-function-import rule (PLC0415) is stable.
 # botocore is here only as an independent oracle for the SigV4 signer: the test
 # compares our signature against botocore's canonical one. Without it installed
 # that comparison skips, so the signing code goes unchecked.
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "pytest-cov==7.1.0", "jsonschema>=4.0", "mcp>=1.2", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "botocore>=1.34", "ruff==0.16.0", "mypy==2.3.0", "vulture==2.16", "bandit==1.9.4", "pip-audit==2.10.1", "import-linter==2.13", "diff-cover==10.4.1"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "pytest-cov==7.1.0", "jsonschema>=4.0", "mcp>=1.3", "httpx>=0.27", "pyyaml>=6", "pyjwt[crypto]>=2.8", "azure-identity>=1.20", "paho-mqtt>=2.0", "av>=11", "numpy>=1.23", "pillow>=10", "botocore>=1.34", "ruff==0.16.0", "mypy==2.3.0", "vulture==2.16", "bandit==1.9.4", "pip-audit==2.10.1", "import-linter==2.13", "diff-cover==10.4.1"]
 
 [project.scripts]
 # Serve a Thing (or a whole fleet of TDs) to any MCP client.
