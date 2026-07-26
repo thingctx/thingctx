@@ -31,7 +31,6 @@ registered Thing through these commands; ``skill install`` copies it under
 """
 
 from __future__ import annotations
-from thingctx import __version__
 
 import argparse
 import asyncio
@@ -44,6 +43,8 @@ from collections.abc import Callable
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+
+from thingctx import __version__
 
 if TYPE_CHECKING:
     from thingctx.runtime import ThingClient
