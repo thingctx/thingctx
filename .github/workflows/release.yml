@@ -37,10 +37,40 @@ jobs:
         with:
           name: dist
           path: dist/
+      # Refuse a version TestPyPI already has, rather than skipping the upload.
+      # TestPyPI cannot delete, so a reused version silently keeps the OLD build
+      # and every job after this one then validates an artifact that is not the
+      # one just built. A duplicate has to stop the release, not pass it.
+      - name: Refuse to reuse a version already on TestPyPI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Bounded and retried: an unbounded curl here can wedge the whole
+          # release on a DNS or TLS stall. A 404 is the answer we want, so treat
+          # only a real HTTP response as authoritative and fail closed otherwise.
+          # --write-out prints once per attempt, so keep the last line only. The
+          # `|| true` matters: under bash -e -o pipefail a failed curl kills the
+          # step at this assignment, so the case below never runs and the release
+          # dies with a bare curl error instead of the message that names the fix.
+          # stderr stays on the log: -S is here so a DNS, TLS or proxy failure is
+          # readable in CI rather than reduced to a bare 000.
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}\n' \
+                   --connect-timeout 10 --max-time 30 --retry 3 --retry-delay 2 \
+                   "https://test.pypi.org/pypi/thingctx/${VERSION}/json" \
+                 | tail -n1 || true)
+          CODE="${CODE:-000}"
+          case "$CODE" in
+            404) echo "${VERSION} is free on TestPyPI" ;;
+            200)
+              echo "::error::thingctx ${VERSION} is already on TestPyPI, so this run" \
+                   "would verify that older build. Tag a new version (an rc is fine)."
+              exit 1 ;;
+            *)
+              echo "::error::could not reach TestPyPI to check ${VERSION} (HTTP ${CODE})."
+              exit 1 ;;
+          esac
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
 
   # Prove the *published* TestPyPI artifact is installable on every supported
   # Python and that the offline suite passes against it, not the local tree.
@@ -120,14 +150,19 @@ jobs:
       - name: Bundle version must match the release tag
         run: |
           TAG="${GITHUB_REF_NAME#v}"
+          # A prerelease still ships the release it is a candidate for, so compare
+          # against the release version: v0.2.0rc1 must match a 0.2.0 manifest.
+          # Only the PEP 440 prerelease markers are stripped. A tag like
+          # 0.2.0release1 is not a prerelease of anything and must not pass.
+          RELEASE=$(printf '%s' "$TAG" | sed -E 's/(a|b|rc)[0-9]+$//')
           # node, not python3: this job already sets node up for the packer, so
           # reading the manifest with it avoids depending on the runner's python.
           MANIFEST=$(node -p "require('./packaging/mcpb/manifest.json').version")
-          if [ "$TAG" != "$MANIFEST" ]; then
-            echo "::error::manifest.json says $MANIFEST, tag says $TAG"
+          if [ "$RELEASE" != "$MANIFEST" ]; then
+            echo "::error::manifest.json says $MANIFEST, tag says $TAG (release $RELEASE)"
             exit 1
           fi
-          echo "bundle version $MANIFEST matches the tag"
+          echo "bundle version $MANIFEST matches tag $TAG"
       - run: bash packaging/scripts/build-mcpb.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
