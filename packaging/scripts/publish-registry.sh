@@ -31,7 +31,9 @@ json.dump(entry, open(dst, "w"), indent=2)
 print(f"stamped registry entry for thingctx=={version}")
 PY
 
-echo "dry-run against the registry..."
-mcp-publisher publish --dry-run "$STAMPED"
+# The publisher resolves a bare server.json against the working directory, so
+# run it from the stamped copy's own directory rather than passing a path.
+echo "dry-run against the registry (login first: mcp-publisher login github)..."
+(cd "$(dirname "$STAMPED")" && mcp-publisher publish --dry-run server.json)
 echo "--- review the dry-run above; re-run without --dry-run to publish ---"
-# mcp-publisher publish "$STAMPED"
+# (cd "$(dirname "$STAMPED")" && mcp-publisher publish server.json)

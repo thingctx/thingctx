@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "com.thingctx/thingctx",
-  "description": "Drive any agent against any W3C WoT Thing from its description. The agent never holds your keys; you gate what it is allowed to do.",
+  "description": "Drive devices and APIs from their W3C Thing Description. You gate every operation.",
   "repository": {
     "url": "https://github.com/thingctx/thingctx",
     "source": "github"
@@ -14,11 +14,20 @@
       "registryBaseUrl": "https://pypi.org",
       "identifier": "thingctx",
       "version": "0.2.0",
-      "transport": { "type": "stdio" },
+      "transport": {
+        "type": "stdio"
+      },
       "runtimeHint": "uvx",
       "packageArguments": [
-        { "type": "named", "name": "--from", "value": "thingctx[mcp,http,mqtt,media,filesystem,authz]" },
-        { "type": "positional", "value": "thingctx-mcp" },
+        {
+          "type": "named",
+          "name": "--from",
+          "value": "thingctx[mcp,http,mqtt,media,filesystem,authz]"
+        },
+        {
+          "type": "positional",
+          "value": "thingctx-mcp"
+        },
         {
           "type": "positional",
           "valueHint": "tds",

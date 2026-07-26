@@ -116,5 +116,10 @@
       "default": "",
       "required": false
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thingctx/thingctx"
+  },
+  "support": "https://github.com/thingctx/thingctx/issues"
 }
