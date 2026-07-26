@@ -722,7 +722,7 @@ async def test_server_reports_thingctx_version_not_the_sdk():
     """A host shows serverInfo in its UI and logs, so a bug report from Claude
     Desktop must name thingctx's release, not whatever MCP SDK is installed."""
     pytest.importorskip("mcp")
-    from importlib.metadata import version
+    import importlib.metadata as md
 
     from mcp.shared.memory import create_connected_server_and_client_session as connect
 
@@ -732,8 +732,9 @@ async def test_server_reports_thingctx_version_not_the_sdk():
     server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), name="pump", tool_mode="flat")
     async with connect(server) as s:
         info = (await s.initialize()).serverInfo
-    assert info.version == version("thingctx")
-    assert info.version != version("mcp")
+    # Only this assertion describes the behaviour. Comparing against the SDK
+    # version would fail the day the two releases happen to share a string.
+    assert info.version == md.version("thingctx")
 
 
 def test_version_falls_back_when_metadata_is_absent(monkeypatch):
