@@ -103,9 +103,38 @@ jobs:
           cd "$RUNNER_TEMP/t"
           pytest -m "not network" -q
 
+  # Built BEFORE the PyPI gate so the paused run already carries an installable
+  # bundle. Download it from the run's artifacts, install it in Claude Desktop,
+  # and dogfood the approve flow before approving the publish. The bundle is a
+  # launcher: uv resolves thingctx from PyPI at first launch, so it can only be
+  # driven end to end once the publish is approved.
+  bundle:
+    name: build the Claude Desktop bundle
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Bundle version must match the release tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST=$(python3 -c "import json;print(json.load(open('packaging/mcpb/manifest.json'))['version'])")
+          if [ "$TAG" != "$MANIFEST" ]; then
+            echo "::error::manifest.json says $MANIFEST, tag says $TAG"
+            exit 1
+          fi
+          echo "bundle version $MANIFEST matches the tag"
+      - run: bash packaging/scripts/build-mcpb.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcpb
+          path: packaging/dist/thingctx.mcpb
+
   pypi:
     name: publish to PyPI
-    needs: smoke
+    needs: [smoke, bundle]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -130,6 +159,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: dist
+          path: dist/
+      - uses: actions/download-artifact@v8
+        with:
+          name: mcpb
           path: dist/
       - uses: softprops/action-gh-release@v3
         with:
