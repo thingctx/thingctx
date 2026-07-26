@@ -84,9 +84,21 @@ jobs:
           # ci.yml runs those against the source tree. Selected by what a test
           # actually does, so a new one does not silently break the release.
           cp tests/*.py "$RUNNER_TEMP/t/"
-          grep -lE "parents\[[0-9]\]|parent\.parent|\"examples\"|'examples'|\"scripts\"|from _pump" \
-            "$RUNNER_TEMP/t"/*.py | xargs -r rm -f
-          echo "kept $(ls "$RUNNER_TEMP/t"/test_*.py | wc -l) test files"
+          # No pipeline: grep -l exits 1 when nothing matches, which would fail
+          # this step under pipefail once every repo dependent test is gone.
+          removed=0
+          for f in "$RUNNER_TEMP/t"/test_*.py; do
+            if grep -qE "parents\[[0-9]\]|parent\.parent|[\"']examples[\"']|[\"']scripts[\"']|from _pump" "$f"; then
+              rm -f "$f"
+              removed=$((removed + 1))
+            fi
+          done
+          kept=$(find "$RUNNER_TEMP/t" -name 'test_*.py' -type f | wc -l)
+          echo "kept $kept test files, skipped $removed that read repo files"
+          if [ "$kept" -lt 50 ]; then
+            echo "::error::only $kept test files survived; the filter is too broad"
+            exit 1
+          fi
           printf '[pytest]\nmarkers = network: hits the network; deselect with -m "not network"\nasyncio_mode = auto\n' > "$RUNNER_TEMP/t/pytest.ini"
           cd "$RUNNER_TEMP/t"
           pytest -m "not network" -q
