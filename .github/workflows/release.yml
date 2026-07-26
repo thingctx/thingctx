@@ -47,11 +47,14 @@ jobs:
           # Bounded and retried: an unbounded curl here can wedge the whole
           # release on a DNS or TLS stall. A 404 is the answer we want, so treat
           # only a real HTTP response as authoritative and fail closed otherwise.
-          # --write-out prints once per attempt, so keep the last line only.
+          # --write-out prints once per attempt, so keep the last line only. The
+          # `|| true` matters: under bash -e -o pipefail a failed curl kills the
+          # step at this assignment, so the case below never runs and the release
+          # dies with a bare curl error instead of the message that names the fix.
           CODE=$(curl -sS -o /dev/null -w '%{http_code}\n' \
                    --connect-timeout 10 --max-time 30 --retry 3 --retry-delay 2 \
                    "https://test.pypi.org/pypi/thingctx/${VERSION}/json" 2>/dev/null \
-                 | tail -n1)
+                 | tail -n1 || true)
           CODE="${CODE:-000}"
           case "$CODE" in
             404) echo "${VERSION} is free on TestPyPI" ;;

@@ -23,6 +23,9 @@ class _FakeBackend:
         self.count = count
         self.raise_at = raise_at
         self.stopped = False
+        # Set on the worker thread when it observes stop. A test can wait on this
+        # instead of polling the bool, which is what a loaded machine loses.
+        self.stopped_event = threading.Event()
         self.seen_options: dict | None = None
 
     def can_open(self, url: str, hint: dict) -> bool:
@@ -34,6 +37,7 @@ class _FakeBackend:
         for i in range(self.count):
             if stop.is_set():
                 self.stopped = True
+                self.stopped_event.set()
                 return
             if self.raise_at is not None and i == self.raise_at:
                 raise RuntimeError("decode boom")
@@ -122,13 +126,10 @@ def test_early_break_sets_stop():
     inv = MediaBinding(backends=[fake], max_queue=2)
     frames = asyncio.run(_collect(inv, _form(), limit=3))
     assert len(frames) == 3
-    # the worker observes stop shortly after the consumer leaves the loop
-    for _ in range(100):
-        if fake.stopped:
-            break
-        import time
-
-        time.sleep(0.01)
+    # Wait on the worker rather than poll for a second: the thread has to be
+    # scheduled once more to see stop, and a loaded machine does not promise that
+    # inside a fixed window. The generous timeout only bounds a real hang.
+    assert fake.stopped_event.wait(timeout=30), "worker never observed stop"
     assert fake.stopped
 
 
