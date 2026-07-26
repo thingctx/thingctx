@@ -732,9 +732,14 @@ async def test_server_reports_thingctx_version_not_the_sdk():
     server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), name="pump", tool_mode="flat")
     async with connect(server) as s:
         info = (await s.initialize()).serverInfo
-    # Only this assertion describes the behaviour. Comparing against the SDK
-    # version would fail the day the two releases happen to share a string.
-    assert info.version == md.version("thingctx")
+    # Expected with the same fallback the bridge uses, so a source checkout with
+    # no installed metadata still runs this. Comparing against the SDK version
+    # would fail the day the two releases happen to share a string.
+    try:
+        expected = md.version("thingctx")
+    except md.PackageNotFoundError:
+        expected = "unknown"
+    assert info.version == expected
 
 
 def test_version_falls_back_when_metadata_is_absent(monkeypatch):
