@@ -25,8 +25,10 @@ def _declared_floors(package: str) -> set[str]:
     Read with a regex rather than tomllib, which is 3.11+ and this suite runs on
     3.10.
     """
+    # Capture only the version, so adding an upper bound later ("mcp>=1.3,<2")
+    # narrows the pin rather than turning this into a confusing failure.
     text = _PYPROJECT.read_text()
-    return set(re.findall(rf'"{re.escape(package)}>=([0-9][^"]*)"', text))
+    return set(re.findall(rf'"{re.escape(package)}>=([0-9][0-9.]*)', text))
 
 
 @pytest.mark.skipif(not _PYPROJECT.exists(), reason="runs against the source tree")
