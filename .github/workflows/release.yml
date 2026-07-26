@@ -51,9 +51,11 @@ jobs:
           # `|| true` matters: under bash -e -o pipefail a failed curl kills the
           # step at this assignment, so the case below never runs and the release
           # dies with a bare curl error instead of the message that names the fix.
+          # stderr stays on the log: -S is here so a DNS, TLS or proxy failure is
+          # readable in CI rather than reduced to a bare 000.
           CODE=$(curl -sS -o /dev/null -w '%{http_code}\n' \
                    --connect-timeout 10 --max-time 30 --retry 3 --retry-delay 2 \
-                   "https://test.pypi.org/pypi/thingctx/${VERSION}/json" 2>/dev/null \
+                   "https://test.pypi.org/pypi/thingctx/${VERSION}/json" \
                  | tail -n1 || true)
           CODE="${CODE:-000}"
           case "$CODE" in

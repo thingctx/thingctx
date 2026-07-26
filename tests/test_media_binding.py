@@ -23,8 +23,9 @@ class _FakeBackend:
         self.count = count
         self.raise_at = raise_at
         self.stopped = False
-        # Set on the worker thread when it observes stop. A test can wait on this
-        # instead of polling the bool, which is what a loaded machine loses.
+        # Set on the worker thread when it observes stop. The worker has to be
+        # scheduled once more to get there, and a loaded machine gives no promise
+        # about when, so a test waits on this rather than polling stopped.
         self.stopped_event = threading.Event()
         self.seen_options: dict | None = None
 
