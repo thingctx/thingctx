@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from thingctx.thing import thing_slug
+
 # The tool-name charset the OpenAI/Anthropic function-calling APIs accept. A name
 # outside this set is silently rejected by a provider at call time, so flag it
 # here. Projection emits ``_ -`` only; ``.`` is permitted for a hand-authored
@@ -44,6 +46,13 @@ _SINGLE_TOKEN = re.compile(r"^\S+$")
 # a credential in ``htv:headers`` is the one thing the security posture forbids.
 _CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
 _CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.IGNORECASE)
+
+# Slugs that name nothing: scaffolding words a generator leaves behind, and bare
+# single letters. Shape alone cannot settle the rest, since ``s3`` and ``k8`` read
+# like placeholders and are not, so the Thing's own title arbitrates below.
+_THIN_NAMESPACE = re.compile(
+    r"^(?:thing|test|foo|bar|baz|sample|example|demo|tbd|todo|[a-z])\d*$", re.IGNORECASE
+)
 
 _MIN_DESCRIPTION = 8  # a description under this many characters carries no meaning
 
@@ -74,6 +83,7 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
     out: list[LintFinding] = []
 
     _lint_id(td, out)
+    _lint_thin_namespace(td, out)
     _lint_thing_type(td, out)
 
     for kind in ("actions", "properties", "events"):
@@ -111,6 +121,50 @@ def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
                 "url_shaped_id",
                 "id is a URL; the tool-name prefix is derived from its last path "
                 "segment and may collide. Prefer a urn: id.",
+            )
+        )
+
+
+def _abbreviates(slug: str, title: str) -> bool:
+    # An abbreviation starts where its subject starts, and its letters follow in
+    # order. Digits are not required to appear: ``k8s`` counts the letters it
+    # elides from "kubernetes" rather than quoting them.
+    if not slug or not title or slug[0] != title[0]:
+        return False
+    rest = iter(title)
+    return all(c in rest for c in slug if c.isalpha())
+
+
+def _lint_thin_namespace(td: dict[str, Any], out: list[LintFinding]) -> None:
+    ids = (td.get("id"), td.get("@id"))
+    tid: str = next((v for v in ids if isinstance(v, str) and v.strip()), "")
+    raw_title = td.get("title")
+    title: str = raw_title if isinstance(raw_title, str) else ""
+    # An id-less Thing still projects tools, off its title.
+    source = tid or title
+    if not source.strip():
+        return
+    slug = thing_slug(source)
+    # Separators carry no meaning here: ``thing-1`` and ``x_999`` are the same
+    # placeholders as ``thing1`` and ``x999``.
+    bare = re.sub(r"[-_]", "", slug).lower()
+    # A slug the title abbreviates is grounded in what the Thing is, however
+    # short: ``s3`` for "S3 Bucket" and ``db`` for "Database" name their subject,
+    # ``t1`` for "Water Pump" names nothing. The title has to say more than the
+    # slug to ground it, and a slug taken from the title is never compared
+    # against it, since the two would not be independent.
+    if tid and title:
+        grounded = re.sub(r"[^a-z0-9]", "", title.lower())
+        if len(grounded) > len(bare) and _abbreviates(bare, grounded):
+            return
+    if len(bare) <= 2 or _THIN_NAMESPACE.match(bare):
+        out.append(
+            LintFinding(
+                "notice",
+                "id",
+                "thin_namespace",
+                f"tool namespace {slug!r} gives a model no category to group this "
+                "Thing's tools by. Prefer a meaningful device or service id.",
             )
         )
 
