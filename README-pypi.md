@@ -1,44 +1,70 @@
 # thingctx
 
-Drive any agent against any W3C Web of Things Thing, over any transport.
-The integration is a JSON Thing Description; no server per integration.
+thingctx is a Python library that turns a W3C Web of Things Thing Description
+into tools an AI agent can call. The description is a JSON document naming a
+system's actions and a transport for each; thingctx runs every call over that
+transport. No server per integration.
 
-## Install
+You can add a policy gate that decides each call before any transport runs:
+allow reads, deny writes, or ask a human first. The binding holds the
+credential; the model never sees it.
 
-    pip install 'thingctx[llm,http,validate]'
-    # quote the extras (zsh); other extras: mcp, mqtt, media, authz, entra,
-    # openapi, cloud, mcp-http, filesystem
+## First run
 
-## Use
+    pip install thingctx
+
+The base install pulls no dependencies. This runs with no keys and no network:
 
 ```python
 import asyncio
 
 import thingctx
+from thingctx.contrib.time import make_time_handler
+
+td = {
+    "@context": "https://www.w3.org/2022/wot/td/v1.1",
+    "id": "urn:demo:clock",
+    "title": "Clock",
+    "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+    "security": ["nosec_sc"],
+    "actions": {
+        "getCurrentTime": {
+            "input": {
+                "type": "object",
+                "properties": {"timezone": {"type": "string"}},
+            },
+            "forms": [{"href": "local://getCurrentTime"}],
+        }
+    },
+}
 
 
 async def main():
-    # Out-of-the-box agent loop (needs the llm extra and your provider API key)
-    host = await thingctx.from_url("https://api.example.com/.well-known/wot")
-    print(await host.chat("what's the forecast for Cairo?"))
+    client = thingctx.ThingClient(
+        tds=[td], bindings=[thingctx.LocalBinding(make_time_handler())]
+    )
+    tools, invoke = client.as_tools()
+    print("tools:", [t["function"]["name"] for t in tools])
+    print(await invoke("clock__getCurrentTime", {"timezone": "UTC"}))
 
 
 asyncio.run(main())
 ```
 
-Own the loop? Get tool specs and route calls yourself:
+## Agent loop
+
+Install `'thingctx[llm,http]'`, set your provider key, import thingctx, and
+inside an async function:
 
 ```python
-async def main():
-    client = thingctx.ThingClient.from_registry(thingctx.from_arg("./registry/"))
-    specs, invoke = client.as_tools()
-    result = await invoke("pump__set_speed", {"rpm": 1500})
-
-
-asyncio.run(main())
+host = await thingctx.from_url("https://example.com/device.td.json")
+print(await host.chat("summarize the device's status"))
 ```
 
-Closed agent (Claude Desktop, Copilot)? Bridge a registry of descriptions to MCP:
+`from_url` accepts any URL that serves a Thing Description.
+
+Closed agent (Claude Desktop, VS Code)? Install `'thingctx[mcp]'` and bridge a
+folder of descriptions:
 
     thingctx-mcp ./registry/
 
