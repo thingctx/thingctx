@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from thingctx.thing import _tool_name
+from thingctx.thing import thing_slug
 
 # The tool-name charset the OpenAI/Anthropic function-calling APIs accept. A name
 # outside this set is silently rejected by a provider at call time, so flag it
@@ -47,11 +47,12 @@ _SINGLE_TOKEN = re.compile(r"^\S+$")
 _CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
 _CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.IGNORECASE)
 
-# Namespace slugs that are too thin to help a model group tools.
-# Single-letter slugs are always unusable. ``t1``, ``x999``, ``a1`` are
-# clearly placeholder- or example-shaped. Deliberately conservative:
-# a short but meaningful abbreviation like ``db`` is not flagged.
-_THIN_NAMESPACE = re.compile(r"^(?:[a-z]\d?|[tx]\d+)$", re.I)
+# Slugs that name nothing: scaffolding words a generator leaves behind, and bare
+# single letters. Shape alone cannot settle the rest, since ``s3`` and ``k8`` read
+# like placeholders and are not, so the Thing's own title arbitrates below.
+_THIN_NAMESPACE = re.compile(
+    r"^(?:thing|test|foo|bar|baz|sample|example|demo|tbd|todo|[a-z])\d*$", re.IGNORECASE
+)
 
 _MIN_DESCRIPTION = 8  # a description under this many characters carries no meaning
 
@@ -108,12 +109,6 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
     return out
 
 
-def _slug_from_id(thing_id: str) -> str:
-    """Extract the namespace slug from a Thing id (delegates to
-    ``_tool_name`` in thing.py for the canonical slug logic)."""
-    return _tool_name(thing_id, "_").rsplit(".", 1)[0]
-
-
 def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
     tid = td.get("id") or td.get("@id")
     if isinstance(tid, str) and tid.startswith(("http://", "https://")):
@@ -130,20 +125,42 @@ def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
         )
 
 
+def _abbreviates(slug: str, title: str) -> bool:
+    # An abbreviation starts where its subject starts, and its letters follow in
+    # order. Digits are not required to appear: ``k8s`` counts the letters it
+    # elides from "kubernetes" rather than quoting them.
+    if not slug or not title or slug[0] != title[0]:
+        return False
+    rest = iter(title)
+    return all(c in rest for c in slug if c.isalpha())
+
+
 def _lint_thin_namespace(td: dict[str, Any], out: list[LintFinding]) -> None:
     tid = td.get("id") or td.get("@id")
-    if not isinstance(tid, str):
+    title = td.get("title") if isinstance(td.get("title"), str) else ""
+    from_id = isinstance(tid, str) and bool(tid.strip())
+    # An id-less Thing still projects tools, off its title.
+    source = tid if from_id else title
+    if not isinstance(source, str) or not source.strip():
         return
-    slug = _slug_from_id(tid)
-    if len(slug) == 1 or _THIN_NAMESPACE.match(slug):
+    slug = thing_slug(source)
+    # A slug the title abbreviates is grounded in what the Thing is, however
+    # short: ``s3`` for "S3 Bucket" and ``db`` for "Database" name their subject,
+    # ``t1`` for "Water Pump" names nothing. The title has to say more than the
+    # slug to ground it, and an id-less Thing skips the check because its slug
+    # came from that title.
+    if from_id and title:
+        grounded = re.sub(r"[^a-z0-9]", "", title.lower())
+        if len(grounded) > len(slug) and _abbreviates(slug.lower(), grounded):
+            return
+    if len(slug) <= 2 or _THIN_NAMESPACE.match(slug):
         out.append(
             LintFinding(
                 "notice",
                 "id",
                 "thin_namespace",
-                f"Thing id {tid!r} projects to a thin namespace {slug!r}; a model "
-                "cannot group tools by a namespace this short. Prefer a meaningful "
-                "device or service id.",
+                f"tool namespace {slug!r} gives a model no category to group this "
+                "Thing's tools by. Prefer a meaningful device or service id.",
             )
         )
 

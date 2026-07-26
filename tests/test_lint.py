@@ -5,6 +5,8 @@ rejects a clean one. All offline: TDs are built inline."""
 
 from __future__ import annotations
 
+import pytest
+
 from thingctx.lint import lint_td
 
 
@@ -204,3 +206,72 @@ def test_thin_namespace_does_not_flag_meaningful_short_name():
 def test_findings_are_advice_never_an_exception():
     # a sparse but well-formed dict lints without raising
     assert isinstance(lint_td({"id": "urn:myapp", "title": "MyApp"}), list)
+
+
+def _thin_td(thing_id: str | None, title: str) -> dict:
+    td: dict = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "@type": "saref:Pump",
+        "title": title,
+        "actions": {
+            "go": {"description": "Do the thing.", "safe": True, "forms": [{"href": "https://d"}]}
+        },
+    }
+    if thing_id is not None:
+        td["id"] = thing_id
+    return td
+
+
+@pytest.mark.parametrize(
+    "thing_id,title",
+    [
+        ("urn:demo:s3", "S3 Bucket"),
+        ("urn:demo:k8", "Kubernetes"),
+        ("urn:demo:k8s", "Kubernetes"),
+        ("urn:demo:i18n", "Internationalization"),
+        ("urn:demo:py", "Python"),
+        ("urn:demo:gh", "GitHub"),
+        ("urn:demo:ec2", "EC2 Instance"),
+        ("urn:demo:pump", "Water Pump"),
+        ("urn:thingctx:cam:sample", "Sample camera"),
+    ],
+)
+def test_namespace_the_title_abbreviates_is_not_thin(thing_id, title):
+    assert "thin_namespace" not in _rules(_thin_td(thing_id, title))
+
+
+@pytest.mark.parametrize(
+    "thing_id",
+    [
+        "urn:demo:x",
+        "urn:demo:t1",
+        "urn:demo:n1",
+        "urn:demo:zz",
+        "urn:demo:x999",
+        "urn:demo:thing1",
+        "urn:demo:test",
+        "urn:demo:foo",
+        "urn:demo:xz",
+    ],
+)
+def test_namespace_the_title_does_not_explain_is_thin(thing_id):
+    assert "thin_namespace" in _rules(_thin_td(thing_id, "Water Pump"))
+
+
+def test_thin_namespace_falls_back_to_title_when_there_is_no_id():
+    assert "thin_namespace" in _rules(_thin_td(None, "X"))
+    assert "thin_namespace" not in _rules(_thin_td(None, "Water Pump"))
+
+
+def test_thin_namespace_is_reported_once_per_thing():
+    td = _thin_td("urn:demo:x", "Water Pump")
+    td["properties"] = {"p": {"description": "A value.", "forms": [{"href": "https://d"}]}}
+    td["events"] = {"e": {"description": "A signal.", "forms": [{"href": "https://d"}]}}
+    assert [f.rule for f in lint_td(td)].count("thin_namespace") == 1
+
+
+def test_thin_namespace_reads_the_projected_namespace_not_the_raw_id():
+    # Pins the rule to thing_slug, so a change to the tool-name separator cannot
+    # silently stop it firing.
+    assert "thin_namespace" in _rules(_thin_td("urn:demo:x", "Water Pump"))
+    assert "thin_namespace" not in _rules(_thin_td("urn:demo:pump:v1", "Water Pump"))
