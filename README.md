@@ -1,5 +1,6 @@
 # thingctx
 
+[![CI](https://img.shields.io/github/actions/workflow/status/thingctx/thingctx/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/thingctx/thingctx/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/thingctx?style=flat-square&label=PyPI&color=3775A9)](https://pypi.org/project/thingctx/)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square)](https://pypi.org/project/thingctx/)
 [![License](https://img.shields.io/badge/License-Apache--2.0-4c9a2a?style=flat-square)](LICENSE)
