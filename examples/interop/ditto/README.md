@@ -62,7 +62,7 @@ server-side (twin state), so it works without a physical device attached. The
 
 # 2. Drive the twin with thingctx
 python3 -m venv .venv && . .venv/bin/activate
-pip install "thingctx[http]==0.1.3"
+pip install "thingctx[http]"
 python drive_ditto_td.py
 
 # 3. Tear down
