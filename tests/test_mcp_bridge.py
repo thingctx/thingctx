@@ -734,3 +734,17 @@ async def test_server_reports_thingctx_version_not_the_sdk():
         info = (await s.initialize()).serverInfo
     assert info.version == version("thingctx")
     assert info.version != version("mcp")
+
+
+def test_version_falls_back_when_metadata_is_absent(monkeypatch):
+    """A checkout with no installed metadata still has to start the bridge."""
+    pytest.importorskip("mcp")
+    import importlib.metadata as md
+
+    from thingctx.integrations import mcp as bridge
+
+    def _missing(_name: str) -> str:
+        raise md.PackageNotFoundError("thingctx")
+
+    monkeypatch.setattr(md, "version", _missing)
+    assert bridge._thingctx_version() == "unknown"
