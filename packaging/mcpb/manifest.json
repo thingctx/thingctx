@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "thingctx",
   "display_name": "thingctx",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Drive any agent against any W3C WoT Thing from its description. The agent never holds your keys; you gate what it is allowed to do.",
   "author": {
     "name": "The thingctx Authors",
