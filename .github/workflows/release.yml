@@ -37,10 +37,22 @@ jobs:
         with:
           name: dist
           path: dist/
+      # Refuse a version TestPyPI already has, rather than skipping the upload.
+      # TestPyPI cannot delete, so a reused version silently keeps the OLD build
+      # and every job after this one then validates an artifact that is not the
+      # one just built. A duplicate has to stop the release, not pass it.
+      - name: Refuse to reuse a version already on TestPyPI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if curl -sf "https://test.pypi.org/pypi/thingctx/${VERSION}/json" >/dev/null; then
+            echo "::error::thingctx ${VERSION} is already on TestPyPI, so this run" \
+                 "would verify that older build. Tag a new version (an rc is fine)."
+            exit 1
+          fi
+          echo "${VERSION} is free on TestPyPI"
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
 
   # Prove the *published* TestPyPI artifact is installable on every supported
   # Python and that the offline suite passes against it, not the local tree.
@@ -120,14 +132,17 @@ jobs:
       - name: Bundle version must match the release tag
         run: |
           TAG="${GITHUB_REF_NAME#v}"
+          # A prerelease still ships the release it is a candidate for, so compare
+          # against the release version: v0.2.0rc1 must match a 0.2.0 manifest.
+          RELEASE="${TAG%%[-abcr]*}"
           # node, not python3: this job already sets node up for the packer, so
           # reading the manifest with it avoids depending on the runner's python.
           MANIFEST=$(node -p "require('./packaging/mcpb/manifest.json').version")
-          if [ "$TAG" != "$MANIFEST" ]; then
-            echo "::error::manifest.json says $MANIFEST, tag says $TAG"
+          if [ "$RELEASE" != "$MANIFEST" ]; then
+            echo "::error::manifest.json says $MANIFEST, tag says $TAG (release $RELEASE)"
             exit 1
           fi
-          echo "bundle version $MANIFEST matches the tag"
+          echo "bundle version $MANIFEST matches tag $TAG"
       - run: bash packaging/scripts/build-mcpb.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
