@@ -212,7 +212,16 @@ jobs:
         with:
           name: mcpb
           path: dist/
+      # A candidate must not sit on the repo front page as the latest release.
+      - name: Is this tag a prerelease
+        id: kind
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            *a[0-9]*|*b[0-9]*|*rc[0-9]*) echo "pre=true"  >> "$GITHUB_OUTPUT" ;;
+            *)                           echo "pre=false" >> "$GITHUB_OUTPUT" ;;
+          esac
       - uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
         with:
           generate_release_notes: true
+          prerelease: ${{ steps.kind.outputs.pre }}
           files: dist/*
