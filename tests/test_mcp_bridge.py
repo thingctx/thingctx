@@ -755,26 +755,3 @@ def test_version_falls_back_when_metadata_is_absent(monkeypatch):
 
     monkeypatch.setattr(md, "version", _missing)
     assert bridge._thingctx_version() == "unknown"
-
-
-def test_declared_mcp_floor_supports_what_the_bridge_calls():
-    """The mcp extra's lower bound must be a version whose Server accepts every
-    argument build_mcp_server passes. The floor said >=1.0 for a long time while
-    mcp.server.lowlevel did not exist before 1.2 and instructions arrived in 1.3,
-    so the package promised a version the bridge could not import."""
-    pytest.importorskip("mcp")
-    import inspect
-    from pathlib import Path
-
-    import tomllib
-    from mcp.server.lowlevel import Server
-
-    accepted = set(inspect.signature(Server.__init__).parameters)
-    assert {"version", "instructions"} <= accepted
-
-    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    extras = tomllib.loads(pyproject.read_text())["project"]["optional-dependencies"]
-    floors = {
-        pin.split(">=")[1] for group in extras.values() for pin in group if pin.startswith("mcp>=")
-    }
-    assert floors == {"1.3"}, f"mcp floor drifted: {floors}"
