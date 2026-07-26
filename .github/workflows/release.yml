@@ -43,7 +43,18 @@ jobs:
       # one just built. A duplicate has to stop the release, not pass it.
       - name: Refuse to reuse a version already on TestPyPI
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          # Read the version off the built wheel, not the tag. A tag does not
+          # change pyproject.toml, so checking the tag would clear a version
+          # while the upload carries a different one, which is how v0.2.0rc1
+          # sailed past this check and then failed on a duplicate 0.2.0.
+          WHEEL=$(ls dist/*.whl | head -n1)
+          VERSION=$(basename "$WHEEL" | cut -d- -f2)
+          echo "built wheel is version ${VERSION} (tag ${GITHUB_REF_NAME})"
+          if [ "${VERSION}" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} builds version ${VERSION}." \
+                 "Set the version in pyproject.toml and __init__.py to match the tag."
+            exit 1
+          fi
           # Bounded and retried: an unbounded curl here can wedge the whole
           # release on a DNS or TLS stall. A 404 is the answer we want, so treat
           # only a real HTTP response as authoritative and fail closed otherwise.
