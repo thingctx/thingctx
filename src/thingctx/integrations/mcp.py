@@ -82,6 +82,21 @@ _MAX_SNAPSHOT_FRAMES = 32
 _APPROVAL_TTL_S = 300.0
 
 
+def _thingctx_version() -> str:
+    """thingctx's own version, read from installed metadata.
+
+    Read here rather than imported from the package root, which this module
+    never imports, so the bridge cannot introduce an import cycle. An editable
+    checkout with no metadata still has to start, so fall back rather than raise.
+    """
+    from importlib.metadata import PackageNotFoundError, version  # noqa: PLC0415
+
+    try:
+        return version("thingctx")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def _credentials_from_env() -> dict[str, str]:
     """Collect per-Thing secrets from the environment.
 
@@ -248,7 +263,9 @@ def build_mcp_server(
         "raw code bypasses that protection. If a tool reports needs_approval, ask the "
         "user, and only on an explicit yes call approve with the token."
     )
-    server: Server = Server(name, instructions=_instructions)
+    # Report thingctx's version, not the SDK's. A host shows serverInfo in its
+    # logs and its UI, so without this a bug report names the MCP SDK release.
+    server: Server = Server(name, version=_thingctx_version(), instructions=_instructions)
     gateway = client.gateway() if tool_mode == "gateway" else None
     # The gateway's own ``subscribe_event`` returns a live stream, which a direct
     # Python caller can iterate but MCP cannot carry. So over MCP there is ONE

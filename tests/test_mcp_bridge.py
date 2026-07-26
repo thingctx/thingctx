@@ -716,3 +716,21 @@ async def test_media_snapshot_fills_href_urivariables_from_args():
         assert res.content[0].type == "image"
     # the uriVariables reached the backend filled, not as literal "{+host}"
     assert seen["url"] == "rtsp://10.0.0.5:8554/front"
+
+
+async def test_server_reports_thingctx_version_not_the_sdk():
+    """A host shows serverInfo in its UI and logs, so a bug report from Claude
+    Desktop must name thingctx's release, not whatever MCP SDK is installed."""
+    pytest.importorskip("mcp")
+    from importlib.metadata import version
+
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    inv = LocalBinding({"status": lambda: {"rpm": 0}})
+    server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), name="pump", tool_mode="flat")
+    async with connect(server) as s:
+        info = (await s.initialize()).serverInfo
+    assert info.version == version("thingctx")
+    assert info.version != version("mcp")
