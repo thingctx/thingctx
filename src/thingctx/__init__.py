@@ -132,7 +132,7 @@ from thingctx.trust import (
 )
 from thingctx.validate import TDValidationError, validate_td
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
 
 __all__ = [
     "BUILTIN_BINDINGS",
