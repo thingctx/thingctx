@@ -15,9 +15,13 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"      # packaging/
 SRC="$HERE/mcpb"
 OUT="$HERE/dist"
 mkdir -p "$OUT"
-echo "validating manifest..."
-npx -y @anthropic-ai/mcpb validate "$SRC/manifest.json"
+# Pinned: an unpinned npx fetches whatever is latest at build time, so the same
+# git tag could produce a different bundle, and an upstream break or compromise
+# would land straight in a published artifact. Bump deliberately.
+MCPB_VERSION="${MCPB_VERSION:-2.1.2}"
+echo "validating manifest (mcpb $MCPB_VERSION)..."
+npx -y "@anthropic-ai/mcpb@$MCPB_VERSION" validate "$SRC/manifest.json"
 echo "packing..."
-npx -y @anthropic-ai/mcpb pack "$SRC" "$OUT/thingctx.mcpb"
+npx -y "@anthropic-ai/mcpb@$MCPB_VERSION" pack "$SRC" "$OUT/thingctx.mcpb"
 echo "built: $OUT/thingctx.mcpb"
 echo "next: submit to Anthropic's directory for review (they gate the curated list)."
