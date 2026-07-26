@@ -33,7 +33,8 @@
       "env": {
         "THINGCTX_APPROVE_WHEN": "${user_config.approve_when}",
         "THINGCTX_POLICY": "${user_config.policy}",
-        "THINGCTX_FS_ROOT": "${user_config.fs_root}"
+        "THINGCTX_FS_ROOT": "${user_config.fs_root}",
+        "PATH": "/usr/local/bin:/opt/homebrew/bin:${HOME}/.local/bin:${PATH}"
       }
     }
   },

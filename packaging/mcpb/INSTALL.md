@@ -7,11 +7,16 @@ first launch.
 
 ## Before you start
 
-Claude Desktop, and [uv](https://docs.astral.sh/uv/) on your PATH. Desktop runs
-`uv run` to start the server, so an install it cannot find fails with nothing
-useful in the log.
+Claude Desktop, and [uv](https://docs.astral.sh/uv/).
 
     uv --version
+
+The bundle looks for `uv` in the three places it normally lands: `/usr/local/bin`,
+`/opt/homebrew/bin`, and `~/.local/bin`, which is where the standalone installer
+puts it. Desktop starts the server with a minimal PATH that does not include your
+shell profile, so somewhere else means it will not be found, and the only symptom
+is "Unable to connect to extension server". If `uv` lives somewhere unusual, link
+it into one of those three.
 
 ## Install
 
