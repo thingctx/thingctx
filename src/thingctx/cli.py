@@ -44,6 +44,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from thingctx import __version__
+
 if TYPE_CHECKING:
     from thingctx.runtime import ThingClient
     from thingctx.trust import ApprovePolicy
@@ -436,6 +438,11 @@ def _cmd_skill_install(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="thingctx", description="WoT Thing Description tooling.")
+    ap.add_argument(
+        "--version",
+        action="version",
+        version=f"thingctx {__version__}",
+    )
     sub = ap.add_subparsers(dest="command", required=True)
 
     imp = sub.add_parser("import", help="import a non-WoT description into a TD")
