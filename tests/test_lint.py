@@ -252,6 +252,9 @@ def test_namespace_the_title_abbreviates_is_not_thin(thing_id, title):
         "urn:demo:test",
         "urn:demo:foo",
         "urn:demo:xz",
+        "urn:demo:thing-1",
+        "urn:demo:x_999",
+        "urn:demo:t_1",
     ],
 )
 def test_namespace_the_title_does_not_explain_is_thin(thing_id):
@@ -275,3 +278,10 @@ def test_thin_namespace_reads_the_projected_namespace_not_the_raw_id():
     # silently stop it firing.
     assert "thin_namespace" in _rules(_thin_td("urn:demo:x", "Water Pump"))
     assert "thin_namespace" not in _rules(_thin_td("urn:demo:pump:v1", "Water Pump"))
+
+
+def test_thin_namespace_reads_at_id_when_id_is_blank():
+    td = _thin_td(None, "Water Pump")
+    td["id"] = "   "
+    td["@id"] = "urn:demo:x"
+    assert "thin_namespace" in _rules(td)

@@ -136,24 +136,28 @@ def _abbreviates(slug: str, title: str) -> bool:
 
 
 def _lint_thin_namespace(td: dict[str, Any], out: list[LintFinding]) -> None:
-    tid = td.get("id") or td.get("@id")
-    title = td.get("title") if isinstance(td.get("title"), str) else ""
-    from_id = isinstance(tid, str) and bool(tid.strip())
+    ids = (td.get("id"), td.get("@id"))
+    tid: str = next((v for v in ids if isinstance(v, str) and v.strip()), "")
+    raw_title = td.get("title")
+    title: str = raw_title if isinstance(raw_title, str) else ""
     # An id-less Thing still projects tools, off its title.
-    source = tid if from_id else title
-    if not isinstance(source, str) or not source.strip():
+    source = tid or title
+    if not source.strip():
         return
     slug = thing_slug(source)
+    # Separators carry no meaning here: ``thing-1`` and ``x_999`` are the same
+    # placeholders as ``thing1`` and ``x999``.
+    bare = re.sub(r"[-_]", "", slug).lower()
     # A slug the title abbreviates is grounded in what the Thing is, however
     # short: ``s3`` for "S3 Bucket" and ``db`` for "Database" name their subject,
     # ``t1`` for "Water Pump" names nothing. The title has to say more than the
-    # slug to ground it, and an id-less Thing skips the check because its slug
-    # came from that title.
-    if from_id and title:
+    # slug to ground it, and a slug taken from the title is never compared
+    # against it, since the two would not be independent.
+    if tid and title:
         grounded = re.sub(r"[^a-z0-9]", "", title.lower())
-        if len(grounded) > len(slug) and _abbreviates(slug.lower(), grounded):
+        if len(grounded) > len(bare) and _abbreviates(bare, grounded):
             return
-    if len(slug) <= 2 or _THIN_NAMESPACE.match(slug):
+    if len(bare) <= 2 or _THIN_NAMESPACE.match(bare):
         out.append(
             LintFinding(
                 "notice",
