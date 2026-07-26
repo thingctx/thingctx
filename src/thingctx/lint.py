@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from thingctx.thing import _tool_name
+
 # The tool-name charset the OpenAI/Anthropic function-calling APIs accept. A name
 # outside this set is silently rejected by a provider at call time, so flag it
 # here. Projection emits ``_ -`` only; ``.`` is permitted for a hand-authored
@@ -44,6 +46,12 @@ _SINGLE_TOKEN = re.compile(r"^\S+$")
 # a credential in ``htv:headers`` is the one thing the security posture forbids.
 _CREDENTIAL_HEADERS = {"authorization", "cookie", "proxy-authorization"}
 _CREDENTIAL_HINT = re.compile(r"(api[-_]?key|token|secret|password|bearer)", re.IGNORECASE)
+
+# Namespace slugs that are too thin to help a model group tools.
+# Single-letter slugs are always unusable. ``t1``, ``x999``, ``a1`` are
+# clearly placeholder- or example-shaped. Deliberately conservative:
+# a short but meaningful abbreviation like ``db`` is not flagged.
+_THIN_NAMESPACE = re.compile(r"^(?:[a-z]\d?|[tx]\d+)$", re.I)
 
 _MIN_DESCRIPTION = 8  # a description under this many characters carries no meaning
 
@@ -74,6 +82,7 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
     out: list[LintFinding] = []
 
     _lint_id(td, out)
+    _lint_thin_namespace(td, out)
     _lint_thing_type(td, out)
 
     for kind in ("actions", "properties", "events"):
@@ -99,6 +108,12 @@ def lint_td(td: dict[str, Any]) -> list[LintFinding]:
     return out
 
 
+def _slug_from_id(thing_id: str) -> str:
+    """Extract the namespace slug from a Thing id (delegates to
+    ``_tool_name`` in thing.py for the canonical slug logic)."""
+    return _tool_name(thing_id, "_").rsplit(".", 1)[0]
+
+
 def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
     tid = td.get("id") or td.get("@id")
     if isinstance(tid, str) and tid.startswith(("http://", "https://")):
@@ -111,6 +126,24 @@ def _lint_id(td: dict[str, Any], out: list[LintFinding]) -> None:
                 "url_shaped_id",
                 "id is a URL; the tool-name prefix is derived from its last path "
                 "segment and may collide. Prefer a urn: id.",
+            )
+        )
+
+
+def _lint_thin_namespace(td: dict[str, Any], out: list[LintFinding]) -> None:
+    tid = td.get("id") or td.get("@id")
+    if not isinstance(tid, str):
+        return
+    slug = _slug_from_id(tid)
+    if len(slug) == 1 or _THIN_NAMESPACE.match(slug):
+        out.append(
+            LintFinding(
+                "notice",
+                "id",
+                "thin_namespace",
+                f"Thing id {tid!r} projects to a thin namespace {slug!r}; a model "
+                "cannot group tools by a namespace this short. Prefer a meaningful "
+                "device or service id.",
             )
         )
 
