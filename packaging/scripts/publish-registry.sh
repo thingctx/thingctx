@@ -50,7 +50,35 @@ if [ "$PUBLISH" -eq 1 ]; then
   (cd "$(dirname "$STAMPED")" && mcp-publisher publish server.json)
   echo "published. verify: https://registry.modelcontextprotocol.io/v0/servers?search=thingctx"
 else
-  echo "dry run for thingctx==$VERSION (nothing is sent)..."
-  (cd "$(dirname "$STAMPED")" && mcp-publisher publish --dry-run server.json)
-  echo "--- dry run only. re-run as '$0 --publish' to send it. ---"
+  # No dry run against the registry: mcp-publisher 1.8.0 accepts --dry-run on
+  # publish and sends the entry anyway. Validate locally instead, and let
+  # --publish be the only path that talks to the registry.
+  echo "validating thingctx==$VERSION locally (nothing is sent)..."
+  python3 - "$STAMPED" <<'PY'
+import json, sys, urllib.request
+
+entry = json.load(open(sys.argv[1]))
+print(f"  {entry['name']} {entry['version']}")
+
+try:
+    import jsonschema
+except ImportError:
+    # Presence checks alone would pass the length and pattern rules that reject
+    # a real entry, so claiming the entry is valid here would be a lie.
+    sys.exit("  cannot validate: pip install jsonschema")
+
+try:
+    with urllib.request.urlopen(entry["$schema"], timeout=30) as fh:
+        schema = json.load(fh)
+except OSError as exc:
+    sys.exit(f"  cannot validate: schema unreachable ({exc})")
+
+try:
+    jsonschema.validate(entry, schema)
+except jsonschema.ValidationError as exc:
+    field = "/".join(str(p) for p in exc.absolute_path) or "(root)"
+    sys.exit(f"  INVALID at {field}: {exc.message}")
+print("  valid against the registry schema")
+PY
+  echo "--- validated only. re-run as '$0 --publish' to send it. ---"
 fi
