@@ -60,11 +60,21 @@ def _load_td(source: str) -> dict:
     return cast(dict, json.loads(Path(source).read_text(encoding="utf-8")))
 
 
+def _load_cli_input(loader: Callable[[str], dict], source: str, description: str) -> dict:
+    """Turn expected input failures into concise command-line errors."""
+    try:
+        return loader(source)
+    except OSError as exc:
+        raise SystemExit(f"cannot read {description} {source}: {exc}") from exc
+    except ValueError as exc:
+        raise SystemExit(f"cannot parse {description} {source}: {exc}") from exc
+
+
 def _cmd_lint(args: argparse.Namespace) -> int:
     # loaded per subcommand so the CLI starts fast
     from .lint import lint_td  # noqa: PLC0415
 
-    findings = lint_td(_load_td(args.td))
+    findings = lint_td(_load_cli_input(_load_td, args.td, "Thing Description"))
     for f in findings:
         print(f"{f.severity:6} {f.target}  [{f.rule}] {f.message}", file=sys.stderr)  # noqa: T201  # CLI output
     errors = sum(1 for f in findings if f.severity == "error")
@@ -77,7 +87,7 @@ def _cmd_import_openapi(args: argparse.Namespace) -> int:
     # loaded per subcommand so the CLI starts fast
     from .openapi import from_openapi, load_spec  # noqa: PLC0415
 
-    spec = load_spec(args.spec)
+    spec = _load_cli_input(load_spec, args.spec, "OpenAPI spec")
     td = from_openapi(spec, base_url=args.base_url, id=args.id, title=args.title)
     out = json.dumps(td, indent=2) + "\n"
     if args.out:

@@ -440,7 +440,10 @@ def load_spec(source: str) -> dict:
         # optional dep, kept local so the core imports without the extra
         import httpx  # noqa: PLC0415
 
-        text = httpx.get(source, follow_redirects=True, timeout=30.0).text
+        try:
+            text = httpx.get(source, follow_redirects=True, timeout=30.0).text
+        except httpx.HTTPError as exc:
+            raise OSError(str(exc)) from exc
     else:
         text = Path(source).read_text(encoding="utf-8")
     return _parse_spec(text)
@@ -458,4 +461,7 @@ def _parse_spec(text: str) -> dict:
                 "spec is not JSON and PyYAML is not installed; "
                 'install the YAML support with: pip install "thingctx[openapi]"'
             ) from exc
-        return cast(dict, yaml.safe_load(text))
+        try:
+            return cast(dict, yaml.safe_load(text))
+        except yaml.YAMLError as exc:
+            raise ValueError(str(exc)) from exc
