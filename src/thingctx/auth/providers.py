@@ -277,6 +277,7 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         secret: str | None,
         grant: str,
         scopes: tuple[str, ...],
+        *,
         owner: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, str]]:
         data: dict[str, Any] = {"grant_type": grant}
@@ -331,7 +332,7 @@ class OAuth2ClientCredentialsAuth(BaseAuth):
         tok = None
         async with httpx.AsyncClient(timeout=ctx.timeout) as client:
             for i, method in enumerate(methods):
-                data, headers = self._token_request(method, cid, secret, grant, scopes, owner)
+                data, headers = self._token_request(method, cid, secret, grant, scopes, owner=owner)
                 resp = await client.post(token_url, data=data, headers=headers)
                 if resp.status_code in (400, 401) and i < len(methods) - 1:
                     continue

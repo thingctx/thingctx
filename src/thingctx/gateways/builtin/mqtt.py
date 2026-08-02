@@ -218,7 +218,9 @@ class MqttGatewayBinding:
         # a missing or invalid token is DENIED, not silently downgraded to the
         # server identity. Only when no guard is configured does the gateway serve
         # with its own (server-level) identity.
-        req = ServeRequest(slug, affordance, op, data, correlation=topic)
+        req = ServeRequest(
+            thing_slug=slug, affordance=affordance, op=op, payload=data, correlation=topic
+        )
         if self._guard is not None:
             identity = await self.authenticate(props)
             if identity is None:

@@ -108,7 +108,14 @@ async def test_guarded_subscribe_denied_when_not_granted(monkeypatch):
     mb = gw.binding
     mb._gateway = gw  # serve() wires this; the test drives _handle_subscribe directly
     replies, mirrors = _capture(mb, monkeypatch)
-    req = ServeRequest("pump", "telemetry", "subscribeevent", {}, correlation="t", identity=ALICE)
+    req = ServeRequest(
+        thing_slug="pump",
+        affordance="telemetry",
+        op="subscribeevent",
+        payload={},
+        correlation="t",
+        identity=ALICE,
+    )
     await mb._handle_subscribe(req, {})
     assert mirrors == [], "a denied subscribe must NOT start a mirror"
     assert replies and replies[-1].get("denied") is True
@@ -123,10 +130,10 @@ async def test_guarded_subscribe_allowed_when_granted(monkeypatch):
     mb._gateway = gw  # serve() wires this; the test drives _handle_subscribe directly
     replies, mirrors = _capture(mb, monkeypatch)
     req = ServeRequest(
-        "pump",
-        "telemetry",
-        "subscribeevent",
-        {},
+        thing_slug="pump",
+        affordance="telemetry",
+        op="subscribeevent",
+        payload={},
         correlation="tc/pump/events/telemetry/subscribe",
         identity=ALICE,
     )

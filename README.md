@@ -84,9 +84,7 @@ TD = {
 
 
 async def main():
-    client = thingctx.ThingClient(
-        tds=[TD], bindings=[thingctx.LocalBinding(make_time_handler())]
-    )
+    client = thingctx.ThingClient(tds=[TD], bindings=[thingctx.LocalBinding(make_time_handler())])
     tools, invoke = client.as_tools()  # specs for your model; invoke runs a call
     print("tools:", [t["function"]["name"] for t in tools])
     print(await invoke("time__getCurrentTime", {"timezone": "UTC"}))
@@ -187,8 +185,10 @@ async def run():  # a sketch, not a program: call it from your own loop
 
     await invoke("pump__set_speed", {"rpm": 1500})
     await client.read_property("pump__rpm")
-    await client.write_property("pump__target_rpm", 1500)   # gated like invoke
-    async for evt in await client.subscribe("pump__overheat"):  # subscribe returns an async iterator
+    await client.write_property("pump__target_rpm", 1500)  # gated like invoke
+    async for evt in await client.subscribe(
+        "pump__overheat"
+    ):  # subscribe returns an async iterator
         ...
 ```
 
@@ -242,6 +242,7 @@ Carrying on from the first example above, with the same `TD`:
 def approve(req):  # sync or async; return True to allow
     return input(f"run {req.tool_name}{req.arguments}? [y/N] ").lower() == "y"
 
+
 client = thingctx.ThingClient(
     tds=[TD],
     bindings=[thingctx.LocalBinding(make_time_handler())],
@@ -262,18 +263,16 @@ property, `target_rpm`.
 from thingctx import LocalBinding, ThingClient
 from thingctx.authz import LocalPolicyGrantSource, PolicyDecisionPoint, build_vocabulary
 
-reader = ThingClient(tds=[TD], bindings=[LocalBinding(Pump())])  # no pdp yet; parsed only to read the description
+reader = ThingClient(
+    tds=[TD], bindings=[LocalBinding(Pump())]
+)  # no pdp yet; parsed only to read the description
 vocab = build_vocabulary(reader.things)  # the closed set the description declares
 
-grants = LocalPolicyGrantSource(
-    {"operator": {("urn:demo:pump", "target_rpm", "readproperty")}}
-)
+grants = LocalPolicyGrantSource({"operator": {("urn:demo:pump", "target_rpm", "readproperty")}})
 pdp = PolicyDecisionPoint(vocabulary=vocab, grant_source=grants)
 identity = {"sub": "alice", "roles": ["operator"]}  # claims, validated upstream
 
-client = ThingClient(
-    tds=[TD], bindings=[LocalBinding(Pump())], pdp=pdp, identity=identity
-)
+client = ThingClient(tds=[TD], bindings=[LocalBinding(Pump())], pdp=pdp, identity=identity)
 ```
 
 Alice's `operator` role grants read on `target_rpm` and nothing else, so her
@@ -374,8 +373,8 @@ A transport is the common case:
 class CoapBinding:
     scheme = "coap"
 
-    async def invoke(self, action, form, arguments): ...   # required
-    async def read(self, prop, form): ...                  # optional
+    async def invoke(self, action, form, arguments): ...  # required
+    async def read(self, prop, form): ...  # optional
 ```
 
 The contract is a `scheme` plus an async `invoke`. Add `read`, `write`, or

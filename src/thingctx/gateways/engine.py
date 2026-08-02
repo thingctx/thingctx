@@ -66,6 +66,7 @@ class ServeRequest:
         op: str,
         payload: Any = None,
         correlation: Any = None,
+        *,
         identity: Any = None,
     ) -> None:
         self.thing_slug = thing_slug

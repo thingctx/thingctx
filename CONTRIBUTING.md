@@ -12,7 +12,8 @@ serial are all wanted. Each is one self-contained class against the
 
 ```python
 class CoapBinding:
-    scheme = "coap"                 # the contract; add schemes = (...) for more
+    scheme = "coap"  # the contract; add schemes = (...) for more
+
     async def invoke(self, action, form, arguments): ...
     async def read(self, prop, form): ...
     async def write(self, prop, form, value): ...
