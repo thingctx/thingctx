@@ -79,7 +79,7 @@ jobs:
               echo "::error::could not reach TestPyPI to check ${VERSION} (HTTP ${CODE})."
               exit 1 ;;
           esac
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -192,7 +192,7 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
 
   # Publish a GitHub Release for the tag after PyPI succeeds. Authored by
   # github-actions[bot] (no personal account), with auto-generated notes and
