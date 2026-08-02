@@ -46,11 +46,17 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           fail=0
-          # --no-merges: a merge commit carries nobody's authorship of the
-          # content, and "Update branch" makes one authored by whoever clicked
-          # it. Without this, a maintainer updating a contributor's PR breaks
-          # the contributor's DCO check.
-          for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
+          for sha in $(git rev-list "$BASE..$HEAD"); do
+            # Skip a merge commit ONLY when it resolved nothing. "Update
+            # branch" makes one of those, authored by whoever clicked it, and
+            # failing the contributor over it is wrong. A merge that resolved a
+            # conflict is different: the merger hand wrote the resolution, so it
+            # still needs a sign-off. An empty combined diff is what tells them
+            # apart, so this is not a hole to walk code through.
+            if [ -n "$(git rev-list --no-walk --merges "$sha")" ] &&
+               [ -z "$(git show --cc --format= "$sha")" ]; then
+              continue
+            fi
             author="$(git show -s --format='%an <%ae>' "$sha")"
             subject="$(git show -s --format='%s' "$sha")"
             if ! git show -s --format='%B' "$sha" | grep -qiE "^Signed-off-by: .+ <.+@.+>"; then
