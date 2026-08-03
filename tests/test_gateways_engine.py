@@ -135,16 +135,10 @@ def test_projection_carries_mqv_vocab_not_engine_fields():
 @pytest.mark.asyncio
 async def test_dispatch_read_write_invoke_round_trip():
     gw = Gateway(_client(), MqttGatewayBinding("bus:1883"))
-    assert await gw.dispatch(ServeRequest(thing_slug="pump", affordance="rpm", op=READ)) == 1200
-    assert (
-        await gw.dispatch(
-            ServeRequest(thing_slug="pump", affordance="rpm", op=WRITE, payload={"value": 1800})
-        )
-    )["ok"] is True
-    assert await gw.dispatch(ServeRequest(thing_slug="pump", affordance="rpm", op=READ)) == 1800
-    assert (
-        await gw.dispatch(ServeRequest(thing_slug="pump", affordance="stop", op=INVOKE, payload={}))
-    )["stopped"] is True
+    assert await gw.dispatch(ServeRequest("pump", "rpm", READ)) == 1200
+    assert (await gw.dispatch(ServeRequest("pump", "rpm", WRITE, {"value": 1800})))["ok"] is True
+    assert await gw.dispatch(ServeRequest("pump", "rpm", READ)) == 1800
+    assert (await gw.dispatch(ServeRequest("pump", "stop", INVOKE, {})))["stopped"] is True
     await gw.client.aclose()
 
 
@@ -174,7 +168,7 @@ class _PubSubOnlyFace:
 async def test_pubsub_only_driver_errors_on_reply_bearing_op():
     gw = Gateway(_client(), _PubSubOnlyFace())
     assert gw.can_reply is False
-    result = await gw.dispatch(ServeRequest(thing_slug="pump", affordance="rpm", op=READ))
+    result = await gw.dispatch(ServeRequest("pump", "rpm", READ))
     # explicit error, not a silent flatten
     assert isinstance(result, dict) and result.get("no_reply_channel") is True
 
@@ -195,11 +189,9 @@ def _guarded_client(*, roles):
 async def test_bus_authz_allows_granted_read_denies_ungranted_write():
     gw = Gateway(_guarded_client(roles=["operator"]), MqttGatewayBinding("bus:1883"))
     # granted read flows
-    assert await gw.dispatch(ServeRequest(thing_slug="pump", affordance="rpm", op=READ)) == 1200
+    assert await gw.dispatch(ServeRequest("pump", "rpm", READ)) == 1200
     # ungranted write is denied by the engine's authz before the device
-    denied = await gw.dispatch(
-        ServeRequest(thing_slug="pump", affordance="rpm", op=WRITE, payload={"value": 9999})
-    )
+    denied = await gw.dispatch(ServeRequest("pump", "rpm", WRITE, {"value": 9999}))
     assert isinstance(denied, dict) and (
         "denied" in str(denied).lower() or "authoriz" in str(denied).lower()
     ), denied
