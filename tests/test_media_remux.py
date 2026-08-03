@@ -269,7 +269,7 @@ def test_extractor_copy_merged_downloads_each_format_then_muxes_local(monkeypatc
     )
     downloaded: list = []
 
-    def _fake_download(self, url, fid, tmpdir, options, stop):
+    def _fake_download(self, url, fid, tmpdir, options, *, stop):
         downloaded.append(fid)
         return f"{tmpdir}/{fid}.mp4"
 
@@ -307,7 +307,7 @@ def test_extractor_download_failure_raises_clear_media_error(monkeypatch):
         lambda self, url, opts: {"requested_formats": [{"format_id": "140"}]},
     )
 
-    def _boom(self, url, fid, tmpdir, options, stop):
+    def _boom(self, url, fid, tmpdir, options, *, stop):
         raise MediaError(f"failed to stage stream {fid}: broken")
 
     monkeypatch.setattr(b.ExtractorBackend, "_download_format", _boom)

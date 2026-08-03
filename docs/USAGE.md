@@ -38,9 +38,9 @@ Register a binding to add a protocol or replace one that ships:
 ```python
 from thingctx import BindingRegistry, ThingClient
 
-reg = BindingRegistry.default()   # http + local
-reg.register(OpcUaBinding())      # add a new protocol
-reg.register(MyHttpBinding())     # replace the bundled http binding
+reg = BindingRegistry.default()  # http + local
+reg.register(OpcUaBinding())  # add a new protocol
+reg.register(MyHttpBinding())  # replace the bundled http binding
 
 client = ThingClient(tds=[...], bindings=reg)
 ```
@@ -56,10 +56,9 @@ Write a binding by naming a `scheme` and an async `invoke`:
 
 ```python
 class OpcUaBinding:
-    scheme = "opc.tcp"                      # or: schemes = ("opc.tcp", "opc.https")
+    scheme = "opc.tcp"  # or: schemes = ("opc.tcp", "opc.https")
 
-    async def invoke(self, action, form, arguments):
-        ...
+    async def invoke(self, action, form, arguments): ...
 ```
 
 Prove it with the conformance kit before shipping:
@@ -108,15 +107,19 @@ for defaults that do nothing:
 ```python
 from thingctx import BaseAuth, CredentialProvider, RequestSigner, implements
 
+
 @implements(CredentialProvider)
 class HmacAuth(BaseAuth):
     name = "hmac"
+
     def matches(self, scheme, credential):
         return (getattr(scheme, "raw", {}) or {}).get("x-thingctx-auth") == "hmac"
+
     async def resolve(self, ctx):
         return RequestSigner(sign=lambda r: r.headers.__setitem__("X-Sig", ...))
 
-thingctx.register_auth(HmacAuth())                  # global
+
+thingctx.register_auth(HmacAuth())  # global
 thingctx.HttpBinding(..., extra_auth=[HmacAuth()])  # or on one binding (wins)
 ```
 
@@ -211,7 +214,7 @@ production:
 
 ```python
 for report in await client.verify():
-    if not report:                  # VerifyReport.__bool__ == all checks passed
+    if not report:  # VerifyReport.__bool__ == all checks passed
         print("drifted:", report.as_dict())
 ```
 

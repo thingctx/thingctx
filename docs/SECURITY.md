@@ -13,6 +13,7 @@ the client. Every method that reaches a device authorizes the resolved
 
 ```python
 from thingctx import ThingClient
+
 client = ThingClient(tds=[td], bindings=[...], pdp=pdp, identity=claims)
 ```
 
@@ -103,7 +104,7 @@ from thingctx import ThingClient
 from thingctx.gateways import Gateway
 from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
 
-client = ThingClient(tds=[...], bindings=[...])              # reach the devices
+client = ThingClient(tds=[...], bindings=[...])  # reach the devices
 gateway = Gateway(client, MqttGatewayBinding("broker:1883"))  # serve them on the bus
 await gateway.start()
 ```
@@ -116,7 +117,7 @@ A gateway binding is a class satisfying `GatewayBinding`:
 
 ```python
 class MyGatewayBinding:
-    scheme = "mybus"                       # the re-served form scheme
+    scheme = "mybus"  # the re-served form scheme
 
     def project_forms(self, thing, affordance, op):
         # return this driver's re-served form(s) for one (affordance, op),
@@ -129,14 +130,14 @@ class MyGatewayBinding:
         # gateway.dispatch(req); deliver the result on your wire.
         ...
 
-    async def aclose(self):
-        ...
+    async def aclose(self): ...
 ```
 
 Check it against the conformance kit:
 
 ```python
 from thingctx.testing import assert_gateway_binding_contract
+
 assert_gateway_binding_contract(MyGatewayBinding("endpoint"))
 ```
 
@@ -168,7 +169,8 @@ mybus = "thingctx_mybus_gateway:MyGatewayBinding"
 
 ```python
 from thingctx.gateways import discover_gateway_bindings
-drivers = discover_gateway_bindings()      # {"mqtt": ..., "mcp": ..., "mybus": ...}
+
+drivers = discover_gateway_bindings()  # {"mqtt": ..., "mcp": ..., "mybus": ...}
 ```
 
 ### Authorization holds on the bus

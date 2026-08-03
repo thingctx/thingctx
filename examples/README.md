@@ -42,7 +42,7 @@ from thingctx import ThingClient
 from thingctx.gateways import Gateway
 from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
 
-client = ThingClient(tds=[...], bindings=[...])              # reach the devices
+client = ThingClient(tds=[...], bindings=[...])  # reach the devices
 gateway = Gateway(client, MqttGatewayBinding("broker:1883"))  # serve them on the bus
 await gateway.start()
 ```

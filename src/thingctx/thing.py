@@ -145,7 +145,9 @@ class WoTAction:
     def has_type(self, term: str) -> bool:
         """True if annotated @type term (exact, or local name after a
         prefix:)."""
-        return any(t == term or t.split(":")[-1] == term.split(":")[-1] for t in self.at_type)
+        return any(
+            t == term or t.split(":")[-1] == term.rsplit(":", maxsplit=1)[-1] for t in self.at_type
+        )
 
     def _flag(self, *keys: str) -> bool:
         """True if any of the given keys is truthy in the action's raw def
