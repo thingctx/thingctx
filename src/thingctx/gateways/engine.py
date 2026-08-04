@@ -59,7 +59,7 @@ class ServeRequest:
 
     __slots__ = ("affordance", "correlation", "identity", "op", "payload", "thing_slug")
 
-    def __init__(
+    def __init__(  # noqa: PLR0917 - exported public API; keep the signature stable
         self,
         thing_slug: str,
         affordance: str,

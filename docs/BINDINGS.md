@@ -45,10 +45,9 @@ A binding names a `scheme` and exposes an async `invoke`:
 
 ```python
 class OpcUaBinding:
-    scheme = "opc.tcp"                      # or: schemes = ("opc.tcp", "opc.https")
+    scheme = "opc.tcp"  # or: schemes = ("opc.tcp", "opc.https")
 
-    async def invoke(self, action, form, arguments):
-        ...
+    async def invoke(self, action, form, arguments): ...
 ```
 
 That is the whole required surface. A binding opts into more by adding the
@@ -76,9 +75,9 @@ shared auth layer (see [Credentials](USAGE.md#credentials)).
 ```python
 from thingctx import BindingRegistry, ThingClient
 
-reg = BindingRegistry.default()   # http + local
-reg.register(OpcUaBinding())     # add a new protocol
-reg.register(MyHttpBinding())    # replace the built-in http binding
+reg = BindingRegistry.default()  # http + local
+reg.register(OpcUaBinding())  # add a new protocol
+reg.register(MyHttpBinding())  # replace the built-in http binding
 
 client = ThingClient(tds=[...], bindings=reg)
 ```
@@ -109,6 +108,7 @@ neutral credential material, then map it onto your wire:
 
 ```python
 from thingctx import AuthMixin, ProtocolBinding, implements
+
 
 @implements(ProtocolBinding)
 class OpcUaBinding(AuthMixin):
@@ -160,9 +160,11 @@ optional and additive:
    ```python
    from thingctx import ProtocolBinding, implements
 
+
    @implements(ProtocolBinding)
    class OpcUaBinding:
        scheme = "opc.tcp"
+
        async def invoke(self, action, form, arguments): ...
    ```
 
@@ -194,7 +196,8 @@ the event loop and stop when the passed `threading.Event` is set:
 ```python
 import threading
 from collections.abc import Iterator
-from thingctx import Frame, MediaBackend   # both are top-level exports
+from thingctx import Frame, MediaBackend  # both are top-level exports
+
 
 class GstreamerBackend:
     def can_open(self, url: str, hint: dict) -> bool: ...

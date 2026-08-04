@@ -265,7 +265,16 @@ async def run_chain(
     held = _follow_arg_names(spec)
     init_args = {k: v for k, v in rest.items() if k not in held}
     result = await binding._invoke_send(action, initiate, init_args, return_response=True)
-    return await _follow(client, binding, owner, initiate.href, result, spec, rest, allow_origins)
+    return await _follow(
+        client,
+        binding,
+        owner,
+        initiate.href,
+        result,
+        spec=spec,
+        arguments=rest,
+        allow_origins=allow_origins,
+    )
 
 
 async def _follow(
@@ -274,6 +283,7 @@ async def _follow(
     owner: str | None,
     initiate_url: str,
     result: Any,
+    *,
     spec: dict,
     arguments: dict,
     allow_origins: tuple[str, ...],
@@ -321,12 +331,16 @@ async def _follow(
 
     if follow.get("transport") == "resumable":
         return await _follow_resumable(
-            binding, nxt, follow, arguments, fwd_headers, fwd_signers, cert
+            binding, nxt, follow, arguments, fwd_headers, signers=fwd_signers, cert=cert
         )
     if follow.get("transport") == "ranged-get":
-        return await _follow_ranged(binding, nxt, follow, arguments, fwd_headers, fwd_signers, cert)
+        return await _follow_ranged(
+            binding, nxt, follow, arguments, fwd_headers, signers=fwd_signers, cert=cert
+        )
     if "until" in follow:
-        return await _follow_poll(binding, nxt, follow, fwd_headers, fwd_signers, fwd_params, cert)
+        return await _follow_poll(
+            binding, nxt, follow, fwd_headers, fwd_signers, params=fwd_params, cert=cert
+        )
 
     # op mode: a single request to the next URL.
     op = (follow.get("op") or "PUT").upper()
@@ -349,7 +363,15 @@ async def _follow(
     nested = follow.get("next")
     if nested:
         return await _follow(
-            client, binding, owner, nxt, res, nested, arguments, allow_origins, depth + 1
+            client,
+            binding,
+            owner,
+            nxt,
+            res,
+            spec=nested,
+            arguments=arguments,
+            allow_origins=allow_origins,
+            depth=depth + 1,
         )
     return res.body
 
@@ -360,6 +382,7 @@ async def _follow_resumable(
     follow: dict,
     arguments: dict,
     headers: dict,
+    *,
     signers: list,
     cert: Any,
 ) -> Any:
@@ -393,6 +416,7 @@ async def _follow_ranged(
     follow: dict,
     arguments: dict,
     headers: dict,
+    *,
     signers: list,
     cert: Any,
 ) -> Any:
@@ -433,6 +457,7 @@ async def _follow_poll(
     follow: dict,
     headers: dict,
     signers: list,
+    *,
     params: dict | None,
     cert: Any,
 ) -> Any:

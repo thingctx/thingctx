@@ -40,9 +40,7 @@ td = {
 
 
 async def main():
-    client = thingctx.ThingClient(
-        tds=[td], bindings=[thingctx.LocalBinding(make_time_handler())]
-    )
+    client = thingctx.ThingClient(tds=[td], bindings=[thingctx.LocalBinding(make_time_handler())])
     tools, invoke = client.as_tools()
     print("tools:", [t["function"]["name"] for t in tools])
     print(await invoke("clock__getCurrentTime", {"timezone": "UTC"}))

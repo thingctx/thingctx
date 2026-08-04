@@ -683,7 +683,7 @@ class ExtractorBackend(PyAVBackend):
         with the URL to the open."""
         info = self._resolve_info(url, options)
         requested = info.get("requested_formats")
-        formats = requested if requested else [info]
+        formats = requested or [info]
         return [(f["url"], f.get("http_headers") or {}) for f in formats]
 
     def _download_format(
@@ -759,7 +759,7 @@ class ExtractorBackend(PyAVBackend):
         tmpdir = tempfile.mkdtemp(prefix="thingctx-dl-")
         try:
             local: list[tuple[str, dict | None]] = [
-                (self._download_format(url, f["format_id"], tmpdir, options, stop), None)
+                (self._download_format(url, f["format_id"], tmpdir, options, stop=stop), None)
                 for f in requested
             ]
             super()._mux(local, target, options=opts, stop=stop)
