@@ -37,6 +37,8 @@ def test_builtin_capability_advertisement():
     caps = binding_capabilities(media)
     assert caps["content_routed"] and caps["media_consumer"] and caps["media_publisher"]
     assert binding_capabilities(build_builtin("mqtt"))["subscribable"]
+    redis = binding_capabilities(build_builtin("redis"))
+    assert redis["readable"] and redis["writable"] and redis["subscribable"]
     http = binding_capabilities(build_builtin("http"))
     assert http["readable"] and http["writable"] and http["subscribable"]
     # http is the reference transport: it also drives bulk and the async lifecycle.
@@ -67,6 +69,11 @@ def test_default_registry_is_http_and_local():
     reg = BindingRegistry.default()
     assert reg.schemes() == ("http", "https", "local")
     assert [type(d).__name__ for d in default_bindings()] == ["HttpBinding", "LocalBinding"]
+
+
+def test_redis_binding_is_opt_in():
+    reg = BindingRegistry.default(http=False, local=False, redis=True)
+    assert reg.schemes() == ("redis", "rediss")
 
 
 def test_register_replaces_the_builtin_it_covers():

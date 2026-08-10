@@ -1,0 +1,53 @@
+{
+  "@context": "https://www.w3.org/2022/wot/td/v1.1",
+  "id": "urn:thingctx:redis",
+  "title": "Redis Sensor Cache",
+  "description": "Example Thing backed by Redis keys and a pub/sub channel.",
+  "securityDefinitions": {
+    "nosec_sc": {
+      "scheme": "nosec"
+    }
+  },
+  "security": ["nosec_sc"],
+  "properties": {
+    "temperature": {
+      "description": "Current cached temperature.",
+      "type": "number",
+      "forms": [
+        {
+          "href": "redis://localhost/sensor:temperature",
+          "op": ["readproperty", "writeproperty"]
+        }
+      ]
+    },
+    "status": {
+      "description": "Current cached sensor status.",
+      "type": "string",
+      "forms": [
+        {
+          "href": "redis://localhost/sensor:status",
+          "op": ["readproperty", "writeproperty"]
+        }
+      ]
+    }
+  },
+  "events": {
+    "alerts": {
+      "description": "Alerts published by the sensor.",
+      "data": {
+        "type": "object",
+        "properties": {
+          "level": {"type": "string"},
+          "message": {"type": "string"}
+        },
+        "required": ["level", "message"]
+      },
+      "forms": [
+        {
+          "href": "redis://localhost/sensor:alerts",
+          "op": "subscribeevent"
+        }
+      ]
+    }
+  }
+}

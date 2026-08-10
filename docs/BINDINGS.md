@@ -1,7 +1,7 @@
 # Bindings
 
-A *binding* teaches thingctx a transport. `http`, `mqtt`, `media`, and `local`
-are the built-in bindings; each is only an implementation of one contract. You can
+A *binding* teaches thingctx a transport. `http`, `mqtt`, `redis`, `media`, `local`,
+and `exec` are the built-in bindings; each is only an implementation of one contract. You can
 replace any built-in with your own, or add a new protocol (OPC UA, CoAP, Modbus),
 by registering a binding. Bindings load in process: you `pip install` a library,
 you do not run a server.
@@ -96,8 +96,17 @@ as does the original `bindings=` argument.
 Enable the optional built-ins through the same registry:
 
 ```python
-BindingRegistry.default(mqtt=True, media=True)
+BindingRegistry.default(mqtt=True, redis=True, media=True)
 ```
+
+### Redis forms
+
+Install the optional Redis transport with `pip install 'thingctx[redis]'`. A Redis form
+uses `redis://host[:port]/<name>[?db=N]` (or `rediss://` for TLS). For a property read
+or write, `<name>` is a Redis key and the binding uses `GET`/`SET`. For a subscription,
+the same path position names a Redis pub/sub channel. The affordance operation, rather
+than the URL spelling, decides whether the name is a key or channel. Keep credentials
+out of the TD; supply redis-py connection options to `RedisBinding` at runtime.
 
 ## Authenticating a binding
 

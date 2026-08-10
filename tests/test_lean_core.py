@@ -18,7 +18,18 @@ import subprocess
 import sys
 import textwrap
 
-_HEAVY = ["httpx", "av", "mcp", "paho", "cryptography", "pydantic", "litellm", "yaml", "numpy"]
+_HEAVY = [
+    "httpx",
+    "av",
+    "mcp",
+    "paho",
+    "cryptography",
+    "pydantic",
+    "litellm",
+    "yaml",
+    "numpy",
+    "redis",
+]
 
 
 def _modules_after(import_line: str) -> set[str]:
@@ -52,10 +63,10 @@ def test_import_authz_pulls_no_heavy_dependency():
 
 def test_building_one_binding_does_not_import_anothers_dep():
     # invariant LEAN-2: building the http binding never pulls another binding's
-    # heavy dep (av / paho / mcp). Each built-in imports its own dep locally, at or
+    # heavy dep (av / paho / redis / mcp). Each built-in imports its own dep locally, at or
     # after construction, so pulling one binding's extra never forces another's.
     loaded = _modules_after(
         "from thingctx.bindings.registry import build_builtin; build_builtin('http')"
     )
-    for other in ("av", "paho", "mcp"):
+    for other in ("av", "paho", "redis", "mcp"):
         assert other not in loaded, f"building http pulled {other}"

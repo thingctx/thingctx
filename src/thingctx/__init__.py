@@ -3,7 +3,7 @@
 """Consume a WoT Thing Description and drive the Thing over any transport.
 
 Parse a TD, present its actions as tools, and invoke each over the
-transport its form names. Depends on stdlib; litellm, httpx, paho-mqtt
+transport its form names. Depends on stdlib; litellm, httpx, paho-mqtt, and redis-py
 are optional extras.
 
     import thingctx
@@ -57,7 +57,7 @@ from thingctx.auth import (
     sigv4_sign,
 )
 
-# Binding contract: built-in transports (http, mqtt, media, local, exec) implement it;
+# Binding contract: built-in transports (http, mqtt, redis, media, local, exec) implement it;
 # an adopter registers their own binding to replace one or add a new protocol.
 from thingctx.bindings import (
     BUILTIN_BINDINGS,
@@ -79,6 +79,7 @@ from thingctx.bindings import (
     MqttBinding,
     ProtocolBinding,
     Readable,
+    RedisBinding,
     SecurityAware,
     Subscribable,
     Writable,
@@ -184,6 +185,7 @@ __all__ = [
     "ProtocolBinding",
     "Quality",
     "Readable",
+    "RedisBinding",
     "Registry",
     "RequestSigner",
     "RetryPolicy",

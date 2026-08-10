@@ -111,7 +111,8 @@ pip install 'thingctx[llm,http,validate]'
 
 Quote the argument; unquoted brackets fail in zsh. Base
 `pip install thingctx` has no dependencies; it already includes the `local`
-and `exec` transports. Every optional transport and capability has an extra,
+and `exec` transports. Redis support is `pip install 'thingctx[redis]'`. Every optional
+transport and capability has an extra,
 listed in [`pyproject.toml`](pyproject.toml); each one this page uses is
 named next to the code that needs it.
 
@@ -192,10 +193,10 @@ async def run():  # a sketch, not a program: call it from your own loop
         ...
 ```
 
-The form picks the transport per call, so one client can read over HTTP and
-subscribe over MQTT. Bindings that pull optional dependencies, MQTT among
-them, are off by default: install the extra and pass
-`bindings=thingctx.BindingRegistry.default(mqtt=True)`.
+The form picks the transport per call, so one client can read over HTTP, subscribe
+over MQTT, and read or write cached properties over Redis. Bindings that pull optional
+dependencies, including MQTT and Redis, are off by default: install the extra and pass
+`bindings=thingctx.BindingRegistry.default(mqtt=True, redis=True)`.
 
 Want the loop handled for you? The `llm` extra runs any provider through
 litellm; add the `http` extra, since the weather file's form is HTTPS. Set

@@ -3,7 +3,7 @@
 """The binding registry: how the built-in bindings are assembled and how an
 adopter replaces one or adds a new protocol.
 
-http, mqtt, media, local, and exec are the built-in bindings; each is only an
+http, mqtt, redis, media, local, and exec are the built-in bindings; each is only an
 implementation of the :class:`~thingctx.bindings.base.ProtocolBinding` contract.
 
     reg = BindingRegistry.default()   # http + local, the safe default
@@ -27,7 +27,7 @@ CONTRACT_VERSION = "1"
 
 # Names of the bindings thingctx ships. Each is just an implementation of the
 # contract, privileged only by being bundled.
-BUILTIN_BINDINGS: tuple[str, ...] = ("http", "local", "mqtt", "media", "exec")
+BUILTIN_BINDINGS: tuple[str, ...] = ("http", "local", "mqtt", "redis", "media", "exec")
 
 
 def build_builtin(name: str, **kwargs: Any) -> ProtocolBinding:
@@ -47,6 +47,10 @@ def build_builtin(name: str, **kwargs: Any) -> ProtocolBinding:
         from thingctx.bindings.builtin.mqtt import MqttBinding  # noqa: PLC0415
 
         return MqttBinding(**kwargs)
+    if name == "redis":
+        from thingctx.bindings.builtin.redis import RedisBinding  # noqa: PLC0415
+
+        return RedisBinding(**kwargs)
     if name == "media":
         from thingctx.bindings.builtin.media import MediaBinding  # noqa: PLC0415
 
@@ -78,10 +82,11 @@ class BindingRegistry:
         http: bool = True,
         local: bool = True,
         mqtt: bool = False,
+        redis: bool = False,
         media: bool = False,
     ) -> BindingRegistry:
         """The default registry of built-in bindings. http and local match the
-        default client (the documented quickstart); mqtt and media are opt in
+        default client (the documented quickstart); mqtt, redis, and media are opt in
         because they pull optional dependencies. exec has no switch here: it
         refuses every command until it is given an allowlist, so it is built
         directly and registered rather than enabled by a flag."""
@@ -90,6 +95,7 @@ class BindingRegistry:
             ("http", http),
             ("local", local),
             ("mqtt", mqtt),
+            ("redis", redis),
             ("media", media),
         ):
             if want:
@@ -143,7 +149,7 @@ class BindingRegistry:
 
 def default_bindings() -> list[ProtocolBinding]:
     """The bindings a client uses when none are supplied: http and local.
-    Matches the documented quickstart; enable mqtt or media explicitly."""
+    Matches the documented quickstart; enable mqtt, redis, or media explicitly."""
     return BindingRegistry.default().bindings
 
 
