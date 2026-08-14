@@ -47,6 +47,48 @@ async def test_td_becomes_callable_mcp_tools():
 
 
 @pytest.mark.asyncio
+async def test_explicit_tc_mcp_annotations_override_derived_hints():
+    pytest.importorskip("mcp")
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    td = {
+        **TD,
+        "@context": [
+            "https://www.w3.org/2022/wot/td/v1.1",
+            {"tc": "https://thingctx.dev/vocab#"},
+        ],
+        "actions": {
+            **TD["actions"],
+            "status": {
+                **TD["actions"]["status"],
+                "tc:mcp": {
+                    "readOnlyHint": False,
+                    "destructiveHint": True,
+                    "idempotentHint": False,
+                    "openWorldHint": False,
+                },
+            },
+        },
+    }
+    server = build_mcp_server(
+        ThingClient(tds=[td], bindings=[LocalBinding({"status": lambda: {"rpm": 0}})]),
+        tool_mode="flat",
+    )
+
+    async with connect(server) as session:
+        await session.initialize()
+        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+
+    annotations = tools["pump__status"].annotations
+    assert annotations.readOnlyHint is False
+    assert annotations.destructiveHint is True
+    assert annotations.idempotentHint is False
+    assert annotations.openWorldHint is False
+
+
+@pytest.mark.asyncio
 async def test_gateway_mode_projects_verbs_and_routes_invoke():
     """Gateway mode collapses per-action tools to a constant verb surface. The
     verbs are listed instead of pump__status/pump__set_speed, and invoke_action

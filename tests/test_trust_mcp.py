@@ -200,6 +200,81 @@ async def test_elicit_approver_accept_deny_and_fallback():
 
 
 @pytest.mark.asyncio
+async def test_request_scoped_approval_uses_each_client_session():
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from mcp import types
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    wipe_prompted = asyncio.Event()
+    nuke_prompted = asyncio.Event()
+    prompts = {}
+    ran = []
+
+    async def accept_wipe(_context, params):
+        prompts["wipe_client"] = params.message
+        wipe_prompted.set()
+        await asyncio.wait_for(nuke_prompted.wait(), 2.0)
+        return types.ElicitResult(action="accept")
+
+    async def decline_nuke(_context, params):
+        prompts["nuke_client"] = params.message
+        nuke_prompted.set()
+        await asyncio.wait_for(wipe_prompted.wait(), 2.0)
+        return types.ElicitResult(action="decline")
+
+    inv = LocalBinding(
+        {
+            "wipe": lambda: ran.append("wipe") or {"wiped": True},
+            "nuke": lambda: ran.append("nuke") or {"nuked": True},
+        }
+    )
+    server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), tool_mode="flat")
+
+    async with connect(server, elicitation_callback=accept_wipe) as wipe_session:
+        async with connect(server, elicitation_callback=decline_nuke) as nuke_session:
+            await wipe_session.initialize()
+            await nuke_session.initialize()
+            wipe_result, nuke_result = await asyncio.gather(
+                wipe_session.call_tool("vault__wipe", {}),
+                nuke_session.call_tool("vault__nuke", {}),
+            )
+
+    assert "vault__wipe" in prompts["wipe_client"]
+    assert "vault__nuke" in prompts["nuke_client"]
+    assert "wiped" in wipe_result.content[0].text
+    assert "approval denied" in nuke_result.content[0].text
+    assert ran == ["wipe"]
+
+
+@pytest.mark.asyncio
+async def test_unusable_elicitation_response_never_executes():
+    pytest.importorskip("mcp")
+    from thingctx.integrations.mcp import _elicit_approver, build_mcp_server
+
+    ran = []
+
+    async def elicit(message, requestedSchema):
+        return SimpleNamespace(action=None)
+
+    session = SimpleNamespace(elicit=elicit, check_client_capability=lambda cap: True)
+    request_context = SimpleNamespace(session=session)
+    fake_server = SimpleNamespace(request_context=request_context)
+    inv = LocalBinding({"wipe": lambda: ran.append("wipe") or {"wiped": True}})
+    server = build_mcp_server(
+        ThingClient(tds=[TD], bindings=[inv]),
+        approve=_elicit_approver(fake_server),
+        tool_mode="flat",
+    )
+
+    assert "approval denied" in await _call(server, "vault__wipe")
+    assert ran == []
+
+
+@pytest.mark.asyncio
 async def test_bypass_replay_does_not_auto_approve_a_concurrent_call():
     """Replaying a user-approved call must not open the gate for OTHER calls in
     flight on the same shared client. Over a shared transport (e.g. --http),
