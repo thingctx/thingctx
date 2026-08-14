@@ -41,6 +41,7 @@ import asyncio
 import base64
 import collections
 import contextlib
+from contextvars import ContextVar
 import importlib.util
 import logging
 import os
@@ -80,6 +81,8 @@ _MAX_SNAPSHOT_FRAMES = 32
 # leaked token could release a parked destructive call; a confirm that arrives
 # later than this re-runs the action and parks it afresh.
 _APPROVAL_TTL_S = 300.0
+
+_request_session: ContextVar[Any | None] = ContextVar("thingctx_mcp_request_session", default=None)
 
 
 def _thingctx_version() -> str:
@@ -142,7 +145,7 @@ def _client_can_elicit(session: Any) -> bool:
         return False
 
 
-def _elicit_approver(server: Any) -> Callable[[Any], Awaitable[bool]]:
+def _elicit_approver() -> Callable[[Any], Awaitable[bool]]:
     """An approver that asks the connected MCP client to confirm a gated call.
 
     If the client supports MCP elicitation, ask via a dialog and honor the
@@ -152,9 +155,8 @@ def _elicit_approver(server: Any) -> Callable[[Any], Awaitable[bool]]:
     session at all (a gate with nobody to open stays shut)."""
 
     async def approve(req: Any) -> bool:
-        try:
-            session = server.request_context.session
-        except Exception:
+        session = _request_session.get()
+        if session is None:
             return False
         if not _client_can_elicit(session):
             # No dialog channel: hand off to the approve tool via the bridge.
@@ -409,7 +411,7 @@ def build_mcp_server(
     if callable(approve):
         client.set_approval(approve, approve_when=approve_when)
     elif approve == "elicit" and client._approve is None:
-        client.set_approval(_elicit_approver(server), approve_when=approve_when)
+        client.set_approval(_elicit_approver(), approve_when=approve_when)
     elif approve_when is not None:
         client.set_approval(client._approve, approve_when=approve_when)
 
@@ -945,7 +947,11 @@ def build_mcp_server(
             return await _run_gated_call(parked["tool"], parked["args"], bypass_approval=True)
         # Every other tool runs through the gated dispatcher, which turns a
         # can't-elicit approval into a pending-approval envelope + token.
-        return await _run_gated_call(tool, args)
+        session_token = _request_session.set(session)
+        try:
+            return await _run_gated_call(tool, args)
+        finally:
+            _request_session.reset(session_token)
 
     # Properties -> readable resources; events -> resources draining the recent
     # pushed payloads. Observable properties and events are also subscribable.

@@ -161,42 +161,40 @@ async def test_default_elicit_keeps_existing_approver():
 @pytest.mark.asyncio
 async def test_elicit_approver_accept_deny_and_fallback():
     pytest.importorskip("mcp")
-    from thingctx.integrations.mcp import _elicit_approver, _NeedsManualApproval
+    from thingctx.integrations import mcp as mcp_mod
     from thingctx.trust import ApprovalRequest
 
     req = ApprovalRequest("vault__wipe", {}, "urn:demo:vault:v1", "wipe", "TD-declared")
 
-    def server_with(action=None, raise_elicit=False, no_ctx=False, can_elicit=True):
+    def session_with(action=None, raise_elicit=False, can_elicit=True):
         async def elicit(message, requestedSchema):
             if raise_elicit:
                 raise RuntimeError("client has no elicitation capability")
             return SimpleNamespace(action=action)
 
         # check_client_capability reports whether the client declared elicitation.
-        session = SimpleNamespace(elicit=elicit, check_client_capability=lambda cap: can_elicit)
+        return SimpleNamespace(elicit=elicit, check_client_capability=lambda cap: can_elicit)
 
-        class S:
-            @property
-            def request_context(self):
-                if no_ctx:
-                    raise LookupError("no active request")
-                return SimpleNamespace(session=session)
-
-        return S()
+    async def approve_with(session):
+        token = mcp_mod._request_session.set(session)
+        try:
+            return await mcp_mod._elicit_approver()(req)
+        finally:
+            mcp_mod._request_session.reset(token)
 
     # With an elicitation-capable client, the dialog answer is honored.
-    assert await _elicit_approver(server_with(action="accept"))(req) is True
-    assert await _elicit_approver(server_with(action="decline"))(req) is False
-    assert await _elicit_approver(server_with(action="cancel"))(req) is False
+    assert await approve_with(session_with(action="accept")) is True
+    assert await approve_with(session_with(action="decline")) is False
+    assert await approve_with(session_with(action="cancel")) is False
     # No live session at all: deny (a gate with nobody to open stays shut).
-    assert await _elicit_approver(server_with(no_ctx=True))(req) is False
+    assert await mcp_mod._elicit_approver()(req) is False
     # Client cannot elicit -> raise _NeedsManualApproval so the bridge routes to
     # the approve-tool flow (rather than hanging or silently denying).
-    with pytest.raises(_NeedsManualApproval):
-        await _elicit_approver(server_with(can_elicit=False))(req)
+    with pytest.raises(mcp_mod._NeedsManualApproval):
+        await approve_with(session_with(can_elicit=False))
     # Elicit unexpectedly fails at call time -> also route to the approve tool.
-    with pytest.raises(_NeedsManualApproval):
-        await _elicit_approver(server_with(raise_elicit=True))(req)
+    with pytest.raises(mcp_mod._NeedsManualApproval):
+        await approve_with(session_with(raise_elicit=True))
 
 
 @pytest.mark.asyncio
@@ -253,7 +251,7 @@ async def test_request_scoped_approval_uses_each_client_session():
 @pytest.mark.asyncio
 async def test_unusable_elicitation_response_never_executes():
     pytest.importorskip("mcp")
-    from thingctx.integrations.mcp import _elicit_approver, build_mcp_server
+    from thingctx.integrations import mcp as mcp_mod
 
     ran = []
 
@@ -261,16 +259,16 @@ async def test_unusable_elicitation_response_never_executes():
         return SimpleNamespace(action=None)
 
     session = SimpleNamespace(elicit=elicit, check_client_capability=lambda cap: True)
-    request_context = SimpleNamespace(session=session)
-    fake_server = SimpleNamespace(request_context=request_context)
     inv = LocalBinding({"wipe": lambda: ran.append("wipe") or {"wiped": True}})
-    server = build_mcp_server(
-        ThingClient(tds=[TD], bindings=[inv]),
-        approve=_elicit_approver(fake_server),
-        tool_mode="flat",
-    )
+    client = ThingClient(tds=[TD], bindings=[inv], approve=mcp_mod._elicit_approver())
 
-    assert "approval denied" in await _call(server, "vault__wipe")
+    token = mcp_mod._request_session.set(session)
+    try:
+        result = await client.call_tool("vault__wipe", {})
+    finally:
+        mcp_mod._request_session.reset(token)
+
+    assert result["error"] == "approval denied"
     assert ran == []
 
 
