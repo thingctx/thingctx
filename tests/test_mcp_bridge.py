@@ -17,40 +17,96 @@ TD = {
     "actions": {
         "status": {"idempotent": True, "forms": [{"href": "local://status"}]},
         "set_speed": {
-            "input": {"type": "object", "properties": {"rpm": {"type": "integer"}}},
+            "input": {
+                "type": "object",
+                "properties": {"rpm": {"type": "integer"}},
+                "required": ["rpm"],
+            },
             "forms": [{"href": "local://set_speed"}],
         },
     },
 }
 
 
+async def _subscribe_resource_legacy(session, uri):
+    from mcp import types
+
+    return await session.send_request(
+        types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri)),
+        types.EmptyResult,
+    )
+
+
 @pytest.mark.asyncio
 async def test_td_becomes_callable_mcp_tools():
     pytest.importorskip("mcp")
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
-    inv = LocalBinding(
-        {"status": lambda: {"rpm": 0}, "set_speed": lambda rpm=0: {"ok": True, "rpm": rpm}}
-    )
+    calls = []
+
+    def set_speed(rpm=0):
+        calls.append(rpm)
+        return {"ok": True, "rpm": rpm}
+
+    inv = LocalBinding({"status": lambda: {"rpm": 0}, "set_speed": set_speed})
     server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), name="pump", tool_mode="flat")
     async with connect(server) as s:
         await s.initialize()
         tools = {t.name: t for t in (await s.list_tools()).tools}
         assert "pump__set_speed" in tools
         # the risk hints come from the TD's own semantics
-        assert tools["pump__status"].annotations.readOnlyHint is True
+        assert tools["pump__status"].annotations.read_only_hint is True
+        missing = await s.call_tool("pump__set_speed", {})
+        wrong_type = await s.call_tool("pump__set_speed", {"rpm": "fast"})
+        assert missing.is_error is True
+        assert "'rpm' is a required property" in missing.content[0].text
+        assert wrong_type.is_error is True
+        assert "is not of type 'integer'" in wrong_type.content[0].text
+        assert calls == []
         # call a tool for real
         res = await s.call_tool("pump__set_speed", {"rpm": 1200})
         assert "1200" in res.content[0].text
+        assert calls == [1200]
+
+
+@pytest.mark.asyncio
+async def test_oldest_supported_protocol_can_call_a_bridge_tool():
+    pytest.importorskip("mcp")
+    from mcp import types
+
+    from tests.mcp_memory import connect
+    from thingctx.integrations.mcp import build_mcp_server
+
+    inv = LocalBinding({"status": lambda: {"rpm": 0}})
+    server = build_mcp_server(
+        ThingClient(tds=[TD], bindings=[inv]), approve=None, tool_mode="flat"
+    )
+    protocol_version = "2024-11-05"
+
+    async with connect(server) as session:
+        initialized = await session.send_request(
+            types.InitializeRequest(
+                params=types.InitializeRequestParams(
+                    protocol_version=protocol_version,
+                    capabilities=types.ClientCapabilities(),
+                    client_info=types.Implementation(name="thingctx-test", version="1"),
+                )
+            ),
+            types.InitializeResult,
+        )
+        session.adopt(initialized)
+        await session.send_notification(types.InitializedNotification())
+        result = await session.call_tool("pump__status", {})
+
+    assert initialized.protocol_version == protocol_version
+    assert '"rpm": 0' in result.content[0].text
 
 
 @pytest.mark.asyncio
 async def test_explicit_tc_mcp_annotations_override_derived_hints():
     pytest.importorskip("mcp")
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     td = {
@@ -82,10 +138,10 @@ async def test_explicit_tc_mcp_annotations_override_derived_hints():
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
     annotations = tools["pump__status"].annotations
-    assert annotations.readOnlyHint is False
-    assert annotations.destructiveHint is True
-    assert annotations.idempotentHint is False
-    assert annotations.openWorldHint is False
+    assert annotations.read_only_hint is False
+    assert annotations.destructive_hint is True
+    assert annotations.idempotent_hint is False
+    assert annotations.open_world_hint is False
 
 
 @pytest.mark.asyncio
@@ -94,8 +150,7 @@ async def test_gateway_mode_projects_verbs_and_routes_invoke():
     verbs are listed instead of pump__status/pump__set_speed, and invoke_action
     routes back to the real action."""
     pytest.importorskip("mcp")
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     inv = LocalBinding(
@@ -135,8 +190,7 @@ async def test_auto_mode_is_flat_for_small_fleet_gateway_for_large():
     like pump__set_speed match user intent and resist the bypass), a large fleet
     flips to the constant gateway surface. Selected by the flat tool count."""
     pytest.importorskip("mcp")
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     inv = LocalBinding(
@@ -208,11 +262,13 @@ class _Dev:
 
     def __init__(self) -> None:
         self.target = 1000
+        self.writes = []
 
     def get_target_rpm(self) -> int:
         return self.target
 
     def set_target_rpm(self, value: int) -> dict:
+        self.writes.append(value)
         self.target = value
         return {"ok": True, "target_rpm": value}
 
@@ -228,31 +284,39 @@ async def test_writable_property_becomes_set_tool_and_errors_signal():
     are read-only), and a runtime error is flagged ``isError`` rather than
     reported to the model as success."""
     pytest.importorskip("mcp")
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
-    client = ThingClient(tds=[TELEMETRY_TD], bindings=[LocalBinding(_Dev())])
+    dev = _Dev()
+    client = ThingClient(tds=[TELEMETRY_TD], bindings=[LocalBinding(dev)])
     server = build_mcp_server(client, name="pump", approve=None, tool_mode="flat")
     async with connect(server) as s:
         await s.initialize()
         tools = {t.name: t for t in (await s.list_tools()).tools}
         assert "pump__target_rpm__set" in tools
         setter = tools["pump__target_rpm__set"]
-        assert setter.annotations.readOnlyHint is False
+        assert setter.annotations.read_only_hint is False
         # the value is typed from the property's own schema
-        assert setter.inputSchema["properties"]["value"]["type"] == "integer"
+        assert setter.input_schema["properties"]["value"]["type"] == "integer"
+
+        missing = await s.call_tool("pump__target_rpm__set", {})
+        wrong_type = await s.call_tool("pump__target_rpm__set", {"value": "fast"})
+        assert missing.is_error is True
+        assert wrong_type.is_error is True
+        assert dev.target == 1000
+        assert dev.writes == []
 
         # write through the tool, then read back through the property resource
         res = await s.call_tool("pump__target_rpm__set", {"value": 1500})
-        assert res.isError is False
-        assert res.structuredContent == {"ok": True, "target_rpm": 1500}
+        assert res.is_error is False
+        assert res.structured_content == {"ok": True, "target_rpm": 1500}
+        assert dev.writes == [1500]
         read = await s.read_resource("thing://pump__target_rpm")
         assert "1500" in read.contents[0].text
 
         # a runtime error becomes isError (with the message), not a silent pass
         bad = await s.call_tool("pump__set_speed", {"rpm": 99999})
-        assert bad.isError is True
+        assert bad.is_error is True
         assert "too high" in bad.content[0].text
 
 
@@ -264,8 +328,7 @@ async def test_events_and_observables_are_subscribable_resources():
     pytest.importorskip("mcp")
     import asyncio
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     dev = _Dev()
@@ -289,7 +352,7 @@ async def test_events_and_observables_are_subscribable_resources():
 
         # an event: subscribe, the device emits one, a resources/updated arrives,
         # and reading the URI drains the buffered payload(s) (events have no live read)
-        await s.subscribe_resource("event://pump__overheat")
+        await _subscribe_resource_legacy(s, "event://pump__overheat")
         binding.emit("overheat", {"temp": 99, "limit": 80})
         await asyncio.sleep(0.05)
         assert "event://pump__overheat" in updated
@@ -299,7 +362,7 @@ async def test_events_and_observables_are_subscribable_resources():
         # an observable property: an external change pushes an update, and the
         # re-read reflects the new live value
         updated.clear()
-        await s.subscribe_resource("thing://pump__target_rpm")
+        await _subscribe_resource_legacy(s, "thing://pump__target_rpm")
         dev.target = 3000
         binding.emit("target_rpm", 3000)
         await asyncio.sleep(0.05)
@@ -318,8 +381,7 @@ async def test_event_buffer_delivers_burst_in_order_and_flags_drops():
     import asyncio
     import json
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     binding = LocalBinding(_Dev())
@@ -332,7 +394,7 @@ async def test_event_buffer_delivers_burst_in_order_and_flags_drops():
     uri = "event://pump__overheat"
     async with connect(server) as s:
         await s.initialize()
-        await s.subscribe_resource(uri)
+        await _subscribe_resource_legacy(s, uri)
         await asyncio.sleep(0.02)  # let the relay establish before emitting
 
         for i in range(1, 6):  # five events, ring holds three
@@ -367,8 +429,7 @@ async def test_subscription_relay_deregisters_so_resubscribe_resumes():
     pytest.importorskip("mcp")
     import asyncio
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     class _FiniteEvents:
@@ -411,13 +472,13 @@ async def test_subscription_relay_deregisters_so_resubscribe_resumes():
     uri = "event://pump__overheat"
     async with connect(server, message_handler=on_message) as s:
         await s.initialize()
-        await s.subscribe_resource(uri)
+        await _subscribe_resource_legacy(s, uri)
         await asyncio.sleep(0.05)
         assert updated.count(uri) == 1
         assert "1" in (await s.read_resource(uri)).contents[0].text
 
         # the stream has ended; subscribing again starts a fresh relay
-        await s.subscribe_resource(uri)
+        await _subscribe_resource_legacy(s, uri)
         await asyncio.sleep(0.05)
         assert updated.count(uri) == 2
         assert "2" in (await s.read_resource(uri)).contents[0].text
@@ -431,8 +492,7 @@ async def test_gateway_start_subscription_fills_event_urivariables():
     pytest.importorskip("mcp")
     import asyncio
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     seen: dict = {}
@@ -491,8 +551,7 @@ async def test_gateway_background_subscription_buffers_between_reads():
     pytest.importorskip("mcp")
     import asyncio
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     push = asyncio.Queue()
@@ -564,8 +623,8 @@ async def test_media_td_becomes_snapshot_image_tool():
     import threading
 
     import numpy as np
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
 
+    from tests.mcp_memory import connect
     from thingctx.bindings.builtin.media import Frame, MediaBinding
     from thingctx.integrations.mcp import build_mcp_server
 
@@ -593,11 +652,11 @@ async def test_media_td_becomes_snapshot_image_tool():
         # and not an invoke action
         assert snapshot in tools
         assert media_name not in tools
-        assert tools[snapshot].annotations.readOnlyHint is True
+        assert tools[snapshot].annotations.read_only_hint is True
         # calling it returns one frame as MCP image content
         res = await s.call_tool(snapshot, {})
         assert res.content[0].type == "image"
-        assert res.content[0].mimeType == "image/jpeg"
+        assert res.content[0].mime_type == "image/jpeg"
         assert res.content[0].data  # base64 jpeg
 
 
@@ -612,8 +671,8 @@ async def test_gateway_snapshot_verb_captures_media_and_hides_per_thing_tool():
     import threading
 
     import numpy as np
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
 
+    from tests.mcp_memory import connect
     from thingctx.bindings.builtin.media import Frame, MediaBinding
     from thingctx.integrations.mcp import build_mcp_server
 
@@ -645,7 +704,7 @@ async def test_gateway_snapshot_verb_captures_media_and_hides_per_thing_tool():
         # the verb returns an image
         res = await s.call_tool("snapshot", {"thing_id": "cam", "affordance": "watch"})
         assert res.content[0].type == "image"
-        assert res.content[0].mimeType == "image/jpeg"
+        assert res.content[0].mime_type == "image/jpeg"
 
 
 @pytest.mark.asyncio
@@ -657,8 +716,8 @@ async def test_media_snapshot_can_return_a_clip():
     import threading
 
     import numpy as np
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
 
+    from tests.mcp_memory import connect
     from thingctx.bindings.builtin.media import Frame, MediaBinding
     from thingctx.integrations.mcp import build_mcp_server
 
@@ -685,11 +744,11 @@ async def test_media_snapshot_can_return_a_clip():
     async with connect(server) as s:
         await s.initialize()
         tools = {t.name: t for t in (await s.list_tools()).tools}
-        assert "frames" in tools[snapshot].inputSchema["properties"]
+        assert "frames" in tools[snapshot].input_schema["properties"]
         res = await s.call_tool(snapshot, {"frames": 3, "every": 2.0})
         images = [c for c in res.content if c.type == "image"]
         assert len(images) == 3
-        assert all(c.mimeType == "image/jpeg" and c.data for c in images)
+        assert all(c.mime_type == "image/jpeg" and c.data for c in images)
 
 
 # A media form whose href carries uriVariables (the registry pattern, e.g.
@@ -726,8 +785,8 @@ async def test_media_snapshot_fills_href_urivariables_from_args():
     import threading
 
     import numpy as np
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
 
+    from tests.mcp_memory import connect
     from thingctx.bindings.builtin.media import Frame, MediaBinding
     from thingctx.integrations.mcp import build_mcp_server
 
@@ -767,14 +826,13 @@ async def test_server_reports_thingctx_version_not_the_sdk():
     pytest.importorskip("mcp")
     import importlib.metadata as md
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     inv = LocalBinding({"status": lambda: {"rpm": 0}})
     server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), name="pump", tool_mode="flat")
     async with connect(server) as s:
-        info = (await s.initialize()).serverInfo
+        info = (await s.initialize()).server_info
     # Expected with the same fallback the bridge uses, so a source checkout with
     # no installed metadata still runs this. Comparing against the SDK version
     # would fail the day the two releases happen to share a string.

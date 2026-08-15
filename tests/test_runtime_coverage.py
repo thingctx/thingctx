@@ -190,23 +190,23 @@ def test_semantic_validator_flags_problems():
 
 async def test_mcp_emits_output_schema_and_resource_templates(pump_client):
     pytest.importorskip("mcp")
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import build_mcp_server
 
     _, client = pump_client
     server = build_mcp_server(client, approve="elicit", approve_when="never", tool_mode="flat")
     async with connect(server) as s:
+        await s.initialize()
         tools = {t.name: t for t in (await s.list_tools()).tools}
         # a synchronous action advertises outputSchema; the async one does not
         # (its tool returns a status envelope, not the raw output)
-        assert tools["pump__status"].outputSchema is not None
-        assert tools["pump__calibrate"].outputSchema is None
+        assert tools["pump__status"].output_schema is not None
+        assert tools["pump__calibrate"].output_schema is None
         # unified surface: a cancel tool and a writable-property set tool
         assert "pump__calibrate__cancel" in tools
         assert "pump__target_rpm__set" in tools
         # a safe uriVariable read becomes a resource template
-        tmpls = [t.uriTemplate for t in (await s.list_resource_templates()).resourceTemplates]
+        tmpls = [t.uri_template for t in (await s.list_resource_templates()).resource_templates]
         assert "thing://pump__read_sensor/{id}" in tmpls
         rr = await s.read_resource("thing://pump__read_sensor/temp-1")
         assert json.loads(rr.contents[0].text) == {"id": "temp-1", "value": 72}

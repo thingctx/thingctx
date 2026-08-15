@@ -71,7 +71,7 @@ def env(tmp_path, monkeypatch):
 class _AcceptSession:
     """A session whose elicitation always accepts (a user clicking approve)."""
 
-    async def elicit(self, message, requestedSchema, **kw):
+    async def elicit(self, message, requested_schema, **kw):
         class R:
             action = "accept"
 
@@ -79,7 +79,7 @@ class _AcceptSession:
 
 
 class _DeclineSession:
-    async def elicit(self, message, requestedSchema, **kw):
+    async def elicit(self, message, requested_schema, **kw):
         class R:
             action = "decline"
 
@@ -89,7 +89,7 @@ class _DeclineSession:
 class _CannotElicitSession:
     """A client with no elicitation support, which raises instead of prompting."""
 
-    async def elicit(self, message, requestedSchema, **kw):
+    async def elicit(self, message, requested_schema, **kw):
         raise RuntimeError("client does not support elicitation")
 
 
