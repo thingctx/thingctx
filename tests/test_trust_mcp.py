@@ -31,7 +31,7 @@ def _inv():
 
 
 async def _call(server, tool, args=None):
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
+    from tests.mcp_memory import connect
 
     async with connect(server) as s:
         await s.initialize()
@@ -66,8 +66,7 @@ async def test_gated_action_falls_back_to_approve_tool_when_client_cannot_elicit
     pytest.importorskip("mcp")
     import json
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations.mcp import _NeedsManualApproval, build_mcp_server
 
     # An approver standing in for a client that cannot elicit: it raises the
@@ -103,8 +102,7 @@ async def test_approval_tokens_are_random_and_expire(monkeypatch):
     import json
     import re
 
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
-
+    from tests.mcp_memory import connect
     from thingctx.integrations import mcp as mcp_mod
 
     def _cannot_elicit(req):
@@ -161,42 +159,115 @@ async def test_default_elicit_keeps_existing_approver():
 @pytest.mark.asyncio
 async def test_elicit_approver_accept_deny_and_fallback():
     pytest.importorskip("mcp")
-    from thingctx.integrations.mcp import _elicit_approver, _NeedsManualApproval
+    from thingctx.integrations import mcp as mcp_mod
     from thingctx.trust import ApprovalRequest
 
     req = ApprovalRequest("vault__wipe", {}, "urn:demo:vault:v1", "wipe", "TD-declared")
 
-    def server_with(action=None, raise_elicit=False, no_ctx=False, can_elicit=True):
-        async def elicit(message, requestedSchema):
+    def session_with(action=None, raise_elicit=False, can_elicit=True):
+        async def elicit(message, requested_schema):
             if raise_elicit:
                 raise RuntimeError("client has no elicitation capability")
             return SimpleNamespace(action=action)
 
         # check_client_capability reports whether the client declared elicitation.
-        session = SimpleNamespace(elicit=elicit, check_client_capability=lambda cap: can_elicit)
+        return SimpleNamespace(elicit=elicit, check_client_capability=lambda cap: can_elicit)
 
-        class S:
-            @property
-            def request_context(self):
-                if no_ctx:
-                    raise LookupError("no active request")
-                return SimpleNamespace(session=session)
-
-        return S()
+    async def approve_with(session):
+        token = mcp_mod._request_session.set(session)
+        try:
+            return await mcp_mod._elicit_approver()(req)
+        finally:
+            mcp_mod._request_session.reset(token)
 
     # With an elicitation-capable client, the dialog answer is honored.
-    assert await _elicit_approver(server_with(action="accept"))(req) is True
-    assert await _elicit_approver(server_with(action="decline"))(req) is False
-    assert await _elicit_approver(server_with(action="cancel"))(req) is False
+    assert await approve_with(session_with(action="accept")) is True
+    assert await approve_with(session_with(action="decline")) is False
+    assert await approve_with(session_with(action="cancel")) is False
     # No live session at all: deny (a gate with nobody to open stays shut).
-    assert await _elicit_approver(server_with(no_ctx=True))(req) is False
+    assert await mcp_mod._elicit_approver()(req) is False
     # Client cannot elicit -> raise _NeedsManualApproval so the bridge routes to
     # the approve-tool flow (rather than hanging or silently denying).
-    with pytest.raises(_NeedsManualApproval):
-        await _elicit_approver(server_with(can_elicit=False))(req)
+    with pytest.raises(mcp_mod._NeedsManualApproval):
+        await approve_with(session_with(can_elicit=False))
     # Elicit unexpectedly fails at call time -> also route to the approve tool.
-    with pytest.raises(_NeedsManualApproval):
-        await _elicit_approver(server_with(raise_elicit=True))(req)
+    with pytest.raises(mcp_mod._NeedsManualApproval):
+        await approve_with(session_with(raise_elicit=True))
+
+
+@pytest.mark.asyncio
+async def test_request_scoped_approval_uses_each_client_session():
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from mcp import types
+
+    from tests.mcp_memory import connect
+    from thingctx.integrations.mcp import build_mcp_server
+
+    wipe_prompted = asyncio.Event()
+    nuke_prompted = asyncio.Event()
+    prompts = {}
+    ran = []
+
+    async def accept_wipe(_context, params):
+        prompts["wipe_client"] = params.message
+        wipe_prompted.set()
+        await asyncio.wait_for(nuke_prompted.wait(), 2.0)
+        return types.ElicitResult(action="accept")
+
+    async def decline_nuke(_context, params):
+        prompts["nuke_client"] = params.message
+        nuke_prompted.set()
+        await asyncio.wait_for(wipe_prompted.wait(), 2.0)
+        return types.ElicitResult(action="decline")
+
+    inv = LocalBinding(
+        {
+            "wipe": lambda: ran.append("wipe") or {"wiped": True},
+            "nuke": lambda: ran.append("nuke") or {"nuked": True},
+        }
+    )
+    server = build_mcp_server(ThingClient(tds=[TD], bindings=[inv]), tool_mode="flat")
+
+    async with connect(server, elicitation_callback=accept_wipe) as wipe_session:
+        async with connect(server, elicitation_callback=decline_nuke) as nuke_session:
+            await wipe_session.initialize()
+            await nuke_session.initialize()
+            wipe_result, nuke_result = await asyncio.gather(
+                wipe_session.call_tool("vault__wipe", {}),
+                nuke_session.call_tool("vault__nuke", {}),
+            )
+
+    assert "vault__wipe" in prompts["wipe_client"]
+    assert "vault__nuke" in prompts["nuke_client"]
+    assert "wiped" in wipe_result.content[0].text
+    assert "approval denied" in nuke_result.content[0].text
+    assert ran == ["wipe"]
+
+
+@pytest.mark.asyncio
+async def test_unusable_elicitation_response_never_executes():
+    pytest.importorskip("mcp")
+    from thingctx.integrations import mcp as mcp_mod
+
+    ran = []
+
+    async def elicit(message, requested_schema):
+        return SimpleNamespace(action=None)
+
+    session = SimpleNamespace(elicit=elicit, check_client_capability=lambda cap: True)
+    inv = LocalBinding({"wipe": lambda: ran.append("wipe") or {"wiped": True}})
+    client = ThingClient(tds=[TD], bindings=[inv], approve=mcp_mod._elicit_approver())
+
+    token = mcp_mod._request_session.set(session)
+    try:
+        result = await client.call_tool("vault__wipe", {})
+    finally:
+        mcp_mod._request_session.reset(token)
+
+    assert result["error"] == "approval denied"
+    assert ran == []
 
 
 @pytest.mark.asyncio
@@ -231,17 +302,18 @@ async def test_bypass_replay_does_not_auto_approve_a_concurrent_call():
     server = build_mcp_server(client, tool_mode="flat")
     # Drive the raw request handler directly: the session harness serializes
     # calls, which would hide the race this test is about.
-    handler = server.request_handlers[types.CallToolRequest]
+    entry = server.get_request_handler("tools/call")
+    assert entry is not None
+    handler = entry.handler
 
     def _call(name, args=None):
-        req = types.CallToolRequest(
-            method="tools/call",
-            params=types.CallToolRequestParams(name=name, arguments=args or {}),
+        return handler(
+            SimpleNamespace(session=None),
+            types.CallToolRequestParams(name=name, arguments=args or {}),
         )
-        return handler(req)
 
     def _payload(result):
-        return json.loads(result.root.content[0].text)
+        return json.loads(result.content[0].text)
 
     parked = _payload(await _call("vault__wipe"))
     token = parked["approval_token"]

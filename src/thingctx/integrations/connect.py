@@ -183,7 +183,7 @@ async def _run_connect(thing: Any, scheme: Any, session: Any) -> str | None:
                     f"Connect {label}? This opens a browser once so you can sign in "
                     f"and grant access. No password or token is shared with the agent."
                 ),
-                requestedSchema={"type": "object", "properties": {}},
+                requested_schema={"type": "object", "properties": {}},
             )
         except Exception:
             return (

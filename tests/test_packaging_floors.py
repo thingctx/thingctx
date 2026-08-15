@@ -25,7 +25,7 @@ def _declared_floors(package: str) -> set[str]:
     Read with a regex rather than tomllib, which is 3.11+ and this suite runs on
     3.10.
     """
-    # Capture only the version, so adding an upper bound later ("mcp>=1.3,<2")
+    # Capture only the version, so adding an upper bound later ("mcp>=2,<3")
     # narrows the pin rather than turning this into a confusing failure.
     text = _PYPROJECT.read_text()
     return set(re.findall(rf'"{re.escape(package)}>=([0-9][0-9.]*)', text))
@@ -35,7 +35,7 @@ def _declared_floors(package: str) -> set[str]:
 def test_every_mcp_pin_declares_the_same_floor():
     """Reading the pins needs no SDK, so this must not hide behind an importorskip:
     the guard is worth least on the machine that happens to have mcp installed."""
-    assert _declared_floors("mcp") == {"1.3"}, (
+    assert _declared_floors("mcp") == {"2"}, (
         "every mcp pin must declare the floor the bridge actually builds on"
     )
 
@@ -46,9 +46,22 @@ def test_installed_mcp_accepts_what_the_bridge_passes():
 
     from mcp.server.lowlevel import Server
 
-    # Both are passed by build_mcp_server. instructions is the later of the two,
-    # so the floor above is the release that has it.
+    # These are passed by build_mcp_server; the callback registration API is
+    # the MCP 2 compatibility boundary guarded by the floor above.
     accepted = set(inspect.signature(Server.__init__).parameters)
-    assert {"version", "instructions"} <= accepted, (
-        f"the installed mcp is missing {sorted({'version', 'instructions'} - accepted)}"
+    required = {
+        "version",
+        "instructions",
+        "on_list_tools",
+        "on_call_tool",
+        "on_list_resources",
+        "on_list_resource_templates",
+        "on_read_resource",
+        "on_subscribe_resource",
+        "on_unsubscribe_resource",
+        "on_list_prompts",
+        "on_get_prompt",
+    }
+    assert required <= accepted, (
+        f"the installed mcp is missing {sorted(required - accepted)}"
     )

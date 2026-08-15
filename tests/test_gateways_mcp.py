@@ -189,7 +189,7 @@ def _guarded_client(*, roles):
 
 
 async def _call_via_server(server, tool, args=None):
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
+    from tests.mcp_memory import connect
 
     async with connect(server) as s:
         await s.initialize()

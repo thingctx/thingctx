@@ -47,6 +47,7 @@ import os
 import secrets
 import sys
 import time
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, cast
 
 from thingctx.bindings import LocalBinding, discover_local_handlers
@@ -66,6 +67,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from mcp import types
+    from mcp.server.context import ServerRequestContext
     from mcp.server.lowlevel import Server
 
     from thingctx.trust import ApprovePolicy
@@ -80,6 +82,8 @@ _MAX_SNAPSHOT_FRAMES = 32
 # leaked token could release a parked destructive call; a confirm that arrives
 # later than this re-runs the action and parks it afresh.
 _APPROVAL_TTL_S = 300.0
+
+_request_session: ContextVar[Any | None] = ContextVar("thingctx_mcp_request_session", default=None)
 
 
 def _thingctx_version() -> str:
@@ -142,7 +146,7 @@ def _client_can_elicit(session: Any) -> bool:
         return False
 
 
-def _elicit_approver(server: Any) -> Callable[[Any], Awaitable[bool]]:
+def _elicit_approver() -> Callable[[Any], Awaitable[bool]]:
     """An approver that asks the connected MCP client to confirm a gated call.
 
     If the client supports MCP elicitation, ask via a dialog and honor the
@@ -152,9 +156,8 @@ def _elicit_approver(server: Any) -> Callable[[Any], Awaitable[bool]]:
     session at all (a gate with nobody to open stays shut)."""
 
     async def approve(req: Any) -> bool:
-        try:
-            session = server.request_context.session
-        except Exception:
+        session = _request_session.get()
+        if session is None:
             return False
         if not _client_can_elicit(session):
             # No dialog channel: hand off to the approve tool via the bridge.
@@ -169,7 +172,7 @@ def _elicit_approver(server: Any) -> Callable[[Any], Awaitable[bool]]:
         try:
             # An empty object schema asks for a plain accept / decline / cancel.
             result = await session.elicit(
-                message=message, requestedSchema={"type": "object", "properties": {}}
+                message=message, requested_schema={"type": "object", "properties": {}}
             )
         except Exception:
             raise _NeedsManualApproval() from None
@@ -204,9 +207,10 @@ def build_mcp_server(
     """
 
     # optional dep, kept local so the core imports without the extra
+    from jsonschema import ValidationError, validate  # noqa: PLC0415
     from mcp import types  # noqa: PLC0415
     from mcp.server.lowlevel import Server  # noqa: PLC0415
-    from pydantic import AnyUrl  # noqa: PLC0415
+    from mcp_types.version import MODERN_PROTOCOL_VERSIONS  # noqa: PLC0415
 
     # Tool projection mode. The flat surface (one tool per action) grows with the
     # fleet: both the tool count and the context they cost every turn. The gateway
@@ -265,7 +269,6 @@ def build_mcp_server(
     )
     # Report thingctx's version, not the SDK's. A host shows serverInfo in its
     # logs and its UI, so without this a bug report names the MCP SDK release.
-    server: Server = Server(name, version=_thingctx_version(), instructions=_instructions)
     gateway = client.gateway() if tool_mode == "gateway" else None
     # The gateway's own ``subscribe_event`` returns a live stream, which a direct
     # Python caller can iterate but MCP cannot carry. So over MCP there is ONE
@@ -409,7 +412,7 @@ def build_mcp_server(
     if callable(approve):
         client.set_approval(approve, approve_when=approve_when)
     elif approve == "elicit" and client._approve is None:
-        client.set_approval(_elicit_approver(server), approve_when=approve_when)
+        client.set_approval(_elicit_approver(), approve_when=approve_when)
     elif approve_when is not None:
         client.set_approval(client._approve, approve_when=approve_when)
 
@@ -473,10 +476,14 @@ def build_mcp_server(
     # property. Reads stay MCP resources, so property.get entries are skipped.
     # An action carries MCP annotations derived from the TD's semantics; a
     # `tc:mcp` block on the action passes any annotation through (and overrides).
-    @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
+    async def list_tools(
+        ctx: ServerRequestContext[Any], _params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
         out = []
-        valid = set(types.ToolAnnotations.model_fields)
+        annotation_fields = {
+            field.alias or field_name: field_name
+            for field_name, field in types.ToolAnnotations.model_fields.items()
+        }
         if gateway is not None:
             # Gateway mode: a constant verb surface, not one tool per action.
             read_only = {"search_things", "describe", "read_property", "read_subscription"}
@@ -487,18 +494,18 @@ def build_mcp_server(
                     types.Tool(
                         name=nm,
                         description=fn["description"],
-                        inputSchema=fn["parameters"],
+                        input_schema=fn["parameters"],
                         annotations=types.ToolAnnotations(
-                            readOnlyHint=nm in read_only,
-                            destructiveHint=False,
-                            idempotentHint=nm in read_only,
+                            read_only_hint=nm in read_only,
+                            destructive_hint=False,
+                            idempotent_hint=nm in read_only,
                         ),
                     )
                 )
             # In gateway mode media is the `snapshot` VERB (added to _gateway_specs
             # above), not per-Thing <slug>__snapshot tools, so the surface keeps one
             # shape for every affordance. Nothing more to append here.
-            return out
+            return types.ListToolsResult(tools=out)
         for entry in client.tool_surface():
             if entry["kind"] == "property.get":
                 continue
@@ -509,28 +516,40 @@ def build_mcp_server(
                 action = client.action_for(name)
                 if action is not None:
                     hints: dict = {
-                        "destructiveHint": action.is_destructive(),
-                        "idempotentHint": bool(action.read_only),
-                        "readOnlyHint": bool(action.read_only) and not action.is_destructive(),
+                        "destructive_hint": action.is_destructive(),
+                        "idempotent_hint": bool(action.read_only),
+                        "read_only_hint": bool(action.read_only) and not action.is_destructive(),
                     }
                     explicit = action.raw.get("tc:mcp") or action.raw.get("mcp") or {}
-                    hints.update({k: v for k, v in explicit.items() if k in valid})
+                    hints.update(
+                        {
+                            annotation_fields[k]: v
+                            for k, v in explicit.items()
+                            if k in annotation_fields
+                        }
+                    )
                     ann = types.ToolAnnotations(**hints)
                     # A long-running action returns a status envelope, not its
                     # raw output, so only advertise outputSchema for a
                     # synchronous action (whose structuredContent matches it).
                     if not client._is_async(action):
                         output_schema = entry.get("output_schema") or None
+                    if (
+                        output_schema
+                        and ctx.protocol_version not in MODERN_PROTOCOL_VERSIONS
+                        and output_schema.get("type") != "object"
+                    ):
+                        output_schema = None
             elif entry["kind"] in ("property.set", "action.cancel"):
                 ann = types.ToolAnnotations(
-                    readOnlyHint=False, idempotentHint=True, destructiveHint=False
+                    read_only_hint=False, idempotent_hint=True, destructive_hint=False
                 )
             out.append(
                 types.Tool(
                     name=name,
                     description=entry["description"],
-                    inputSchema=entry["input_schema"],
-                    outputSchema=output_schema,
+                    input_schema=entry["input_schema"],
+                    output_schema=output_schema,
                     annotations=ann,
                 )
             )
@@ -547,7 +566,7 @@ def build_mcp_server(
                         "return them as images: one still by default, or a short "
                         "clip (set frames > 1) sampled over time."
                     ),
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {
                             "seconds": {
@@ -566,7 +585,7 @@ def build_mcp_server(
                         },
                     },
                     annotations=types.ToolAnnotations(
-                        readOnlyHint=True, idempotentHint=True, destructiveHint=False
+                        read_only_hint=True, idempotent_hint=True, destructive_hint=False
                     ),
                 )
             )
@@ -584,7 +603,7 @@ def build_mcp_server(
                         "Opens a browser for you to approve; no password or token is "
                         "shared with the agent."
                     ),
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {
                             "thing": {
@@ -594,7 +613,7 @@ def build_mcp_server(
                         },
                     },
                     annotations=types.ToolAnnotations(
-                        readOnlyHint=False, idempotentHint=True, destructiveHint=False
+                        read_only_hint=False, idempotent_hint=True, destructive_hint=False
                     ),
                 )
             )
@@ -609,11 +628,11 @@ def build_mcp_server(
                     types.Tool(
                         name=nm,
                         description=fn["description"],
-                        inputSchema=fn["parameters"],
+                        input_schema=fn["parameters"],
                         annotations=types.ToolAnnotations(
-                            readOnlyHint=nm in bg_read_only,
-                            destructiveHint=False,
-                            idempotentHint=nm in bg_read_only,
+                            read_only_hint=nm in bg_read_only,
+                            destructive_hint=False,
+                            idempotent_hint=nm in bg_read_only,
                         ),
                     )
                 )
@@ -625,15 +644,15 @@ def build_mcp_server(
                 types.Tool(
                     name=fn["name"],
                     description=fn["description"],
-                    inputSchema=fn["parameters"],
+                    input_schema=fn["parameters"],
                     annotations=types.ToolAnnotations(
-                        readOnlyHint=False, idempotentHint=False, destructiveHint=False
+                        read_only_hint=False, idempotent_hint=False, destructive_hint=False
                     ),
                 )
             )
-        return out
+        return types.ListToolsResult(tools=out)
 
-    async def _snapshot(name: str, args: dict) -> Any:
+    async def _snapshot(name: str, args: dict) -> types.CallToolResult:
         """Grab one frame (or a short burst) from a media affordance and return
         them as MCP image content."""
 
@@ -675,16 +694,18 @@ def build_mcp_server(
         if not picked:
             return types.CallToolResult(
                 content=[types.TextContent(type="text", text=f"no frame from {name}")],
-                isError=True,
+                is_error=True,
             )
-        return [
-            types.ImageContent(
-                type="image",
-                data=base64.b64encode(frame_to_jpeg(fr)).decode("ascii"),
-                mimeType="image/jpeg",
-            )
-            for fr in picked
-        ]
+        return types.CallToolResult(
+            content=[
+                types.ImageContent(
+                    type="image",
+                    data=base64.b64encode(frame_to_jpeg(fr)).decode("ascii"),
+                    mime_type="image/jpeg",
+                )
+                for fr in picked
+            ]
+        )
 
     # Background subscriptions: a start/read/stop trio so an event's messages
     # accumulate BETWEEN tool calls (a plain collect would only capture during its own
@@ -818,8 +839,8 @@ def build_mcp_server(
         structured = payload if isinstance(payload, dict) else {"result": payload}
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=to_text(payload))],
-            structuredContent=structured,
-            isError=is_error,
+            structured_content=structured,
+            is_error=is_error,
         )
 
     async def _run_gated_call(
@@ -873,13 +894,27 @@ def build_mcp_server(
                 }
             )
 
-    @server.call_tool()
-    async def call_tool(tool: str, args: dict) -> Any:
-        args = args or {}
-        try:
-            session = server.request_context.session
-        except Exception:
-            session = None
+    async def call_tool(
+        ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+    ) -> types.CallToolResult | types.InputRequiredResult:
+        tool = params.name
+        args = params.arguments or {}
+        listed_tool = next(
+            (item for item in (await list_tools(ctx, None)).tools if item.name == tool), None
+        )
+        if listed_tool is not None:
+            try:
+                validate(instance=args, schema=listed_tool.input_schema)
+            except ValidationError as exc:
+                return types.CallToolResult(
+                    content=[
+                        types.TextContent(
+                            type="text", text=f"Input validation error: {exc.message}"
+                        )
+                    ],
+                    is_error=True,
+                )
+        session = ctx.session
         # The explicit connect tool: the agent (or the user) drives a sign in.
         if tool == CONNECT_TOOL:
             return _tool_result(await connect_tool(client, args, session))
@@ -945,74 +980,88 @@ def build_mcp_server(
             return await _run_gated_call(parked["tool"], parked["args"], bypass_approval=True)
         # Every other tool runs through the gated dispatcher, which turns a
         # can't-elicit approval into a pending-approval envelope + token.
-        return await _run_gated_call(tool, args)
+        session_token = _request_session.set(session)
+        try:
+            return await _run_gated_call(tool, args)
+        finally:
+            _request_session.reset(session_token)
 
     # Properties -> readable resources; events -> resources draining the recent
     # pushed payloads. Observable properties and events are also subscribable.
-    @server.list_resources()
-    async def list_resources() -> list[types.Resource]:
+    async def list_resources(
+        _ctx: ServerRequestContext[Any], _params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
         def _prop_resource(prop_name: str) -> types.Resource:
             prop = client.property_for(prop_name)
             tag = " (observable)" if prop is not None and prop.observable else ""
             return types.Resource(
-                uri=AnyUrl(_prop_uri(prop_name)),
+                uri=_prop_uri(prop_name),
                 name=prop_name,
                 description=f"Property {prop_name}{tag}",
             )
 
         out = [_prop_resource(prop_name) for prop_name in client.list_properties()]
         out.extend(
-            types.Resource(uri=AnyUrl(_event_uri(ev)), name=ev, description=f"Event {ev}")
+            types.Resource(uri=_event_uri(ev), name=ev, description=f"Event {ev}")
             for ev in event_names
         )
-        return out
+        return types.ListResourcesResult(resources=out)
 
-    @server.list_resource_templates()
-    async def list_resource_templates() -> list[types.ResourceTemplate]:
+    async def list_resource_templates(
+        _ctx: ServerRequestContext[Any], _params: types.PaginatedRequestParams | None
+    ) -> types.ListResourceTemplatesResult:
         # Parameterized reads: a safe action with one uriVariable is exposed as
         # a templated resource the client fills (e.g. thing://<tool>/{id}).
-        return [
-            types.ResourceTemplate(
-                uriTemplate=f"thing://{nm}/{{{var}}}",
-                name=nm,
-                description=f"Read {nm} by {var}.",
-            )
-            for nm, var in template_reads.items()
-        ]
+        return types.ListResourceTemplatesResult(
+            resource_templates=[
+                types.ResourceTemplate(
+                    uri_template=f"thing://{nm}/{{{var}}}",
+                    name=nm,
+                    description=f"Read {nm} by {var}.",
+                )
+                for nm, var in template_reads.items()
+            ]
+        )
 
-    @server.read_resource()
-    async def read_resource(uri: Any) -> str:
-        u = str(uri)
+    async def read_resource(
+        _ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult | types.InputRequiredResult:
+        u = params.uri
         if u.startswith("event://"):
             name = u.removeprefix("event://")
             buf = event_log.get(u)
             if not buf:
-                return to_text({"event": name, "pending": True})
-            batch = list(buf)
-            buf.clear()
-            # Drain: every occurrence since the last read, in order. ``seq`` is
-            # the last delivered sequence number; ``dropped`` counts occurrences
-            # shed before this read (a burst deeper than the ring), so a gap is
-            # visible to the client rather than silent.
-            return to_text(
-                {
+                payload: Any = {"event": name, "pending": True}
+            else:
+                batch = list(buf)
+                buf.clear()
+                # Drain: every occurrence since the last read, in order. ``seq`` is
+                # the last delivered sequence number; ``dropped`` counts occurrences
+                # shed before this read (a burst deeper than the ring), so a gap is
+                # visible to the client rather than silent.
+                payload = {
                     "event": name,
                     "values": [v for _, v in batch],
                     "count": len(batch),
                     "seq": batch[-1][0],
                     "dropped": event_dropped.pop(u, 0),
                 }
-            )
-        if u.startswith("thing://"):
+        elif u.startswith("thing://"):
             rest = u.removeprefix("thing://")
             if "/" in rest:
                 # a templated read: thing://<tool>/<value> -> invoke read action
                 tool, value = rest.split("/", 1)
                 if tool in template_reads:
-                    return to_text(await client.invoke(tool, {template_reads[tool]: value}))
-                return to_text({"error": f"unknown resource: {u}"})
-            return to_text(await client.read_property(rest))
-        return to_text({"error": f"unknown resource: {u}"})
+                    payload = await client.invoke(tool, {template_reads[tool]: value})
+                else:
+                    payload = {"error": f"unknown resource: {u}"}
+            else:
+                payload = await client.read_property(rest)
+        else:
+            payload = {"error": f"unknown resource: {u}"}
+        return types.ReadResourceResult(
+            contents=[types.TextResourceContents(uri=u, text=to_text(payload))]
+        )
 
     async def _pump(uri: str, name: str, session: Any) -> None:
         """Relay a subscription onto MCP and notify the client that the resource
@@ -1040,46 +1089,50 @@ def build_mcp_server(
         finally:
             pumps.pop(uri, None)
 
-    @server.subscribe_resource()
-    async def subscribe_resource(uri: Any) -> None:
-        u = str(uri)
+    async def subscribe_resource(
+        ctx: ServerRequestContext[Any], params: types.SubscribeRequestParams
+    ) -> types.EmptyResult:
+        u = params.uri
         name = subscribable.get(u)
         if name is None or u in pumps:
-            return  # not subscribable, or already relaying
-        try:
-            session = server.request_context.session
-        except Exception:
-            return
-        pumps[u] = asyncio.create_task(_pump(u, name, session))
+            return types.EmptyResult()  # not subscribable, or already relaying
+        pumps[u] = asyncio.create_task(_pump(u, name, ctx.session))
+        return types.EmptyResult()
 
-    @server.unsubscribe_resource()
-    async def unsubscribe_resource(uri: Any) -> None:
-        task = pumps.pop(str(uri), None)
+    async def unsubscribe_resource(
+        _ctx: ServerRequestContext[Any], params: types.UnsubscribeRequestParams
+    ) -> types.EmptyResult:
+        task = pumps.pop(params.uri, None)
         if task is not None:
             task.cancel()
+        return types.EmptyResult()
 
     # tc:PromptTemplate actions -> prompts
-    @server.list_prompts()
-    async def list_prompts_handler() -> list[types.Prompt]:
-        return [
-            types.Prompt(
-                name=p["name"],
-                description=p.get("description", ""),
-                arguments=[
-                    types.PromptArgument(
-                        name=a["name"],
-                        description=a.get("description", ""),
-                        required=a.get("required", False),
-                    )
-                    for a in p.get("arguments", [])
-                ],
-            )
-            for p in list_prompts(client)
-        ]
+    async def list_prompts_handler(
+        _ctx: ServerRequestContext[Any], _params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(
+            prompts=[
+                types.Prompt(
+                    name=p["name"],
+                    description=p.get("description", ""),
+                    arguments=[
+                        types.PromptArgument(
+                            name=a["name"],
+                            description=a.get("description", ""),
+                            required=a.get("required", False),
+                        )
+                        for a in p.get("arguments", [])
+                    ],
+                )
+                for p in list_prompts(client)
+            ]
+        )
 
-    @server.get_prompt()
-    async def get_prompt_handler(name: str, arguments: dict | None) -> types.GetPromptResult:
-        messages = await get_prompt(client, name, arguments or {})
+    async def get_prompt_handler(
+        _ctx: ServerRequestContext[Any], params: types.GetPromptRequestParams
+    ) -> types.GetPromptResult | types.InputRequiredResult:
+        messages = await get_prompt(client, params.name, params.arguments or {})
         return types.GetPromptResult(
             messages=[
                 types.PromptMessage(
@@ -1090,6 +1143,20 @@ def build_mcp_server(
             ]
         )
 
+    server: Server = Server(
+        name,
+        version=_thingctx_version(),
+        instructions=_instructions,
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+        on_list_resources=list_resources,
+        on_list_resource_templates=list_resource_templates,
+        on_read_resource=read_resource,
+        on_subscribe_resource=subscribe_resource,
+        on_unsubscribe_resource=unsubscribe_resource,
+        on_list_prompts=list_prompts_handler,
+        on_get_prompt=get_prompt_handler,
+    )
     return server
 
 
