@@ -312,3 +312,114 @@ async def test_concurrent_calls_share_one_pooled_client(routed):
     assert routed["calls"] == n
     assert routed["clients"] == 1  # one client served all concurrent calls
     await inv.aclose()
+
+
+# --- retry_after with None resp ---------------------------------------------
+
+
+def test_retry_after_with_none_resp(no_sleep):
+    """retry_after should fall back to policy delay when resp is None."""
+    policy = RetryPolicy(retries=3, backoff=0.25, jitter=0.0)
+    delay = reliability.retry_after(None, policy, attempt=1)
+    assert delay == pytest.approx(0.5)  # 0.25 * 2^1 = 0.5
+
+
+def test_retry_after_with_none_resp_uses_attempt_zero(no_sleep):
+    """retry_after with None resp and attempt=0 uses base backoff."""
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0)
+    delay = reliability.retry_after(None, policy, attempt=0)
+    assert delay == pytest.approx(0.1)  # 0.1 * 2^0 = 0.1
+
+
+def test_retry_after_with_valid_resp_honors_header():
+    """retry_after should honor Retry-After header when resp is provided."""
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0, max_backoff=5.0)
+    resp = httpx.Response(429, headers={"Retry-After": "3"})
+    delay = reliability.retry_after(resp, policy, attempt=0)
+    assert delay == pytest.approx(3.0)
+
+
+def test_retry_after_caps_at_max_backoff():
+    """retry_after should cap Retry-After value at max_backoff."""
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0, max_backoff=2.0)
+    resp = httpx.Response(429, headers={"Retry-After": "100"})
+    delay = reliability.retry_after(resp, policy, attempt=0)
+    assert delay == pytest.approx(2.0)
+
+
+def test_retry_after_ignores_non_numeric_header():
+    """retry_after should ignore non-numeric Retry-After headers."""
+    policy = RetryPolicy(retries=3, backoff=0.25, jitter=0.0)
+    resp = httpx.Response(429, headers={"Retry-After": "invalid"})
+    delay = reliability.retry_after(resp, policy, attempt=1)
+    assert delay == pytest.approx(0.5)  # falls back to policy delay
+
+
+# --- send_with_retry with TransportError -----------------------------------
+
+
+async def test_send_with_retry_raises_transport_error_on_transport_failure(no_sleep):
+    """send_with_retry should raise TransportError when all retries fail with transport errors."""
+    import httpx as _httpx
+
+    async def failing_client(method, url, **kwargs):
+        raise _httpx.ConnectError("connection refused")
+
+    class _FailClient:
+        async def request(self, method, url, **kwargs):
+            raise _httpx.ConnectError("connection refused")
+
+    policy = RetryPolicy(retries=2, backoff=0.1, jitter=0.0)
+
+    with pytest.raises(TransportError) as ei:
+        await send_with_retry(_FailClient(), "GET", "https://example.com/", policy=policy)
+
+    assert ei.value.status is None
+    assert ei.value.attempts == 3  # 1 initial + 2 retries
+    assert isinstance(ei.value.__cause__, _httpx.ConnectError)
+    assert no_sleep == pytest.approx([0.1, 0.2])  # exponential backoff
+
+
+async def test_send_with_retry_succeeds_after_transport_error(no_sleep):
+    """send_with_retry should succeed if a retry attempt succeeds."""
+    import httpx as _httpx
+
+    call_count = 0
+
+    class _FlakyClient:
+        async def request(self, method, url, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise _httpx.ConnectError("temporary failure")
+            return httpx.Response(200, json={"ok": True})
+
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0)
+    resp, attempts = await send_with_retry(_FlakyClient(), "GET", "https://example.com/", policy=policy)
+
+    assert resp.status_code == 200
+    assert attempts == 2
+    assert call_count == 2
+
+
+async def test_send_with_retry_timeout_error_is_retried(no_sleep):
+    """send_with_retry should retry on httpx.TimeoutException."""
+    import httpx as _httpx
+
+    class _TimeoutClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def request(self, method, url, **kwargs):
+            self.calls += 1
+            if self.calls <= 2:
+                raise _httpx.ReadTimeout("timed out")
+            return httpx.Response(200, json={"ok": True})
+
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0)
+    client = _TimeoutClient()
+    resp, attempts = await send_with_retry(client, "GET", "https://example.com/", policy=policy)
+
+    assert resp.status_code == 200
+    assert attempts == 3
+    assert client.calls == 3
