@@ -142,6 +142,33 @@ def _client_can_elicit(session: Any) -> bool:
         return False
 
 
+def _scoped_client(client: ThingClient, server: Any) -> ThingClient:
+    """Return the client this request must run as: the REQUEST's caller, when the
+    transport carried one.
+
+    Over streamable-http the Starlette app in :func:`serve_http` validates the
+    request's bearer token (when a guard is configured) and stashes the verified
+    claims at ``scope["thingctx.identity"]``; the MCP SDK then carries the HTTP
+    request through to ``server.request_context.request.scope`` per call, so the
+    bridge re-guards its client with those claims and the PDP decides against the
+    CALLER, not the bridge's own server-level identity. Over stdio / the
+    in-memory test transport there is no request to read, and over HTTP with no
+    guard configured the loopback default carries none either: the base client is
+    returned and behavior is exactly as before. Missing caller context falls
+    back, never fails open to a broader identity.
+    """
+    try:
+        request = server.request_context.request
+    except LookupError:
+        return client
+    scope = getattr(request, "scope", None)
+    identity = scope.get("thingctx.identity") if isinstance(scope, dict) else None
+    pdp = getattr(client, "_pdp", None)
+    if identity is None or pdp is None:
+        return client
+    return client.guarded(pdp, identity=identity, authz_raise=client._authz_raise)
+
+
 def _elicit_approver(server: Any) -> Callable[[Any], Awaitable[bool]]:
     """An approver that asks the connected MCP client to confirm a gated call.
 
@@ -823,7 +850,7 @@ def build_mcp_server(
         )
 
     async def _run_gated_call(
-        tool: str, args: dict, *, bypass_approval: bool = False
+        tool: str, args: dict, *, bypass_approval: bool = False, call_client: Any = None
     ) -> types.CallToolResult:
         """Run a tool through the gateway or the flat client, catching the
         can't-elicit approval signal. On that signal the call is parked under a
@@ -835,8 +862,9 @@ def build_mcp_server(
         approve tool. The policy/authorization gate is NOT bypassed; only the
         human confirm is. The bypass is scoped to a per-call client clone, never
         the shared client, so a concurrent unrelated gated call on the same
-        transport still faces the real approver."""
-        call_client = client
+        transport still faces the real approver. ``call_client`` is the per-call
+        (caller-scoped) client; defaults to the server-level base client."""
+        call_client = call_client if call_client is not None else client
         call_gateway = gateway
         if bypass_approval:
             # Route this one call through a clone whose approver auto-confirms;
@@ -880,6 +908,12 @@ def build_mcp_server(
             session = server.request_context.session
         except Exception:
             session = None
+        # Re-scope to the request's caller when the transport carried one (HTTP
+        # bearer, validated by the serve_http guard): the PDP then decides against
+        # the caller, never implicitly against the bridge's server-level identity.
+        # Nonlocal: the closure's setup reads the base client; rebinding a local
+        # would shadow it.
+        request_client = _scoped_client(client, server)
         # The explicit connect tool: the agent (or the user) drives a sign in.
         if tool == CONNECT_TOOL:
             return _tool_result(await connect_tool(client, args, session))
@@ -942,10 +976,12 @@ def build_mcp_server(
                 return _tool_result(
                     {"error": f"no pending approval {token!r} (it may have expired or already run)"}
                 )
-            return await _run_gated_call(parked["tool"], parked["args"], bypass_approval=True)
+            return await _run_gated_call(
+                parked["tool"], parked["args"], bypass_approval=True, call_client=request_client
+            )
         # Every other tool runs through the gated dispatcher, which turns a
         # can't-elicit approval into a pending-approval envelope + token.
-        return await _run_gated_call(tool, args)
+        return await _run_gated_call(tool, args, call_client=request_client)
 
     # Properties -> readable resources; events -> resources draining the recent
     # pushed payloads. Observable properties and events are also subscribable.
@@ -982,6 +1018,9 @@ def build_mcp_server(
 
     @server.read_resource()
     async def read_resource(uri: Any) -> str:
+        # Same per-call caller rule as call_tool: a resource read is a device
+        # read, so it authorizes against the request's caller when one rides in.
+        request_client = _scoped_client(client, server)
         u = str(uri)
         if u.startswith("event://"):
             name = u.removeprefix("event://")
@@ -1009,9 +1048,9 @@ def build_mcp_server(
                 # a templated read: thing://<tool>/<value> -> invoke read action
                 tool, value = rest.split("/", 1)
                 if tool in template_reads:
-                    return to_text(await client.invoke(tool, {template_reads[tool]: value}))
+                    return to_text(await request_client.invoke(tool, {template_reads[tool]: value}))
                 return to_text({"error": f"unknown resource: {u}"})
-            return to_text(await client.read_property(rest))
+            return to_text(await request_client.read_property(rest))
         return to_text({"error": f"unknown resource: {u}"})
 
     async def _pump(uri: str, name: str, session: Any) -> None:
@@ -1079,7 +1118,10 @@ def build_mcp_server(
 
     @server.get_prompt()
     async def get_prompt_handler(name: str, arguments: dict | None) -> types.GetPromptResult:
-        messages = await get_prompt(client, name, arguments or {})
+        # Prompt templates resolve through ThingClient.invoke: same per-call
+        # caller rule as call_tool.
+        request_client = _scoped_client(client, server)
+        messages = await get_prompt(request_client, name, arguments or {})
         return types.GetPromptResult(
             messages=[
                 types.PromptMessage(
@@ -1279,40 +1321,137 @@ def _default_block_private_when_exposed(host: str) -> None:
 def _check_http_exposure(host: str) -> None:
     """Warn (or refuse) when the HTTP transport binds a non-loopback host.
 
-    The streamable-http endpoint performs no inbound authentication, so binding
-    beyond loopback hands the whole tool surface, driven with this process's
-    credentials, to anyone who can reach the port. A warning (not a refusal)
-    keeps a deploy behind an authenticating reverse proxy working; setting
-    ``THINGCTX_REQUIRE_AUTH=1`` turns the same condition into a startup error
-    for operators who want the hard stop."""
+    The streamable-http endpoint authenticates only when a token guard is
+    configured (``THINGCTX_TOKEN_GUARD``; loopback stays open by default), so
+    binding beyond loopback without one hands the whole tool surface, driven
+    with this process's credentials, to anyone who can reach the port. A warning
+    (not a refusal) keeps a deploy behind an authenticating reverse proxy
+    working; setting ``THINGCTX_REQUIRE_AUTH=1`` turns the same condition into a
+    startup error for operators who want the hard stop."""
     if _is_loopback_host(host):
         return
+    if (os.environ.get("THINGCTX_TOKEN_GUARD") or "").strip():
+        return  # inbound token validation is configured
     if (os.environ.get("THINGCTX_REQUIRE_AUTH") or "").strip().lower() in ("1", "true", "yes"):
         raise SystemExit(
             "thingctx-mcp: refusing to serve HTTP on a non-loopback host: "
-            "THINGCTX_REQUIRE_AUTH=1 is set and the HTTP transport has no inbound "
-            "authentication. Bind 127.0.0.1, or put an authenticating reverse "
-            "proxy or gateway guard in front and unset THINGCTX_REQUIRE_AUTH."
+            "THINGCTX_REQUIRE_AUTH=1 is set and no inbound token guard is "
+            "configured (THINGCTX_TOKEN_GUARD). Bind 127.0.0.1, configure a "
+            "guard, or put an authenticating reverse proxy in front and unset "
+            "THINGCTX_REQUIRE_AUTH."
         )
     print(  # noqa: T201  # CLI output
         "thingctx-mcp: WARNING: serving HTTP on a non-loopback host with NO inbound "
         "authentication. Anyone who can reach this port can drive every exposed tool "
         "with this process's credentials. Do not expose it to an untrusted network; "
-        "put an authenticating reverse proxy or gateway guard in front. Set "
-        "THINGCTX_REQUIRE_AUTH=1 to make this condition fatal.",
+        "set THINGCTX_TOKEN_GUARD=entra (or cloudflare) or put an authenticating "
+        "reverse proxy or gateway guard in front. Set THINGCTX_REQUIRE_AUTH=1 to "
+        "make this condition fatal.",
         file=sys.stderr,
     )
 
 
-def serve_http(registry: Any, *, host: str = "127.0.0.1", port: int = 8080) -> None:
+def _http_guard_from_env(host: str) -> tuple[Any, bool] | None:
+    """Build the inbound token guard for the HTTP transport from the environment.
+
+    ``THINGCTX_TOKEN_GUARD`` selects the provider: ``entra`` (EntraGatewayGuard;
+    needs ``THINGCTX_ENTRA_TENANT_ID`` + ``THINGCTX_ENTRA_AUDIENCE``) or
+    ``cloudflare`` (CloudflareAccessGuard; needs ``THINGCTX_CLOUDFLARE_TEAM`` +
+    ``THINGCTX_CLOUDFLARE_AUDIENCE``). Returns ``(guard, allow_anonymous)``;
+    anonymous requests stay open on a loopback bind and are refused on a
+    non-loopback bind (fail closed where the exposure is real). Returns None
+    when no guard is configured (the default: behavior exactly as before).
+    """
+    provider = (os.environ.get("THINGCTX_TOKEN_GUARD") or "").strip().lower()
+    if not provider:
+        return None
+    from thingctx import identity  # noqa: PLC0415 (optional path, imported on use)
+
+    if provider == "entra":
+        guard = identity.EntraGatewayGuard(
+            tenant_id=_require_env("THINGCTX_ENTRA_TENANT_ID", provider),
+            audience=_require_env("THINGCTX_ENTRA_AUDIENCE", provider),
+        )
+    elif provider == "cloudflare":
+        guard = identity.CloudflareAccessGuard(
+            team=_require_env("THINGCTX_CLOUDFLARE_TEAM", provider),
+            audience=_require_env("THINGCTX_CLOUDFLARE_AUDIENCE", provider),
+        )
+    else:
+        raise SystemExit(
+            f"thingctx-mcp: THINGCTX_TOKEN_GUARD={provider!r} is not a known guard "
+            "provider (want 'entra' or 'cloudflare')."
+        )
+    return guard, _is_loopback_host(host)
+
+
+def _require_env(name: str, provider: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise SystemExit(f"thingctx-mcp: THINGCTX_TOKEN_GUARD={provider!r} needs {name} set.")
+    return value
+
+
+def _guard_http_app(app: Any, guard: Any, *, allow_anonymous: bool) -> Any:
+    """Wrap the Starlette app with inbound bearer validation (fail closed).
+
+    Every POST carrying an MCP message is checked: a valid token's verified
+    claims (from the guard, never a header parsed by hand) are stashed at
+    ``scope["thingctx.identity"]`` for :func:`_scoped_client` to re-guard the
+    bridged client with; a missing, malformed, or rejected token is refused
+    before any MCP session work runs. When anonymous requests are allowed
+    (loopback default) an absent header passes through with no identity, which
+    falls back to the server-level identity, exactly as before."""
+    from starlette.responses import JSONResponse  # noqa: PLC0415
+
+    from thingctx.identity.jwt_guard import AuthorizationError  # noqa: PLC0415
+
+    async def wrapped(scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") != "http" or scope.get("method") != "POST":
+            await app(scope, receive, send)
+            return
+        headers = {k.lower(): v for k, v in scope.get("headers") or []}
+        raw = headers.get(b"authorization", b"").decode("latin-1").strip()
+        token = raw.removeprefix("Bearer ").strip() if raw.lower().startswith("bearer ") else ""
+        if not token:
+            if allow_anonymous:
+                await app(scope, receive, send)
+                return
+            await _deny(scope, receive, send, "missing bearer token")
+            return
+        try:
+            claims = await guard.validate(token)
+        except AuthorizationError as exc:
+            await _deny(scope, receive, send, str(exc))
+            return
+        scope["thingctx.identity"] = claims
+        await app(scope, receive, send)
+
+    async def _deny(scope: Any, receive: Any, send: Any, reason: str) -> None:
+        response = JSONResponse({"error": f"authorization denied: {reason}"}, status_code=401)
+        await response(scope, receive, send)
+
+    return wrapped
+
+
+def serve_http(
+    registry: Any,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    guard: Any = None,
+    allow_anonymous: bool | None = None,
+) -> None:
     """Run the MCP server over streamable HTTP (the remote transport).
 
     A long lived server that many callers reach by URL, for a hosted gateway or a
     cloud agent runtime that only accepts a remote MCP endpoint. streamable-http is
     the go forward remote transport; legacy SSE is not served. Bind 0.0.0.0 in a
     container; keep 127.0.0.1 as the default so a bare run is not exposed by accident.
-    The endpoint itself performs no inbound authentication: a non-loopback bind
-    warns at startup, and refuses when ``THINGCTX_REQUIRE_AUTH=1`` is set.
+    Pass ``guard`` (a thingctx.identity guard, e.g. EntraGatewayGuard) to validate
+    each request's bearer token and authorize every bridged call against THAT
+    caller; without one the endpoint performs no inbound authentication and a
+    non-loopback bind warns at startup, refusing when ``THINGCTX_REQUIRE_AUTH=1``.
     """
     # optional dep, kept local so the core imports without the extra
     import uvicorn  # noqa: PLC0415
@@ -1338,6 +1477,15 @@ def serve_http(registry: Any, *, host: str = "127.0.0.1", port: int = 8080) -> N
         await manager.handle_request(scope, receive, send)
 
     app = Starlette(routes=[Mount("/", app=handle)], lifespan=lifespan)
+    if guard is not None:
+        app_allow_anonymous = (
+            _is_loopback_host(host) if allow_anonymous is None else allow_anonymous
+        )
+        app = _guard_http_app(
+            app,
+            guard,
+            allow_anonymous=app_allow_anonymous,
+        )
     print(f"thingctx-mcp: serving streamable-http on http://{host}:{port}/", file=sys.stderr)  # noqa: T201  # CLI output
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
@@ -1365,7 +1513,15 @@ def main() -> None:
 
     registry = from_args(args.sources)
     if args.http:
-        serve_http(registry, host=args.host, port=args.port)
+        guard_pair = _http_guard_from_env(args.host)
+        guard, allow_anonymous = guard_pair if guard_pair is not None else (None, None)
+        serve_http(
+            registry,
+            host=args.host,
+            port=args.port,
+            guard=guard,
+            allow_anonymous=allow_anonymous,
+        )
     else:
         asyncio.run(serve(registry))
 

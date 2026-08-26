@@ -126,28 +126,54 @@ async def test_mcp_bridge_authz_uses_server_level_identity_not_per_call():
     )
 
 
-@pytest.mark.xfail(
-    reason="MCP carries no caller identity in the protocol itself, only an OAuth token on "
-    "each HTTP request, and this test drives the in-memory transport where there is no "
-    "request to read one from; it flips to a real assertion when the bridge takes a "
-    "per-call caller from the request",
-    strict=True,
-)
 @pytest.mark.asyncio
 async def test_mcp_per_call_caller_identity_reaches_the_gate():
-    """FUTURE: a granted caller and an ungranted caller hitting the SAME bridged
-    server must get different decisions. That needs a caller per call, which this
-    transport cannot supply, so this is xfail(strict): it starts passing the moment
-    the bridge resolves an identity per call, surfacing the change."""
+    """A request carrying a caller identity (``thingctx.identity`` in the ASGI
+    scope, stashed by the serve_http guard) is authorized against THAT caller,
+    not the server-level identity. Drives the in-memory transport but plants a
+    request-scoped identity the way the SDK's streamable-http path does via
+    ``request_context.request.scope``."""
     pytest.importorskip("mcp")
+    from mcp.server.lowlevel import server as lowlevel
+
     from thingctx.integrations.mcp import build_mcp_server
 
-    # The identity is fixed when the server is built, and the in-memory transport
-    # carries no request to override it from, so both callers get the same answer.
-    # Served over HTTP the bridge could read the request's token instead, which is
-    # the change this test is waiting for.
     server = build_mcp_server(_guarded_client(roles=["guest"]), approve=None)
-    # With a per-call caller we would present 'operator' here and expect success
-    # despite the server default being 'guest'.
-    out = await _call(server, "pump__read_speed")
-    assert "1200" in out  # only reachable once per-call identity propagation exists
+    original = lowlevel.request_ctx
+
+    class _FakeRequest:
+        scope = {"thingctx.identity": {"sub": "caller-1", "roles": ["operator"]}}
+
+    class _FakeCtx:
+        def __init__(self, ctx):
+            self._ctx = ctx
+
+        def __getattr__(self, name):
+            return getattr(self._ctx, name)
+
+        @property
+        def request(self):
+            return _FakeRequest()
+
+    class _FakeCtxVar:
+        def get(self, default=None):
+            try:
+                return _FakeCtx(original.get())
+            except LookupError:
+                if default is not None:
+                    return default
+                raise
+
+        def set(self, value):
+            return original.set(value)
+
+        def reset(self, token):
+            return original.reset(token)
+
+    lowlevel.request_ctx = _FakeCtxVar()
+    try:
+        out = await _call(server, "pump__read_speed")
+    finally:
+        lowlevel.request_ctx = original
+    # 'guest' (server level) has no grant; the request's 'operator' caller does.
+    assert "1200" in out
