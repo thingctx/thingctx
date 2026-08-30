@@ -1368,13 +1368,13 @@ def _http_guard_from_env(host: str) -> tuple[Any, bool] | None:
     from thingctx import identity  # noqa: PLC0415 (optional path, imported on use)
 
     if provider == "entra":
-        guard = identity.EntraGatewayGuard(
+        guard: Any = identity.EntraGatewayGuard(
             tenant_id=_require_env("THINGCTX_ENTRA_TENANT_ID", provider),
             audience=_require_env("THINGCTX_ENTRA_AUDIENCE", provider),
         )
     elif provider == "cloudflare":
         guard = identity.CloudflareAccessGuard(
-            team=_require_env("THINGCTX_CLOUDFLARE_TEAM", provider),
+            team_domain=_require_env("THINGCTX_CLOUDFLARE_TEAM", provider),
             audience=_require_env("THINGCTX_CLOUDFLARE_AUDIENCE", provider),
         )
     else:

@@ -322,3 +322,135 @@ async def test_http_guard_rejects_missing_and_forged_tokens(keypair, other_keypa
             forged = other_keypair.mint(scp="Things.Invoke", extra={"roles": ["operator"]})
             r = await c.post("/", headers=_mcp_headers(forged), json=init_payload)
             assert r.status_code == 401, r.text
+
+
+def test_http_guard_from_env_picks_provider(monkeypatch):
+    """THINGCTX_TOKEN_GUARD selects the guard provider; the loopback flag tracks
+    the bind host; a missing required var forces a startup error."""
+    from thingctx.integrations.mcp import _http_guard_from_env
+
+    monkeypatch.delenv("THINGCTX_TOKEN_GUARD", raising=False)
+    assert _http_guard_from_env("127.0.0.1") is None
+
+    monkeypatch.setenv("THINGCTX_TOKEN_GUARD", "entra")
+    monkeypatch.setenv("THINGCTX_ENTRA_TENANT_ID", "11111111-2222-3333-4444-555555555555")
+    monkeypatch.setenv("THINGCTX_ENTRA_AUDIENCE", "api://thingctx-gateway")
+    guard, allow_anonymous = _http_guard_from_env("127.0.0.1") or (None, None)
+    assert guard is not None and allow_anonymous is True
+    from thingctx.identity import EntraGatewayGuard
+
+    assert isinstance(guard, EntraGatewayGuard)
+
+    monkeypatch.setenv("THINGCTX_TOKEN_GUARD", "cloudflare")
+    monkeypatch.setenv("THINGCTX_CLOUDFLARE_TEAM", "myteam")
+    monkeypatch.setenv("THINGCTX_CLOUDFLARE_AUDIENCE", "aud-tag")
+    guard2, allow_anonymous2 = _http_guard_from_env("0.0.0.0") or (None, None)
+    assert guard2 is not None and allow_anonymous2 is False
+    from thingctx.identity import CloudflareAccessGuard
+
+    assert isinstance(guard2, CloudflareAccessGuard)
+
+    monkeypatch.setenv("THINGCTX_TOKEN_GUARD", "entra")
+    monkeypatch.delenv("THINGCTX_ENTRA_TENANT_ID", raising=False)
+    with pytest.raises(SystemExit):
+        _http_guard_from_env("127.0.0.1")
+
+    monkeypatch.setenv("THINGCTX_TOKEN_GUARD", "unknown")
+    with pytest.raises(SystemExit):
+        _http_guard_from_env("127.0.0.1")
+
+
+class _FakeUvicorn:
+    """Minimal uvicorn stand-in: records run() calls, never binds a socket."""
+
+    def __init__(self):
+        self.calls = []
+
+    def run(self, app, **kwargs):
+        self.calls.append((app, kwargs))
+        raise SystemExit(0)
+
+
+class _FakeRegistry:
+    def fetch(self):
+        return []
+
+
+def test_http_guard_wraps_serve_http_and_main_wiring(monkeypatch):
+    """serve_http with a guard wraps the ASGI app, and main() --http with
+    THINGCTX_TOKEN_GUARD plumbs a guard into serve_http."""
+    import sys
+
+    import thingctx.integrations.mcp as mcp_mod
+
+    fake = _FakeUvicorn()
+    monkeypatch.setitem(sys.modules, "uvicorn", fake)
+    monkeypatch.setattr(mcp_mod, "from_args", lambda sources: _FakeRegistry())
+    monkeypatch.setattr(sys, "argv", ["thingctx-mcp", "--http", "demo.ai"])
+    monkeypatch.setenv("THINGCTX_TOKEN_GUARD", "entra")
+    monkeypatch.setenv("THINGCTX_ENTRA_TENANT_ID", "11111111-2222-3333-4444-555555555555")
+    monkeypatch.setenv("THINGCTX_ENTRA_AUDIENCE", "api://thingctx-gateway")
+    monkeypatch.setenv("THINGCTX_REQUIRE_AUTH", "1")
+    with pytest.raises(SystemExit):
+        mcp_mod.main()
+    assert fake.calls, "uvicorn.run was never called; serve_http did not reach the run step"
+
+    # serve_http with guard + allow_anonymous explicitly True wraps the app.
+    with pytest.raises(SystemExit):
+        mcp_mod.serve_http(
+            _FakeRegistry(), host="127.0.0.1", port=0, guard=object(), allow_anonymous=True
+        )
+    assert len(fake.calls) == 2, "serve_http with a guard must reach uvicorn.run"
+
+
+def test_http_exposure_guard_early_return(monkeypatch):
+    """THINGCTX_TOKEN_GUARD configured means no exposure warning/refusal on a
+    non-loopback bind: inbound token validation is in place."""
+    from thingctx.integrations.mcp import _check_http_exposure
+
+    monkeypatch.setenv("THINGCTX_TOKEN_GUARD", "entra")
+    monkeypatch.delenv("THINGCTX_REQUIRE_AUTH", raising=False)
+    _check_http_exposure("0.0.0.0")  # must not warn or raise
+
+
+def test_guard_http_app_passthrough_non_post_and_anonymous():
+    """The guard wrapper passes through non-POST requests untouched, and lets a
+    token-less request through when anonymous access is allowed."""
+    import asyncio
+
+    import httpx
+    from starlette.responses import JSONResponse
+
+    from thingctx.integrations.mcp import _guard_http_app
+
+    seen = []
+
+    async def base(scope, receive, send):
+        seen.append(scope.get("method"))
+        response = JSONResponse({"ok": True})
+        await response(scope, receive, send)
+
+    # Non-POST (GET) passes through even with a guard present.
+    app = _guard_http_app(base, object(), allow_anonymous=False)
+
+    async def run_get():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            return await c.get("/")
+
+    r = asyncio.run(run_get())
+    assert r.status_code == 200 and seen == ["GET"], seen
+
+    # Anonymous allowed: a POST with no bearer token passes through to the app.
+    seen.clear()
+    app2 = _guard_http_app(base, object(), allow_anonymous=True)
+
+    async def run_post():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app2), base_url="http://t"
+        ) as c:
+            return await c.post("/")
+
+    r2 = asyncio.run(run_post())
+    assert r2.status_code == 200 and seen == ["POST"], seen
