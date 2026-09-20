@@ -312,3 +312,96 @@ async def test_concurrent_calls_share_one_pooled_client(routed):
     assert routed["calls"] == n
     assert routed["clients"] == 1  # one client served all concurrent calls
     await inv.aclose()
+
+
+# --- issue #98: send_with_retry's own transport-error arm + retry_after -----
+#
+# The response-only scripts above drive send_with_retry through HttpBinding, so
+# send_with_retry's *own* transport-error retry/raise arms (reliability.py
+# 133-137) and retry_after's non-response / non-numeric branches (101-108) were
+# never exercised by a direct call. These table-driven cases inject the clock
+# via ``no_sleep`` and a scripted ``_FakeClient`` so every retry decision is
+# asserted deterministically. Test-only — no production code changes.
+
+
+async def test_send_with_retry_exhausts_transport_errors_then_raises(no_sleep):
+    """Backoff-exhaustion branch: when every attempt raises at the transport
+    level, the loop retries exactly ``policy.retries`` times, then raises after
+    ``retries + 1`` attempts (not one more), propagating the LAST exception."""
+    errors = [httpx.ConnectError(f"boom-{i}") for i in range(4)]
+    client = _FakeClient(list(errors))
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0)
+
+    with pytest.raises(TransportError) as ei:
+        await send_with_retry(client, "GET", "https://x/", policy=policy)
+
+    assert ei.value.attempts == 4  # retries + 1, never retries + 2
+    assert ei.value.status is None  # a transport failure has no status
+    assert client.calls == 4
+    assert ei.value.__cause__ is errors[3]  # the final failure is the one raised
+    assert no_sleep == pytest.approx([0.1, 0.2, 0.4])  # slept only between retries
+
+
+async def test_send_with_retry_recovers_after_transport_error(no_sleep):
+    """Retry-after-partial-failure: a transient transport error that clears on
+    retry returns the success response and reports the true attempt count."""
+    ok = httpx.Response(200, json={"ok": True})
+    client = _FakeClient([httpx.ConnectError("transient"), ok])
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0)
+
+    resp, attempts = await send_with_retry(client, "GET", "https://x/", policy=policy)
+
+    assert resp is ok
+    assert attempts == 2
+    assert client.calls == 2
+    assert no_sleep == pytest.approx([0.1])  # exactly one backoff between the tries
+
+
+async def test_send_with_retry_returns_non_retryable_status_without_spending_budget(no_sleep):
+    """Give-up path: a non-retryable status is returned on the first attempt;
+    the remaining retry budget is left untouched and no backoff sleep happens."""
+    resp404 = httpx.Response(404)
+    client = _FakeClient([resp404])
+    policy = RetryPolicy(retries=3, backoff=0.1, jitter=0.0)
+
+    resp, attempts = await send_with_retry(client, "GET", "https://x/", policy=policy)
+
+    assert resp is resp404
+    assert attempts == 1
+    assert client.calls == 1
+    assert no_sleep == []  # short-circuited before any sleep
+
+
+async def test_send_with_retry_transport_error_gives_up_on_zero_budget(no_sleep):
+    """With ``retries=0`` a single transport failure short-circuits straight to
+    a raise — the give-up arm is reached without any sleep."""
+    client = _FakeClient([httpx.ConnectTimeout("no-budget")])
+    policy = RetryPolicy(retries=0, backoff=0.1, jitter=0.0)
+
+    with pytest.raises(TransportError) as ei:
+        await send_with_retry(client, "GET", "https://x/", policy=policy)
+
+    assert ei.value.attempts == 1
+    assert client.calls == 1
+    assert no_sleep == []  # zero budget -> never slept
+
+
+@pytest.mark.parametrize(
+    ("resp", "attempt", "expected"),
+    [
+        # retry_after's `resp is None` arm falls back to the backoff schedule.
+        (None, 0, 0.1),
+        (None, 2, 0.4),
+        # A response without a Retry-After header also falls back to backoff.
+        (httpx.Response(503), 1, 0.2),
+        # A non-numeric Retry-After is ignored and falls back to backoff.
+        (httpx.Response(503, headers={"Retry-After": "soon"}), 0, 0.1),
+        # A sane numeric Retry-After is honored verbatim...
+        (httpx.Response(503, headers={"Retry-After": "2"}), 0, 2.0),
+        # ...but still capped at policy.max_backoff.
+        (httpx.Response(503, headers={"Retry-After": "999"}), 0, 5.0),
+    ],
+)
+def test_retry_after_response_and_fallback_branches(resp, attempt, expected):
+    policy = RetryPolicy(retries=5, backoff=0.1, jitter=0.0, max_backoff=5.0)
+    assert reliability.retry_after(resp, policy, attempt) == pytest.approx(expected)
