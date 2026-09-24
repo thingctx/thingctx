@@ -127,6 +127,55 @@ async def test_mcp_bridge_authz_uses_server_level_identity_not_per_call():
 
 
 @pytest.mark.asyncio
+async def test_mcp_http_without_caller_identity_fails_closed():
+    """An HTTP request context without SDK-validated identity never falls back
+    to the bridged server identity."""
+    pytest.importorskip("mcp")
+    from mcp.server.lowlevel import server as lowlevel
+
+    from thingctx.integrations.mcp import build_mcp_server
+
+    server = build_mcp_server(_guarded_client(roles=["operator"]), approve=None)
+    original = lowlevel.request_ctx
+
+    class _FakeRequest:
+        scope = {"type": "http", "method": "POST"}
+
+    class _FakeCtx:
+        def __init__(self, ctx):
+            self._ctx = ctx
+
+        def __getattr__(self, name):
+            return getattr(self._ctx, name)
+
+        @property
+        def request(self):
+            return _FakeRequest()
+
+    class _FakeCtxVar:
+        def get(self, default=None):
+            try:
+                return _FakeCtx(original.get())
+            except LookupError:
+                if default is not None:
+                    return default
+                raise
+
+        def set(self, value):
+            return original.set(value)
+
+        def reset(self, token):
+            return original.reset(token)
+
+    lowlevel.request_ctx = _FakeCtxVar()
+    try:
+        out = await _call(server, "pump__read_speed")
+    finally:
+        lowlevel.request_ctx = original
+    assert "1200" not in out, f"HTTP without a validated caller must fail closed: {out}"
+
+
+@pytest.mark.asyncio
 async def test_mcp_per_call_caller_identity_reaches_the_gate():
     """A request carrying a caller identity (``thingctx.identity`` in the ASGI
     scope, stashed by the serve_http guard) is authorized against THAT caller,

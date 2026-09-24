@@ -152,17 +152,19 @@ def _scoped_client(client: ThingClient, server: Any) -> ThingClient:
     request through to ``server.request_context.request.scope`` per call, so the
     bridge re-guards its client with those claims and the PDP decides against the
     CALLER, not the bridge's own server-level identity. Over stdio / the
-    in-memory test transport there is no request to read, and over HTTP with no
-    guard configured the loopback default carries none either: the base client is
-    returned and behavior is exactly as before. Missing caller context falls
-    back, never fails open to a broader identity.
+    in-memory test transport there is no request to read, and the base client is
+    returned for stdio. An HTTP request without the validated identity is denied;
+    it never falls back to the server-level identity.
     """
     try:
         request = server.request_context.request
     except LookupError:
         return client
     scope = getattr(request, "scope", None)
+    is_http = isinstance(scope, dict) and scope.get("type") == "http"
     identity = scope.get("thingctx.identity") if isinstance(scope, dict) else None
+    if is_http and not identity:
+        raise PermissionError("HTTP MCP request has no validated caller identity")
     pdp = getattr(client, "_pdp", None)
     if identity is None or pdp is None:
         return client
