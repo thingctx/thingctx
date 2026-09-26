@@ -13,7 +13,9 @@ a retain flag:
 
     mqv:qos        0 | 1 | 2      per-affordance delivery guarantee
     mqv:retain     bool           retain the last value for late subscribers
-    mqv:userProperties  {..}      MQTT v5 user properties (the long-tail bag)
+
+Both terms are defined by the W3C MQTT binding template, which owns the ``mqv``
+prefix. Nothing is added to it here.
 
 A consumer reads these off the form and drives the bus with a stock south-side
 MqttBinding; the reply shape (``<topic>/reply``) is exactly what that binding
@@ -110,7 +112,7 @@ class MqttGatewayBinding:
 
     def quality_terms(self) -> tuple[str, ...]:
         """The mqv: terms this driver reads off a form (QoSAware)."""
-        return ("mqv:qos", "mqv:retain", "mqv:userProperties")
+        return ("mqv:qos", "mqv:retain")
 
     def project_forms(self, thing: Any, affordance: str, op: str) -> list[dict]:
         """One mqtt-faced form for this (affordance, op), carrying mqv: vocab."""

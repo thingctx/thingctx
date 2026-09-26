@@ -156,7 +156,7 @@ Protocol specific options ride in the projected form as namespaced,
 ignore if unknown vocabulary. The driver writes its own terms and reads only its
 own; the engine passes the form through opaquely.
 
-- MQTT (`mqv:`): `mqv:qos`, `mqv:retain`, `mqv:userProperties` (MQTT v5).
+- MQTT (`mqv:`): `mqv:qos`, `mqv:retain`.
 - MCP (`mcpv:`): `mcpv:kind` (`tool`/`resource`/`prompt`), MCP specific annotations.
 
 Ship a third party middleware as `thingctx-<bus>-gateway`, advertising its driver
