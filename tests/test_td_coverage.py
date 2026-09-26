@@ -21,9 +21,13 @@ from thingctx.validate import validate_td
 MAX_TD = {
     "@context": [
         "https://www.w3.org/2022/wot/td/v1.1",
-        {"tc": "https://thingctx.com/ns#", "saref": "https://saref.etsi.org/core/"},
+        {
+            "tc": "https://thingctx.dev/vocab#",
+            "saref": "https://saref.etsi.org/core/",
+            "s4bldg": "https://saref.etsi.org/saref4bldg/",
+        },
     ],
-    "@type": ["saref:Pump"],
+    "@type": ["s4bldg:Pump"],
     "id": "urn:dev:ops:pump-42",
     "title": "Pump 42",
     "titles": {"en": "Pump 42", "de": "Pumpe 42"},
@@ -81,7 +85,7 @@ MAX_TD = {
     ],
     "properties": {
         "rpm": {
-            "@type": ["saref:Speed"],
+            "@type": ["tc:Speed"],
             "title": "RPM",
             "titles": {"en": "RPM"},
             "description": "Current speed.",
@@ -183,10 +187,11 @@ def test_thing_metadata_is_modeled():
     assert t.profile == ("https://www.w3.org/TR/wot-profile/",)
     assert t.schema_definitions["rpm"]["maximum"] == 6000
     assert t.uri_variables == {"p": {"type": "integer"}}
-    assert t.at_type == ("saref:Pump",)
+    assert t.at_type == ("s4bldg:Pump",)
     # @context prefixes are collected for JSON-LD term resolution
-    assert t.context_prefixes["tc"] == "https://thingctx.com/ns#"
+    assert t.context_prefixes["tc"] == "https://thingctx.dev/vocab#"
     assert t.context_prefixes["saref"] == "https://saref.etsi.org/core/"
+    assert t.context_prefixes["s4bldg"] == "https://saref.etsi.org/saref4bldg/"
     assert len(t.links) == 1 and t.links[0].rel == "alternate"
     assert t.links[0].type == "application/pdf"
 
@@ -208,7 +213,7 @@ def test_property_and_its_full_form_vocabulary():
     t = parse_thing(MAX_TD)
     rpm = t.properties["rpm"]
     assert rpm.readable and rpm.writable and rpm.observable
-    assert rpm.at_type == ("saref:Speed",)
+    assert rpm.at_type == ("tc:Speed",)
     assert rpm.schema["type"] == "integer" and rpm.schema["unit"] == "rpm"
     assert rpm.uri_variables == {"window": {"type": "integer"}}
 

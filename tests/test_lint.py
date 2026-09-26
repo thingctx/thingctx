@@ -17,12 +17,12 @@ def _rules(td: dict) -> set[str]:
 def test_a_clean_td_produces_no_findings():
     td = {
         "@context": "https://www.w3.org/2022/wot/td/v1.1",
-        "@type": "saref:Pump",
+        "@type": "s4bldg:Pump",
         "id": "urn:demo:pump:v1",
         "title": "Pump",
         "properties": {
             "rpm": {
-                "@type": "saref:Speed",
+                "@type": "tc:Speed",
                 "title": "Speed",
                 "description": "Current rotational speed.",
                 "type": "number",
@@ -189,7 +189,7 @@ def test_thin_namespace_flagged_for_two_char_id():
 def test_thin_namespace_does_not_flag_meaningful_short_name():
     td = {
         "@context": "https://www.w3.org/2022/wot/td/v1.1",
-        "@type": "saref:Pump",
+        "@type": "s4bldg:Pump",
         "id": "urn:demo:db:v1",
         "title": "Database",
         "actions": {
@@ -211,7 +211,7 @@ def test_findings_are_advice_never_an_exception():
 def _thin_td(thing_id: str | None, title: str) -> dict:
     td: dict = {
         "@context": "https://www.w3.org/2022/wot/td/v1.1",
-        "@type": "saref:Pump",
+        "@type": "s4bldg:Pump",
         "title": title,
         "actions": {
             "go": {"description": "Do the thing.", "safe": True, "forms": [{"href": "https://d"}]}
