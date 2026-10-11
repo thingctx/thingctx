@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The MQTT gateway's projected Thing Description carries each affordance as the source declares it (input, output, description, `synchronous`, a property's schema), not only the bus forms, so a consumer sees parameters and knows when to await a reply.
+- The gateway waits for a long running action, up to 30 seconds, and replies with its state as JSON, instead of the text form of the status handle.
+- The MQTT binding reads a property: the retained value when the form has `mqv:retain`, otherwise a request on the topic answered on `<topic>/reply`.
+
 ## 0.2.3 - 2026-08-30
 
 ### Fixed

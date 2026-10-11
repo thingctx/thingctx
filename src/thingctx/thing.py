@@ -218,6 +218,7 @@ class WoTProperty:
     titles: dict[str, str] = field(default_factory=dict)
     descriptions: dict[str, str] = field(default_factory=dict)
     at_type: tuple[str, ...] = ()
+    raw: dict[str, Any] = field(default_factory=dict)
 
     def primary_form(self, *, prefer: tuple[str, ...] = ()) -> WoTForm | None:
         for scheme in prefer:
@@ -243,6 +244,7 @@ class WoTEvent:
     titles: dict[str, str] = field(default_factory=dict)
     descriptions: dict[str, str] = field(default_factory=dict)
     at_type: tuple[str, ...] = ()
+    raw: dict[str, Any] = field(default_factory=dict)
 
     def primary_form(self, *, prefer: tuple[str, ...] = ()) -> WoTForm | None:
         for scheme in prefer:
@@ -380,6 +382,7 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
             titles=_lang_map(pdef, "titles"),
             descriptions=_lang_map(pdef, "descriptions"),
             at_type=_as_tuple(pdef.get("@type")),
+            raw=pdef,
         )
 
     events: dict[str, WoTEvent] = {}
@@ -398,6 +401,7 @@ def parse_thing(td: dict[str, Any], *, validate: bool = False) -> WoTThing:
             titles=_lang_map(edef, "titles"),
             descriptions=_lang_map(edef, "descriptions"),
             at_type=_as_tuple(edef.get("@type")),
+            raw=edef,
         )
 
     schemes: dict[str, WoTSecurityScheme] = {}
