@@ -313,6 +313,28 @@ forbidden_modules = [
 
 # A protocol binding (HTTP, MQTT, rosbridge) must not import thingctx.models. A
 # binding that depends on a vocabulary only works for documents in that vocabulary.
+# thingctx.operations is the one module the runtime and a record model share: a
+# dataclass and a clock, nothing else.
+[[tool.importlinter.contracts]]
+name = "the operation record imports nothing"
+type = "forbidden"
+source_modules = ["thingctx.operations"]
+forbidden_modules = [
+    "thingctx.runtime",
+    "thingctx.chain",
+    "thingctx.bindings",
+    "thingctx.auth",
+    "thingctx.gateways",
+    "thingctx.integrations",
+    "thingctx.cli",
+    "thingctx.client",
+    "thingctx.contrib",
+    "thingctx.authz",
+    "thingctx.thing",
+    "thingctx.models",
+    "thingctx.lifecycle",
+]
+
 [[tool.importlinter.contracts]]
 name = "a protocol binding does not know what a payload means"
 type = "forbidden"
