@@ -15,8 +15,9 @@ from __future__ import annotations
 from thingctx.models.sosa._generated.records import Actuation, Observation, Refusal
 from thingctx.models.sosa._generated.terms import CONTEXT
 from thingctx.models.sosa._generated.terms import OUTCOMES as _ENUMS
+from thingctx.models.sosa.recording import recorder, records_for
 
-__all__ = ["CONTEXT", "OUTCOMES", "Actuation", "Observation", "Refusal"]
+__all__ = ["CONTEXT", "OUTCOMES", "Actuation", "Observation", "Refusal", "recorder", "records_for"]
 
 # The ways an accepted ROS goal can end, from action_msgs/msg/GoalStatus.
 OUTCOMES = frozenset(_ENUMS["ActuationOutcome"])

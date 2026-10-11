@@ -388,6 +388,25 @@ obs.as_row()  # a flat dict for a table
 obs.as_jsonld()  # the same fact, in SOSA terms, for anything that reasons over RDF
 ```
 
+Turn it on with one argument. The client then reports every read, write, command,
+query and cancel it runs, and every one a gate refuses, as an `Operation`: who asked,
+what, the gate's answer, what came back, and when. A record model turns that into its
+records. For SOSA:
+
+```python
+from thingctx.models.sosa import recorder
+
+rows: list = []
+client = base.guarded(
+    pdp, identity={"sub": "urn:agent:planner", "roles": ["operator"]}, record=recorder(rows.append)
+)
+```
+
+A long running action is one Actuation: its start writes the record without an
+outcome, and the query or cancel that ends it writes the same record with the outcome.
+`Operation` lives in `thingctx.operations`, imports nothing, and is the only thing the
+runtime and a record model share.
+
 ### The record classes are generated, not written
 
 The three classes come from one file,
@@ -427,8 +446,9 @@ written twice is one row, and knows how to turn itself into a table row or a JSO
 document. It mentions no vocabulary term. Each generated class inherits it.
 
 **To add a model for another vocabulary**, create `src/thingctx/models/<name>/`, put
-a `records.yaml` in it, and run the generator. The generator and `_base.py` need no
-change.
+a `records.yaml` in it, run the generator, and add a `recording.py` with the same two
+functions SOSA has, `records_for(operation)` and `recorder(write)`. The generator,
+`_base.py` and the runtime need no change.
 
 ### Bindings never see vocabulary
 

@@ -11,6 +11,7 @@ subscribe to events. No LLM.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 import warnings
@@ -20,6 +21,7 @@ from thingctx.bindings import BindingRegistry, ProtocolBinding, default_bindings
 from thingctx.bindings.builtin.media import is_media_form
 from thingctx.chain import run_chain
 from thingctx.gateway import GatewayProjection
+from thingctx.operations import Operation, Recorder, utc_now
 from thingctx.reliability import TransportError
 from thingctx.thing import (
     SCALAR_INPUT_KEY,
@@ -49,8 +51,9 @@ from thingctx.validate import TDValidationError, assert_semantics, validate_supp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
+    from datetime import datetime
 
-    from thingctx.authz.pdp import AccessRequest, PolicyDecisionPoint
+    from thingctx.authz.pdp import AccessRequest, Decision, PolicyDecisionPoint
 
 # How often a blocking wait polls a long-running action's status.
 _POLL_INTERVAL = 0.1
@@ -83,6 +86,7 @@ class ThingClient:
         pdp: PolicyDecisionPoint | None = None,
         identity: Any = None,
         authz_raise: bool = True,
+        record: Recorder | None = None,
     ) -> None:
         # validate=True checks each TD against the W3C TD 1.1 schema and
         # raises TDValidationError on nonconformance (needs [validate]).
@@ -108,10 +112,14 @@ class ThingClient:
         self._pdp = pdp
         self._identity = identity
         self._authz_raise = authz_raise
+        # record receives one Operation per read, write, invoke, query and cancel,
+        # permitted or refused. A record model turns it into its records.
+        self._record_sink = record
         if validate == "strict":
             for td in tds:
                 assert_semantics(td)
         self._things: list[WoTThing] = [parse_thing(td, validate=bool(validate)) for td in tds]
+        self._versions = {t.id: (t.version.instance if t.version else None) for t in self._things}
         # Tool names, property maps, event maps, and per-Thing credentials are
         # all keyed by a Thing's slug. Two distinct Thing ids that collapse to
         # the same slug would silently overwrite each other (a call could reach
@@ -475,9 +483,11 @@ class ThingClient:
         *,
         identity: Any = None,
         authz_raise: bool = True,
+        record: Recorder | None = None,
     ) -> ThingClient:
         """Return a client that authorizes every device-reaching call against
         ``pdp`` for ``identity``. Sugar over the ``pdp=`` constructor param.
+        ``record`` receives every operation the client runs or refuses.
 
         Not a proxy: it returns a ThingClient sharing this one's state with the
         authorization settings applied, so its own dispatch methods enforce the
@@ -489,6 +499,7 @@ class ThingClient:
         clone._pdp = pdp
         clone._identity = identity
         clone._authz_raise = authz_raise
+        clone._record_sink = record if record is not None else self._record_sink
         return clone
 
     def approving(self, approve: Approver) -> ThingClient:
@@ -505,10 +516,9 @@ class ThingClient:
         clone._approve = approve
         return clone
 
-    async def _authorize(self, affordance: Any, op: str) -> dict[str, Any] | None:
-        """Authorize ``op`` on a resolved affordance object. Returns None to
-        proceed; raises :class:`AuthorizationDenied` (or, when
-        ``authz_raise`` is False, returns an error envelope) on deny.
+    async def _decide(self, affordance: Any, op: str) -> tuple[Decision, AccessRequest]:
+        """The PDP's decision on ``op`` for a resolved affordance object, with the
+        request it judged.
 
         Callers pass the SAME affordance object the method is about to dispatch
         (from ``_route`` / ``_props`` / ``_events`` / ``_media``), so the tuple
@@ -520,7 +530,7 @@ class ThingClient:
         """
         # authz.pep imports this module, so importing the authz package at load
         # would cycle; the kernel is reached on use instead.
-        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied  # noqa: PLC0415
+        from thingctx.authz.pdp import AccessRequest  # noqa: PLC0415
 
         # Every caller gates this on `self._pdp is not None`; assert the invariant
         # so the type narrows. It is structurally guaranteed, so stripping it under
@@ -533,18 +543,135 @@ class ThingClient:
             op=op,
             form_scheme=(form.scheme if form is not None else None),
         )
-        decision = await self._pdp.decide(self._identity, request)
-        if decision.permit:
-            return None
+        return await self._pdp.decide(self._identity, request), request
+
+    async def _refuse(
+        self,
+        request: AccessRequest,
+        reason: str,
+        *,
+        started: datetime,
+        arguments: Any = None,
+        href: str | None = None,
+    ) -> dict[str, Any]:
+        """Record a refusal, then raise :class:`AuthorizationDenied` or, when
+        ``authz_raise`` is False, return the error envelope."""
+        from thingctx.authz.pdp import AuthorizationDenied  # noqa: PLC0415
+
+        await self._record(
+            request.thing_id,
+            request.affordance,
+            request.op,
+            permitted=False,
+            reason=reason,
+            started=started,
+            arguments=arguments,
+            result=None,
+            error=None,
+            href=href,
+        )
         if self._authz_raise:
-            raise AuthorizationDenied(request, decision.reason)
+            raise AuthorizationDenied(request, reason)
         return {
             "error": "authorization denied",
             "thing": request.thing_id,
             "affordance": request.affordance,
             "op": request.op,
-            "reason": decision.reason,
+            "reason": reason,
         }
+
+    async def _authorize(self, affordance: Any, op: str) -> dict[str, Any] | None:
+        """Authorize ``op`` on a resolved affordance object. Returns None to
+        proceed; a refusal raises or returns an envelope (see :meth:`_refuse`)."""
+        decision, request = await self._decide(affordance, op)
+        if decision.permit:
+            return None
+        form = affordance.primary_form(prefer=self._prefer)
+        return await self._refuse(
+            request,
+            decision.reason,
+            started=utc_now(),
+            href=(form.href if form is not None else None),
+        )
+
+    async def _record(
+        self,
+        thing_id: str,
+        affordance: str,
+        op: str,
+        *,
+        permitted: bool,
+        reason: str | None,
+        started: datetime,
+        arguments: Any,
+        result: Any,
+        error: str | None,
+        href: str | None,
+    ) -> None:
+        """Hand one finished operation to the record callable, when there is one."""
+        if self._record_sink is None:
+            return
+        operation = Operation(
+            thing_id=thing_id,
+            affordance=affordance,
+            op=op,
+            permitted=permitted,
+            reason=reason or None,
+            identity=self._identity,
+            arguments=arguments,
+            result=result,
+            error=error,
+            started=started,
+            ended=utc_now(),
+            href=href,
+            thing_version=self._versions.get(thing_id),
+        )
+        out = self._record_sink(operation)
+        if inspect.isawaitable(out):
+            await out
+
+    async def _run_recorded(
+        self,
+        call: Awaitable[Any],
+        *,
+        thing_id: str,
+        affordance: str,
+        op: str,
+        reason: str | None,
+        started: datetime,
+        arguments: Any,
+        href: str | None,
+    ) -> Any:
+        """Await ``call``, record how it went, then return its result or re-raise."""
+        try:
+            result = await call
+        except Exception as exc:
+            await self._record(
+                thing_id,
+                affordance,
+                op,
+                permitted=True,
+                reason=reason,
+                started=started,
+                arguments=arguments,
+                result=None,
+                error=str(exc),
+                href=href,
+            )
+            raise
+        await self._record(
+            thing_id,
+            affordance,
+            op,
+            permitted=True,
+            reason=reason,
+            started=started,
+            arguments=arguments,
+            result=result,
+            error=None,
+            href=href,
+        )
+        return result
 
     def _authz_request(self, affordance: Any, op: str) -> AccessRequest:
         """Build the AccessRequest for a stream re-check (subscribe/media)."""
@@ -579,20 +706,65 @@ class ThingClient:
         action = self._route.get(tool_name)
         if action is None:
             return {"error": f"unknown action: {tool_name}"}
+        started = utc_now()
+        # The TD's const and default values are in the payload the gate, the
+        # approver and the record see.
+        arguments = fill_declared(action.input_schema, arguments)
+        form = (
+            self._lifecycle_form(action)
+            if self._is_async(action)
+            else action.primary_form(prefer=self._prefer)
+        )
+        href = form.href if form is not None else None
         # Authorize first, approve second: authorization is the access boundary
         # (may I touch this at all?), the approve gate is a trust prompt on top
         # of an allowed call. A denied call must not prompt for approval.
+        reason: str | None = None
         if self._pdp is not None:
-            denied = await self._authorize(action, "invokeaction")
-            if denied is not None:
-                return denied
-        # The TD's const and default values are in the payload the approver sees.
-        arguments = fill_declared(action.input_schema, arguments)
+            decision, request = await self._decide(action, "invokeaction")
+            reason = decision.reason
+            if not decision.permit:
+                return await self._refuse(
+                    request, reason, started=started, arguments=arguments, href=href
+                )
         blocked = await gate_action(
             action, tool_name, arguments, approve=self._approve, policy=self._approve_when
         )
         if blocked is not None:
+            await self._record(
+                action.thing_id,
+                action.name,
+                "invokeaction",
+                permitted=False,
+                reason=str(blocked.get("reason") or blocked.get("error")),
+                started=started,
+                arguments=arguments,
+                result=blocked,
+                error=None,
+                href=href,
+            )
             return blocked
+        return await self._run_recorded(
+            self._dispatch_action(action, tool_name, arguments, wait=wait, timeout=timeout),
+            thing_id=action.thing_id,
+            affordance=action.name,
+            op="invokeaction",
+            reason=reason,
+            started=started,
+            arguments=arguments,
+            href=href,
+        )
+
+    async def _dispatch_action(
+        self,
+        action: WoTAction,
+        tool_name: str,
+        arguments: Any,
+        *,
+        wait: bool,
+        timeout: float,
+    ) -> Any:
+        """Run an authorized, approved action over its transport."""
         if self._is_async(action):
             return await self._invoke_async(
                 action, tool_name, arguments, wait=wait, timeout=timeout
@@ -739,17 +911,21 @@ class ThingClient:
             None,
         )
 
-    async def _authorize_lifecycle(self, status: Any, op: str) -> dict[str, Any] | None:
+    async def _authorize_lifecycle(
+        self, status: Any, op: str, *, started: datetime
+    ) -> tuple[dict[str, Any] | None, str | None]:
         """Authorize a lifecycle op (queryaction/cancelaction) on the action a
         status handle belongs to. queryaction and cancelaction are distinct
         grantable ops, so this runs before the binding is touched, exactly as the
         other device-reaching methods do. Fail closed: with a PDP set, a status
         whose action cannot be resolved is denied (raised, or an envelope when
-        ``authz_raise`` is off), never run unchecked."""
+        ``authz_raise`` is off), never run unchecked. Returns the denial envelope
+        (None to proceed) and the gate's reason."""
         # authz.pep imports this module, so importing the authz package at load
         # would cycle; the kernel is reached on use instead.
-        from thingctx.authz.pdp import AccessRequest, AuthorizationDenied  # noqa: PLC0415
+        from thingctx.authz.pdp import AccessRequest  # noqa: PLC0415
 
+        href = getattr(status, "href", None)
         action = self._action_for_status(status)
         if action is None:
             request = AccessRequest(
@@ -758,35 +934,46 @@ class ThingClient:
                 op=op,
             )
             reason = "cannot resolve the action for this status handle"
-            if self._authz_raise:
-                raise AuthorizationDenied(request, reason)
-            return {
-                "error": "authorization denied",
-                "thing": request.thing_id,
-                "affordance": request.affordance,
-                "op": op,
-                "reason": reason,
-            }
-        return await self._authorize(action, op)
+            return await self._refuse(request, reason, started=started, href=href), reason
+        decision, request = await self._decide(action, op)
+        if decision.permit:
+            return None, decision.reason
+        denied = await self._refuse(request, decision.reason, started=started, href=href)
+        return denied, decision.reason
 
     async def query_action(self, status: Any) -> Any:
         """Poll a long-running action's status (the ``queryaction`` op)."""
-        if self._pdp is not None:
-            denied = await self._authorize_lifecycle(status, "queryaction")
-            if denied is not None:
-                return denied
-        return await self._poll_once(status)
+        return await self._lifecycle_op(status, "queryaction", self._poll_once)
 
     async def cancel_action(self, status: Any) -> Any:
         """Cancel a long-running action (the ``cancelaction`` op)."""
-        if self._pdp is not None:
-            denied = await self._authorize_lifecycle(status, "cancelaction")
-            if denied is not None:
-                return denied
+        return await self._lifecycle_op(status, "cancelaction", self._cancel_once)
+
+    async def _cancel_once(self, status: Any) -> Any:
         binding = self._registry.resolve(status.form) if status.form else None
         if binding is None or not hasattr(binding, "cancel_action"):
             return status
         return await binding.cancel_action(status)
+
+    async def _lifecycle_op(
+        self, status: Any, op: str, run: Callable[[Any], Awaitable[Any]]
+    ) -> Any:
+        started = utc_now()
+        reason: str | None = None
+        if self._pdp is not None:
+            denied, reason = await self._authorize_lifecycle(status, op, started=started)
+            if denied is not None:
+                return denied
+        return await self._run_recorded(
+            run(status),
+            thing_id=getattr(status, "thing_id", None) or "",
+            affordance=getattr(status, "name", None) or "",
+            op=op,
+            reason=reason,
+            started=started,
+            arguments=None,
+            href=getattr(status, "href", None),
+        )
 
     def list_properties(self) -> list[str]:
         return list(self._props)
@@ -813,41 +1000,81 @@ class ThingClient:
         prop = self._props.get(name)
         if prop is None:
             return {"error": f"unknown property: {name}"}
-        if self._pdp is not None:
-            denied = await self._authorize(prop, "readproperty")
-            if denied is not None:
-                return denied
+        started = utc_now()
         form = prop.primary_form(prefer=self._prefer)
+        href = form.href if form is not None else None
+        reason: str | None = None
+        if self._pdp is not None:
+            decision, request = await self._decide(prop, "readproperty")
+            reason = decision.reason
+            if not decision.permit:
+                return await self._refuse(request, reason, started=started, href=href)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "read"):
             return {"error": f"no readable transport for property {name}"}
-        return await binding.read(prop, form)
+        return await self._run_recorded(
+            binding.read(prop, form),
+            thing_id=prop.thing_id,
+            affordance=prop.name,
+            op="readproperty",
+            reason=reason,
+            started=started,
+            arguments=None,
+            href=href,
+        )
 
     async def write_property(self, name: str, value: Any) -> Any:
         """Write a property's value. Read-only properties are rejected."""
         prop = self._props.get(name)
         if prop is None:
             return {"error": f"unknown property: {name}"}
+        started = utc_now()
+        form = prop.primary_form(prefer=self._prefer)
+        href = form.href if form is not None else None
         # Authorize before the read-only check: a read-only property has no
         # writeproperty tuple in the TD-derived vocabulary, so a write to it is
         # an authorization denial (not in vocabulary), and must surface as one
         # rather than as a capability envelope.
+        reason: str | None = None
         if self._pdp is not None:
-            denied = await self._authorize(prop, "writeproperty")
-            if denied is not None:
-                return denied
+            decision, request = await self._decide(prop, "writeproperty")
+            reason = decision.reason
+            if not decision.permit:
+                return await self._refuse(
+                    request, reason, started=started, arguments=value, href=href
+                )
         if not prop.writable:
             return {"error": f"property {name} is read-only"}
         blocked = await gate_write(
             prop.thing_id, name, value, approve=self._approve, policy=self._approve_when
         )
         if blocked is not None:
+            await self._record(
+                prop.thing_id,
+                prop.name,
+                "writeproperty",
+                permitted=False,
+                reason=str(blocked.get("reason") or blocked.get("error")),
+                started=started,
+                arguments=value,
+                result=blocked,
+                error=None,
+                href=href,
+            )
             return blocked
-        form = prop.primary_form(prefer=self._prefer)
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "write"):
             return {"error": f"no writable transport for property {name}"}
-        return await binding.write(prop, form, value)
+        return await self._run_recorded(
+            binding.write(prop, form, value),
+            thing_id=prop.thing_id,
+            affordance=prop.name,
+            op="writeproperty",
+            reason=reason,
+            started=started,
+            arguments=value,
+            href=href,
+        )
 
     def _bulk_form(self, thing: WoTThing, *ops: str) -> WoTForm | None:
         """The Thing-level form declaring any of ``ops`` (a bulk operation), or None."""
