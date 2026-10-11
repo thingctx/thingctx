@@ -292,7 +292,11 @@ class Gateway:
         op = request.op
         try:
             if op == INVOKE:
-                result = await client.invoke(tool, request.payload or {})
+                # A long running action is waited for, so the reply is its final
+                # state, as JSON.
+                result = await client.invoke(tool, request.payload or {}, wait=True)
+                if hasattr(result, "as_dict"):
+                    result = result.as_dict()
             elif op in (READ, OBSERVE):
                 result = await client.read_property(tool)
             elif op == WRITE:
@@ -361,10 +365,10 @@ class Gateway:
             "security": ["bus_nosec"],
         }
         actions: dict = {}
-        for name in thing.actions:
+        for name, action in thing.actions.items():
             forms = self._binding.project_forms(thing, name, INVOKE)
             if forms:
-                actions[name] = {"forms": forms}
+                actions[name] = _reserved(action.raw, forms)
         if actions:
             td["actions"] = actions
         props: dict = {}
@@ -374,14 +378,14 @@ class Gateway:
             for op in ops:
                 forms.extend(self._binding.project_forms(thing, name, op))
             if forms:
-                props[name] = {"forms": forms}
+                props[name] = _reserved(prop.raw, forms)
         if props:
             td["properties"] = props
         events: dict = {}
-        for name in thing.events:
+        for name, event in thing.events.items():
             forms = self._binding.project_forms(thing, name, SUBSCRIBE)
             if forms:
-                events[name] = {"forms": forms}
+                events[name] = _reserved(event.raw, forms)
         if events:
             td["events"] = events
         return td
@@ -390,6 +394,12 @@ class Gateway:
     def projected_tds(self) -> dict[str, dict]:
         """The re-served TDs by slug."""
         return dict(self._projected)
+
+
+def _reserved(definition: dict, forms: list[dict]) -> dict:
+    """The affordance as its Thing Description declares it, with the driver's forms
+    in place of the native ones."""
+    return {**{k: v for k, v in definition.items() if k != "forms"}, "forms": forms}
 
 
 def _slug(thing: Any) -> str:

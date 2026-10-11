@@ -219,31 +219,15 @@ def test_voc4_every_binding_term_read_from_a_form_is_declared():
             ),
             id="thing",
         ),
-        pytest.param(
-            "property",
-            "acme:tag",
-            marks=pytest.mark.xfail(
-                reason="WoTProperty has no raw, so a property level annotation is dropped.",
-                strict=True,
-            ),
-            id="property",
-        ),
-        pytest.param(
-            "event",
-            "acme:severity",
-            marks=pytest.mark.xfail(
-                reason="WoTEvent has no raw, so an event level annotation is dropped.",
-                strict=True,
-            ),
-            id="event",
-        ),
+        pytest.param("property", "acme:tag", id="property"),
+        pytest.param("event", "acme:severity", id="event"),
     ],
 )
 def test_voc5_an_extension_member_survives_at_every_level(level: str, member: str):
     # invariant VOC-5: saying the architecture supports vocabulary extension is
-    # only true where the member survives parsing. Three of the five levels drop
-    # it today; those are xfail rather than absent so the gap is visible and the
-    # test flips to an assertion when it closes.
+    # only true where the member survives parsing. The Thing level still drops
+    # it; that case is xfail rather than absent so the gap is visible and the test
+    # flips to an assertion when it closes.
     thing = parse_thing(_with_extensions())
     target = {
         "thing": thing,

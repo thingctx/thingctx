@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from thingctx.auth.mqtt import MqttAuthPlan
-    from thingctx.thing import WoTAction, WoTForm
+    from thingctx.thing import WoTAction, WoTForm, WoTProperty
 
 
 def _decode_mqtt(payload: bytes) -> Any:
@@ -293,6 +293,38 @@ class MqttBinding(AuthMixin):
                 "PUBLISH",
                 f"mqtt://{host}:{port}/{topic}",
                 detail=f"no reply on {reply_topic} within {self._timeout}s",
+                cause=exc,
+            ) from exc
+        finally:
+            self._shutdown(client)
+
+    async def read(self, prop: WoTProperty, form: WoTForm) -> Any:
+        """Read a property: the value the broker retains on the topic when the form
+        has ``mqv:retain``, otherwise the answer on ``<topic>/reply`` to an empty
+        request, the shape the MQTT gateway serves."""
+
+        host, port, topic = self._endpoint(form, getattr(prop, "name", "property"))
+        retained = bool(form.raw.get("mqv:retain"))
+        listen = topic if retained else f"{topic}/reply"
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = loop.create_future()
+        client, props = await self._connect(getattr(prop, "thing_id", None), host, port, form)
+
+        def _on_message(_c: Any, _u: Any, msg: Any) -> None:
+            if not fut.done():
+                loop.call_soon_threadsafe(fut.set_result, _decode_mqtt(msg.payload))
+
+        client.on_message = _on_message
+        try:
+            await self._establish(client, host, port, topics=[listen], props=props)
+            if not retained:
+                client.publish(topic, "", qos=self._qos)
+            return await asyncio.wait_for(fut, timeout=self._timeout)
+        except asyncio.TimeoutError as exc:
+            raise TransportError(
+                "READ",
+                f"mqtt://{host}:{port}/{topic}",
+                detail=f"no value on {listen} within {self._timeout}s",
                 cause=exc,
             ) from exc
         finally:
