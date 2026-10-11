@@ -3,8 +3,9 @@
 """The binding registry: how the built-in bindings are assembled and how an
 adopter replaces one or adds a new protocol.
 
-http, mqtt, redis, media, local, and exec are the built-in bindings; each is only an
-implementation of the :class:`~thingctx.bindings.base.ProtocolBinding` contract.
+http, mqtt, redis, rosbridge, media, local, and exec are the built-in bindings;
+each is only an implementation of the
+:class:`~thingctx.bindings.base.ProtocolBinding` contract.
 
     reg = BindingRegistry.default()   # http + local, the safe default
     reg.register(OpcUaBinding())      # add a new protocol
@@ -27,7 +28,15 @@ CONTRACT_VERSION = "1"
 
 # Names of the bindings thingctx ships. Each is just an implementation of the
 # contract, privileged only by being bundled.
-BUILTIN_BINDINGS: tuple[str, ...] = ("http", "local", "mqtt", "redis", "media", "exec")
+BUILTIN_BINDINGS: tuple[str, ...] = (
+    "http",
+    "local",
+    "mqtt",
+    "redis",
+    "rosbridge",
+    "media",
+    "exec",
+)
 
 
 def build_builtin(name: str, **kwargs: Any) -> ProtocolBinding:
@@ -51,6 +60,10 @@ def build_builtin(name: str, **kwargs: Any) -> ProtocolBinding:
         from thingctx.bindings.builtin.redis import RedisBinding  # noqa: PLC0415
 
         return RedisBinding(**kwargs)
+    if name == "rosbridge":
+        from thingctx.bindings.builtin.rosbridge import RosbridgeBinding  # noqa: PLC0415
+
+        return RosbridgeBinding(**kwargs)
     if name == "media":
         from thingctx.bindings.builtin.media import MediaBinding  # noqa: PLC0415
 

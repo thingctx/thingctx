@@ -19,11 +19,11 @@ repos:
       # file (a drift tripwire test asserts it), so the whitespace fixers must
       # not touch it.
       - id: end-of-file-fixer
-        exclude: ^src/thingctx/data/td-schema-1\.1\.json$
+        exclude: ^(src/thingctx/data/td-schema-1\.1\.json|src/thingctx/models/[^/]+/_generated/.*)$
       - id: trailing-whitespace
-        exclude: ^src/thingctx/data/td-schema-1\.1\.json$
+        exclude: ^(src/thingctx/data/td-schema-1\.1\.json|src/thingctx/models/[^/]+/_generated/.*)$
       - id: mixed-line-ending
-        exclude: ^src/thingctx/data/td-schema-1\.1\.json$
+        exclude: ^(src/thingctx/data/td-schema-1\.1\.json|src/thingctx/models/[^/]+/_generated/.*)$
       - id: debug-statements
 
   - repo: https://github.com/gitleaks/gitleaks

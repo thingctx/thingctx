@@ -56,8 +56,9 @@ consumer that needs the mapping keeps it from projection. Where a slug and actio
 would collide into an existing name, or the joined name would exceed 64 characters, an
 implementation appends a short deterministic suffix to keep the name unique and legal.
 
-**Parameters.** The tool's parameters are the action's `input` JSON Schema,
-unmodified. An action without an `input` schema accepts no arguments.
+**Parameters.** The tool's parameters are the action's `input` JSON Schema, without
+the properties that declare `const`; the runtime supplies those (see Resolution
+below). An action without an `input` schema accepts no arguments.
 
 **Description.** The tool's description is the action's `description`. The OpenAI
 function format defines no output field; an action's `output` schema is therefore
@@ -91,7 +92,22 @@ projects to the tool specification:
 An invocation is resolved to the form of the corresponding action, and its
 arguments are bound according to that form's transport binding.
 
-**Path variables are bound first.** Each `{name}` template variable in the form's
+**Declared values are filled first.** Each property whose schema declares `const` is
+set to that value, and each property the invocation omits whose schema declares
+`default` is set to its default, through nested objects and array items (TD 1.1
+DataSchema `const` and `default`). The approval gate sees the filled arguments. An
+action whose `input` is
+
+```json
+{ "type": "object", "properties": {
+    "group": {"const": "arm"}, "timeout": {"type": "number", "default": 1},
+    "x": {"type": "number"} } }
+```
+
+projects the parameters `timeout` and `x`, and an invocation with `x` equal to `0.4`
+is sent as `{"group": "arm", "timeout": 1, "x": 0.4}`.
+
+**Path variables are bound next.** Each `{name}` template variable in the form's
 `href` is replaced by the argument of the same name, which is then removed from the
 remaining arguments. An invocation of `github__createIssue` with `owner` equal to
 `my-org` and `repo` equal to `api` therefore yields the URL

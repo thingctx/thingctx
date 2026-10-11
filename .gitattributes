@@ -1,0 +1,3 @@
+# scripts/generate_model.py writes these from records.yaml. GitHub collapses them in
+# a pull request diff.
+src/thingctx/models/*/_generated/** linguist-generated=true

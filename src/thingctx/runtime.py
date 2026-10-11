@@ -32,6 +32,7 @@ from thingctx.thing import (
     _filled_form,
     _tool_name,
     actions_to_tools,
+    fill_declared,
     is_wrapped_input,
     parse_thing,
     thing_slug,
@@ -585,6 +586,8 @@ class ThingClient:
             denied = await self._authorize(action, "invokeaction")
             if denied is not None:
                 return denied
+        # The TD's const and default values are in the payload the approver sees.
+        arguments = fill_declared(action.input_schema, arguments)
         blocked = await gate_action(
             action, tool_name, arguments, approve=self._approve, policy=self._approve_when
         )

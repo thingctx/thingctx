@@ -362,6 +362,81 @@ is the fallback), `-y` approves without a prompt, and with no terminal and
 no `-y` a gated call is denied with a non zero exit. An agent shelling out
 gets the same protection as one holding the library.
 
+## Records: what a gate writes down
+
+When thingctx reads a sensor, sends a command, or refuses one, it can write a record
+of that. There are three kinds:
+
+| Record | Means | Example |
+|---|---|---|
+| `Observation` | a value a sensor reported | the temperature was 91.0 at 10:04 |
+| `Actuation` | a command that ran, and how it ended | set the valve to 80, succeeded |
+| `Refusal` | a command the gate did not allow | agent X asked to open valve 7, refused |
+
+Every field in those records uses a term from a published vocabulary. SOSA, the W3C
+and OGC sensor ontology, defines what an observation and an actuation are. Four
+others fill the gaps SOSA leaves: PROV-O for who asked, schema.org for how a command
+ended, DCAT for where the raw data is, and Dublin Core for the reason the gate gave.
+thingctx invents no term of its own. A test resolves every term against the file its
+publisher serves and fails if one is missing.
+
+```python
+from thingctx.models.sosa import Observation
+
+obs = Observation(result=91.0, observed_property="temperature")
+obs.as_row()  # a flat dict for a table
+obs.as_jsonld()  # the same fact, in SOSA terms, for anything that reasons over RDF
+```
+
+### The record classes are generated, not written
+
+The three classes come from one file,
+[`records.yaml`](src/thingctx/models/sosa/records.yaml), written in
+[LinkML](https://linkml.io). That file lists each field, its type, the vocabulary term
+it maps to, and which fields make two records the same record. Run the generator and
+it writes the Python classes, the vocabulary tables, and a JSON Schema:
+
+```
+scripts/generate_model.py            # regenerate
+scripts/generate_model.py --check    # exit 1 if records.yaml changed and nobody regenerated; CI runs this
+```
+
+Here is the directory. You read three files and never touch `_generated`:
+
+```
+src/thingctx/models/
+    _base.py              hand written. Behaviour every record shares (see below)
+    sosa/
+        records.yaml      hand written. The model: fields, types, vocabulary terms
+        __init__.py       hand written. Exports Observation, Actuation, Refusal
+        _generated/       written by the generator. Do not edit
+            records.py          the three classes, from gen-pydantic
+            records.schema.json JSON Schema, from gen-json-schema
+            terms.py            the vocabulary tables, from scripts/generate_model.py
+```
+
+`records.py` and `records.schema.json` are exactly what LinkML's own commands write.
+You can run `gen-pydantic` or `gen-json-schema` by hand and get the same bytes; a test
+checks that. `terms.py` comes from thingctx's own script instead, because LinkML's RDF
+generators (`gen-owl`, `gen-jsonld-context`) make up a new term for every class and
+field, and thingctx wants only the published ones.
+
+`_base.py` holds the behaviour a vocabulary cannot describe: a record refuses a
+timestamp with no timezone, derives its id from its own content so the same fact
+written twice is one row, and knows how to turn itself into a table row or a JSON-LD
+document. It mentions no vocabulary term. Each generated class inherits it.
+
+**To add a model for another vocabulary**, create `src/thingctx/models/<name>/`, put
+a `records.yaml` in it, and run the generator. The generator and `_base.py` need no
+change.
+
+### Bindings never see vocabulary
+
+A protocol binding moves bytes over HTTP, MQTT or a rosbridge WebSocket. It does not
+know what a payload means. The records above sit in a layer the bindings cannot
+import. `import-linter` contracts in `pyproject.toml` enforce that, so a binding that
+imports a vocabulary fails the build. Driving a Thing never loads the record model.
+
 ## Extend it
 
 Describing a new system needs nothing from this repo. Teaching thingctx
@@ -402,7 +477,17 @@ each in a single file, offline.
 
 Keep what you write private in your own package, or contribute it so nobody
 writes it twice. Out of tree packages register through entry points and are
-discovered without a fork. See [`docs/BINDINGS.md`](docs/BINDINGS.md).
+discovered without a fork, so installing yours is all it takes:
+
+| Entry point group | Advertises | Discovered by |
+|---|---|---|
+| `thingctx.bindings` | a transport | `discover_bindings` |
+| `thingctx.auth` | an outbound credential provider | `discover_auth` |
+| `thingctx.guards` | an inbound gateway guard | `discover_guards` |
+| `thingctx.gateways` | a bus to serve a fleet on | `discover_gateway_bindings` |
+| `thingctx.local_handlers` | an in process handler for a `local://` Thing | `discover_local_handlers` |
+
+See [`docs/BINDINGS.md`](docs/BINDINGS.md).
 
 ## Interoperability
 

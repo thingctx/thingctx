@@ -1,0 +1,179 @@
+# The record model. scripts/generate_model.py reads this file and writes _generated/.
+# First draft came from `schemauto import-rdfs sosa.ttl` (SOSA fetched 2026-10-06).
+# LinkML requires the id and prefix below. No term under them is ever published.
+#
+# Source: https://www.w3.org/TR/vocab-ssn/            (sosa)
+# Source: https://www.w3.org/TR/prov-o/               (prov)
+# Source: https://www.w3.org/TR/vocab-dcat-3/         (dcat)
+# Source: https://schema.org/docs/jsonldcontext.jsonld (schema, "@vocab": http://schema.org/)
+# Source: https://www.dublincore.org/specifications/dublin-core/dcmi-terms/ (dct)
+# Source: https://docs.ros2.org/latest/api/action_msgs/msg/GoalStatus.html (outcomes)
+id: https://thingctx.dev/schema/records
+name: thingctx-records
+title: Observation, Actuation and Refusal
+description: >-
+  Three records thingctx writes: a sensor reading, a command and how it ended, and
+  a command the gate refused. Every field maps to a term from SOSA, PROV-O,
+  schema.org, DCAT or Dublin Core. thingctx defines no term of its own.
+
+license: Apache-2.0
+see_also:
+  - https://www.w3.org/TR/vocab-ssn/
+  - https://www.w3.org/TR/prov-o/
+default_range: string
+default_prefix: thingctx
+
+prefixes:
+  thingctx: https://thingctx.dev/schema/records/
+  linkml: https://w3id.org/linkml/
+  sosa: http://www.w3.org/ns/sosa/
+  prov: http://www.w3.org/ns/prov#
+  dcat: http://www.w3.org/ns/dcat#
+  schema: http://schema.org/
+  dct: http://purl.org/dc/terms/
+
+imports:
+  - linkml:types
+
+enums:
+  ActuationOutcome:
+    description: >-
+      How an accepted command ended, from ROS action_msgs/msg/GoalStatus. schema.org
+      has no separate status for canceled, so canceled and aborted both map to
+      FailedActionStatus.
+    permissible_values:
+      succeeded:
+        meaning: schema:CompletedActionStatus
+      canceled:
+        meaning: schema:FailedActionStatus
+      aborted:
+        meaning: schema:FailedActionStatus
+
+  RefusalStatus:
+    description: The only status a refusal has. The table row says refused; the JSON-LD says FailedActionStatus.
+    permissible_values:
+      refused:
+        meaning: schema:FailedActionStatus
+
+slots:
+  id:
+    description: A UUID derived from the record's identity fields (RFC 9562 section 5.5), so the same fact gets the same id.
+    identifier: true
+    annotations:
+      projection: identifier
+
+  result:
+    description: What was observed, or the value an actuation applied.
+    range: Any
+    slot_uri: sosa:hasSimpleResult
+  result_time:
+    description: When this record was made.
+    range: datetime
+    slot_uri: sosa:resultTime
+  phenomenon_time:
+    description: When the observed state held, or when the change took effect.
+    range: datetime
+    slot_uri: sosa:phenomenonTime
+  observed_property:
+    description: The quality observed.
+    slot_uri: sosa:observedProperty
+  acts_on_property:
+    description: The quality driven.
+    slot_uri: sosa:actsOnProperty
+  operation:
+    description: The action the caller asked for. Maps to the same term as acts_on_property.
+    slot_uri: sosa:actsOnProperty
+  feature_of_interest:
+    description: The physical thing the record is about, for example a valve or a room.
+    slot_uri: sosa:hasFeatureOfInterest
+  procedure:
+    description: The procedure that produced the reading or ran the command.
+    slot_uri: sosa:usedProcedure
+  actor:
+    description: Who asked for the command. SOSA has no term for the requester, so this uses PROV-O.
+    slot_uri: prov:wasAssociatedWith
+  outcome:
+    description: How an actuation ended. Unset while it is still running.
+    range: ActuationOutcome
+    slot_uri: schema:actionStatus
+  status:
+    description: A refusal's fixed disposition.
+    range: RefusalStatus
+    ifabsent: string(refused)
+    slot_uri: schema:actionStatus
+  reason:
+    description: The reason the gate gave for allowing or refusing.
+    slot_uri: dct:description
+  derived_from:
+    description: Ids of the records this one was computed from.
+    multivalued: true
+    slot_uri: prov:wasDerivedFrom
+  evidence:
+    description: Where the raw data behind this record is kept, as a locator string.
+    slot_uri: dcat:accessURL
+  refused_time:
+    description: When it was refused.
+    range: datetime
+    slot_uri: prov:endedAtTime
+  described_by:
+    description: The id of the Thing Description the gate judged this against.
+    annotations:
+      # described_by and description_version publish together as one nested node,
+      # because schema:version describes a document, not an action.
+      projection: instrument
+      nested_under: schema:instrument
+      nested_type: schema:CreativeWork
+  description_version:
+    description: The version of that Thing Description.
+    slot_uri: schema:version
+    annotations:
+      projection: instrument
+  ages:
+    description: >-
+      How old each input was, in seconds, keyed by input id. Kept so a gate can
+      refuse stale input without walking the provenance graph. No vocabulary has a
+      term for this, so it stays in the table row and never reaches the JSON-LD.
+    # LinkML has no map type, so the range is open.
+    range: Any
+    annotations:
+      projection: row_only
+
+classes:
+  Any:
+    class_uri: linkml:Any
+    description: Any JSON value. A reading or a command value is whatever the Thing says it is.
+
+  Observation:
+    class_uri: sosa:Observation
+    description: One sensor reading, what it measured, and when.
+    annotations:
+      # result_time is not part of identity, so replaying old data makes no new row.
+      identity: procedure,observed_property,feature_of_interest,phenomenon_time,result
+    slots: [id, result, observed_property, feature_of_interest, procedure,
+            phenomenon_time, result_time, derived_from, evidence, ages]
+
+  Actuation:
+    class_uri: sosa:Actuation
+    description: One command that ran, and how it ended.
+    annotations:
+      also_typed_as: schema:Action
+      id_namespace: sosa:Actuation
+      identity: procedure,acts_on_property,feature_of_interest,phenomenon_time,result
+    slots: [id, result, acts_on_property, feature_of_interest, procedure, actor,
+            outcome, reason, described_by, description_version, phenomenon_time,
+            result_time, derived_from, evidence, ages]
+
+  Refusal:
+    class_uri: schema:Action
+    description: A command the gate refused. It never ran, so there is no Actuation for it.
+    annotations:
+      also_typed_as: prov:Activity
+      id_namespace: schema:Action/refused
+      identity: actor,operation,feature_of_interest,refused_time
+    slots: [id, operation, feature_of_interest, actor, status, reason,
+            described_by, description_version, evidence, refused_time]
+    slot_usage:
+      evidence:
+        description: Ids of the records the refusal was judged against.
+        multivalued: true
+        slot_uri: prov:used
