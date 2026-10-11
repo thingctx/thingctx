@@ -12,6 +12,7 @@ verbatim on each ``raw`` for extensions to read.
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from dataclasses import dataclass, field, replace
@@ -580,9 +581,9 @@ def _value_schema(pdef: dict[str, Any]) -> dict[str, Any]:
 SCALAR_INPUT_KEY = "value"
 
 
-def _project_input(input_schema: dict[str, Any]) -> dict[str, Any]:
-    """The OpenAI-format ``parameters`` for an action's input schema. A non-object
-    schema is wrapped under ``SCALAR_INPUT_KEY`` so the tool is callable."""
+def _wrap_input(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """``input_schema`` as an object schema: a non-object schema is wrapped under
+    ``SCALAR_INPUT_KEY`` so the tool is callable."""
     schema = input_schema or {"type": "object"}
     if schema.get("type") == "object" or "properties" in schema:
         return schema
@@ -591,6 +592,35 @@ def _project_input(input_schema: dict[str, Any]) -> dict[str, Any]:
         "properties": {SCALAR_INPUT_KEY: schema},
         "required": [SCALAR_INPUT_KEY],
     }
+
+
+def _project_input(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """The OpenAI-format ``parameters`` for an action's input schema: the object
+    schema from :func:`_wrap_input` without the properties that declare ``const``,
+    which :func:`fill_declared` sets at invoke."""
+    return _without_const(_wrap_input(input_schema))
+
+
+def _without_const(schema: dict[str, Any]) -> dict[str, Any]:
+    """``schema`` without the properties that declare ``const``, through nested
+    objects and array items. A schema that is itself ``const`` has no parameters."""
+    if "const" in schema:
+        return {"type": "object", "properties": {}}
+    out = dict(schema)
+    props = out.get("properties")
+    if isinstance(props, dict):
+        kept = {
+            name: _without_const(sub) if isinstance(sub, dict) else sub
+            for name, sub in props.items()
+            if not (isinstance(sub, dict) and "const" in sub)
+        }
+        out["properties"] = kept
+        if isinstance(out.get("required"), list):
+            out["required"] = [name for name in out["required"] if name in kept]
+    items = out.get("items")
+    if isinstance(items, dict) and "const" not in items:
+        out["items"] = _without_const(items)
+    return out
 
 
 def _href_var_names(href: str) -> set[str]:
@@ -642,6 +672,39 @@ def is_wrapped_input(input_schema: dict[str, Any]) -> bool:
     must unwrap the model's ``{"value": x}`` back to ``x`` before invoke."""
     schema = input_schema or {"type": "object"}
     return not (schema.get("type") == "object" or "properties" in schema)
+
+
+_ABSENT = object()
+
+
+def fill_declared(input_schema: dict[str, Any], arguments: Any) -> Any:
+    """``arguments`` with every ``const`` the input schema declares set and every
+    absent ``default`` filled, through nested objects and array items. Works on the
+    wrapped shape the model sees, so it runs before a scalar input is unwrapped."""
+    return _fill(_wrap_input(input_schema), arguments)
+
+
+def _fill(schema: Any, value: Any) -> Any:
+    if not isinstance(schema, dict):
+        return value
+    if "const" in schema:
+        return copy.deepcopy(schema["const"])
+    if value is _ABSENT:
+        if "default" not in schema:
+            return _ABSENT
+        value = copy.deepcopy(schema["default"])
+    props = schema.get("properties")
+    if isinstance(props, dict) and isinstance(value, dict):
+        out = dict(value)
+        for name, sub in props.items():
+            filled = _fill(sub, out.get(name, _ABSENT))
+            if filled is not _ABSENT:
+                out[name] = filled
+        return out
+    items = schema.get("items")
+    if isinstance(items, dict) and isinstance(value, list):
+        return [_fill(items, item) for item in value]
+    return value
 
 
 # The tool-name namespace separator. A double underscore, NOT a dot.

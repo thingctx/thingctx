@@ -108,6 +108,26 @@ the same path position names a Redis pub/sub channel. The affordance operation, 
 than the URL spelling, decides whether the name is a key or channel. Keep credentials
 out of the TD; supply redis-py connection options to `RedisBinding` at runtime.
 
+### rosbridge forms
+
+Install the optional ROS 2 transport with `pip install 'thingctx[ros]'`. It talks to a
+`rosbridge_server` WebSocket, so the host needs no ROS installation. A rosbridge form
+uses `rosbridge://host[:port]/<ros name>?type=<pkg>/<msg|srv|action>/<Name>`: the path
+is the ROS topic, service or action name and `type` is its ROS interface type. The
+binding decides what to do from standard Thing Description fields, with the rule the
+runtime already uses for asynchronous actions. A property read or observe subscribes to
+the topic. A read returns the next message, so a topic that publishes only on change
+needs a latched (transient local) publisher, which rosbridge honors, or the read times
+out. An action with `synchronous: false`, or with `queryaction` on a form, sends a
+ROS action goal and supports the lifecycle (`invoke(..., wait=False)`, `query_action`,
+`cancel_action`); a running goal's status carries the latest feedback message, not the
+whole stream. An action with an `output` schema calls a service. Any other action
+publishes one message to the topic. The action `input` schema mirrors the ROS message
+definition; the binding sends the input as the message and does not reshape it.
+rosbridge reports a wrong topic name or `type` only in its own log, so on a read that
+mistake shows up as a timeout; a service call or goal that rosbridge rejects raises
+`RosbridgeError` with rosbridge's error text.
+
 ## Authenticating a binding
 
 Auth never lives in a binding's transport logic. A binding that needs credentials

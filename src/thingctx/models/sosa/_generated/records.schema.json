@@ -1,0 +1,335 @@
+{
+    "$defs": {
+        "Actuation": {
+            "additionalProperties": false,
+            "description": "One command that ran, and how it ended.",
+            "properties": {
+                "actor": {
+                    "description": "Who asked for the command. SOSA has no term for the requester, so this uses PROV-O.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "acts_on_property": {
+                    "description": "The quality driven.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "ages": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Any"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How old each input was, in seconds, keyed by input id. Kept so a gate can refuse stale input without walking the provenance graph. No vocabulary has a term for this, so it stays in the table row and never reaches the JSON-LD."
+                },
+                "derived_from": {
+                    "description": "Ids of the records this one was computed from.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "described_by": {
+                    "description": "The id of the Thing Description the gate judged this against.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "description_version": {
+                    "description": "The version of that Thing Description.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "Where the raw data behind this record is kept, as a locator string.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "feature_of_interest": {
+                    "description": "The physical thing the record is about, for example a valve or a room.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "id": {
+                    "description": "A UUID derived from the record's identity fields (RFC 9562 section 5.5), so the same fact gets the same id.",
+                    "type": "string"
+                },
+                "outcome": {
+                    "$ref": "#/$defs/ActuationOutcome",
+                    "description": "How an actuation ended. Unset while it is still running."
+                },
+                "phenomenon_time": {
+                    "description": "When the observed state held, or when the change took effect.",
+                    "format": "date-time",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "procedure": {
+                    "description": "The procedure that produced the reading or ran the command.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reason": {
+                    "description": "The reason the gate gave for allowing or refusing.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "result": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Any"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "What was observed, or the value an actuation applied."
+                },
+                "result_time": {
+                    "description": "When this record was made.",
+                    "format": "date-time",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "id"
+            ],
+            "title": "Actuation",
+            "type": "object"
+        },
+        "ActuationOutcome": {
+            "description": "How an accepted command ended, from ROS action_msgs/msg/GoalStatus. schema.org has no separate status for canceled, so canceled and aborted both map to FailedActionStatus.",
+            "enum": [
+                "succeeded",
+                "canceled",
+                "aborted"
+            ],
+            "title": "ActuationOutcome",
+            "type": "string"
+        },
+        "Any": {
+            "additionalProperties": true,
+            "description": "Any JSON value. A reading or a command value is whatever the Thing says it is.",
+            "title": "Any",
+            "type": [
+                "null",
+                "boolean",
+                "object",
+                "number",
+                "string"
+            ]
+        },
+        "Observation": {
+            "additionalProperties": false,
+            "description": "One sensor reading, what it measured, and when.",
+            "properties": {
+                "ages": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Any"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How old each input was, in seconds, keyed by input id. Kept so a gate can refuse stale input without walking the provenance graph. No vocabulary has a term for this, so it stays in the table row and never reaches the JSON-LD."
+                },
+                "derived_from": {
+                    "description": "Ids of the records this one was computed from.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "Where the raw data behind this record is kept, as a locator string.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "feature_of_interest": {
+                    "description": "The physical thing the record is about, for example a valve or a room.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "id": {
+                    "description": "A UUID derived from the record's identity fields (RFC 9562 section 5.5), so the same fact gets the same id.",
+                    "type": "string"
+                },
+                "observed_property": {
+                    "description": "The quality observed.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "phenomenon_time": {
+                    "description": "When the observed state held, or when the change took effect.",
+                    "format": "date-time",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "procedure": {
+                    "description": "The procedure that produced the reading or ran the command.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "result": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/Any"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "What was observed, or the value an actuation applied."
+                },
+                "result_time": {
+                    "description": "When this record was made.",
+                    "format": "date-time",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "id"
+            ],
+            "title": "Observation",
+            "type": "object"
+        },
+        "Refusal": {
+            "additionalProperties": false,
+            "description": "A command the gate refused. It never ran, so there is no Actuation for it.",
+            "properties": {
+                "actor": {
+                    "description": "Who asked for the command. SOSA has no term for the requester, so this uses PROV-O.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "described_by": {
+                    "description": "The id of the Thing Description the gate judged this against.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "description_version": {
+                    "description": "The version of that Thing Description.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "evidence": {
+                    "description": "Ids of the records the refusal was judged against.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "feature_of_interest": {
+                    "description": "The physical thing the record is about, for example a valve or a room.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "id": {
+                    "description": "A UUID derived from the record's identity fields (RFC 9562 section 5.5), so the same fact gets the same id.",
+                    "type": "string"
+                },
+                "operation": {
+                    "description": "The action the caller asked for. Maps to the same term as acts_on_property.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "reason": {
+                    "description": "The reason the gate gave for allowing or refusing.",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "refused_time": {
+                    "description": "When it was refused.",
+                    "format": "date-time",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "status": {
+                    "$ref": "#/$defs/RefusalStatus",
+                    "description": "A refusal's fixed disposition."
+                }
+            },
+            "required": [
+                "id"
+            ],
+            "title": "Refusal",
+            "type": "object"
+        },
+        "RefusalStatus": {
+            "description": "The only status a refusal has. The table row says refused; the JSON-LD says FailedActionStatus.",
+            "enum": [
+                "refused"
+            ],
+            "title": "RefusalStatus",
+            "type": "string"
+        }
+    },
+    "$id": "https://thingctx.dev/schema/records",
+    "$schema": "https://json-schema.org/draft/2019-09/schema",
+    "additionalProperties": true,
+    "metamodel_version": "1.11.0",
+    "title": "thingctx-records",
+    "type": "object",
+    "version": null
+}
+
