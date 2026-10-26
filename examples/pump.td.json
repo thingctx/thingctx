@@ -2,7 +2,7 @@
   "@context": [
     "https://www.w3.org/2022/wot/td/v1.1",
     {
-      "tc": "https://thingctx.dev/vocab#",
+      "tc": "https://thingctx.com/vocab#",
       "saref": "https://saref.etsi.org/core/",
       "om": "http://www.ontology-of-units-of-measure.org/resource/om-2/"
     }
@@ -12,7 +12,7 @@
   "titles": { "en": "Pump", "de": "Pumpe" },
   "@type": ["saref:Actuator", "saref:Sensor"],
   "description": "A demo pump, published by the device and loaded by the demos. It is the coverage exemplar, exercising the full WoT TD 1.1 surface across four transports (local/http/mqtt/sse): metadata and i18n, the full form vocabulary, typed properties/actions/events with the async-action and event lifecycle schemas, Thing-level bulk forms, and every security scheme variant.",
-  "support": "mailto:ops@thingctx.dev",
+  "support": "mailto:ops@example.com",
   "created": "2025-01-01T00:00:00Z",
   "modified": "2025-03-12T00:00:00Z",
   "version": { "instance": "1.2.0", "model": "1.0.0" },
@@ -29,7 +29,7 @@
     "id": { "type": "string", "description": "A sensor id (Thing-level uriVariable)." }
   },
   "links": [
-    { "href": "https://thingctx.dev/pump/manual.pdf", "rel": "alternate", "type": "application/pdf" }
+    { "href": "https://pump.example.com/manual.pdf", "rel": "alternate", "type": "application/pdf" }
   ],
   "securityDefinitions": {
     "bearer_sc": { "scheme": "bearer", "in": "header", "alg": "ES256", "format": "jwt" },
@@ -39,7 +39,7 @@
     "oauth2_sc": {
       "scheme": "oauth2",
       "flow": "client_credentials",
-      "token": "https://auth.thingctx.dev/token",
+      "token": "https://auth.example.com/token",
       "scopes": ["read", "write"]
     },
     "psk_sc": { "scheme": "psk", "identity": "pump-v1" },

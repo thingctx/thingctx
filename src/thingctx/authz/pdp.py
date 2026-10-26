@@ -13,22 +13,104 @@ Wildcards (``*`` at the affordance or op position) expand only to tuples the
 vocabulary already contains. So ``(pump, *, writeproperty)`` grants write on the
 writable properties the TD declares, and nothing more: a wildcard cannot escape
 the closed universe.
+
+A grant built by :func:`limited` also bounds the arguments it permits: the action
+input or the written value must validate against its JSON Schema.
 """
 
 from __future__ import annotations
 
+import json
+import math
 import time as _time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from thingctx.authz.vocabulary import GrantTuple
 
 # A grant is a set of (thing, affordance, op) tuples, where affordance and op may
-# be the "*" wildcard; the PDP expands wildcards against the vocabulary.
-GrantSet = set[GrantTuple]
+# be the "*" wildcard; the PDP expands wildcards against the vocabulary. A fourth
+# element, from limited(), is a JSON Schema as canonical JSON text, so the set
+# stays hashable.
+GrantSet = set[GrantTuple | tuple[str, str, str, str]]
 
 WILDCARD = "*"
+
+_NUMERIC_BOUNDS = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf")
+# The JSON Schema 2020-12 keywords whose value is a schema, a list of schemas, or a
+# map of names to schemas.
+_SUBSCHEMA = frozenset(
+    {
+        "items",
+        "contains",
+        "additionalProperties",
+        "propertyNames",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+        "not",
+        "if",
+        "then",
+        "else",
+        "contentSchema",
+    }
+)
+_SUBSCHEMA_LIST = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+_SUBSCHEMA_MAP = frozenset(
+    {"properties", "patternProperties", "dependentSchemas", "$defs", "definitions"}
+)
+
+
+def limited(
+    thing: str, affordance: str, op: str, schema: dict[str, Any]
+) -> tuple[str, str, str, str]:
+    """A grant on ``(thing, affordance, op)`` that permits only arguments valid
+    against ``schema`` (JSON Schema 2020-12): the action input for
+    ``invokeaction``, the value for ``writeproperty``. Under any other op it
+    permits nothing, because no other request carries arguments. Checking it
+    needs the ``validate`` extra; without it the grant denies.
+
+    Raises ValueError when a schema object uses a numeric bound (``minimum``,
+    ``maximum``, ``exclusiveMinimum``, ``exclusiveMaximum``, ``multipleOf``)
+    without a ``type`` beside it, because a numeric bound ignores a value that is
+    not a number, so ``"99"`` as a string would pass."""
+    why = _unusable(schema)
+    if why is not None:
+        raise ValueError(why)
+    return (thing, affordance, op, json.dumps(schema, sort_keys=True, separators=(",", ":")))
+
+
+def _unusable(schema: Any) -> str | None:
+    """Why ``schema`` cannot bound arguments, or None. A numeric bound beside no
+    numeric ``type`` ignores a value that is not a number, so ``"99"`` as a string
+    would pass it; a reference could hide such a bound, or fetch a schema, when a
+    request is decided."""
+    for node in _schemas(schema):
+        bound = next((k for k in _NUMERIC_BOUNDS if k in node), None)
+        if bound is not None and node.get("type") not in ("number", "integer"):
+            return (
+                f"the limit {json.dumps(node)} uses {bound!r} without a 'type' of number "
+                "or integer; a numeric bound ignores a value that is not a number"
+            )
+        if "$ref" in node or "$dynamicRef" in node:
+            return f"the limit {json.dumps(node)} uses a reference; write the bound in place"
+    return None
+
+
+def _schemas(schema: Any) -> Iterator[dict[str, Any]]:
+    """Every schema object in ``schema``, itself included, at any depth."""
+    if not isinstance(schema, dict):
+        return
+    yield schema
+    for key, value in schema.items():
+        if key in _SUBSCHEMA:
+            yield from _schemas(value)
+        elif key in _SUBSCHEMA_LIST and isinstance(value, list):
+            for item in value:
+                yield from _schemas(item)
+        elif key in _SUBSCHEMA_MAP and isinstance(value, dict):
+            for item in value.values():
+                yield from _schemas(item)
 
 
 @dataclass(frozen=True)
@@ -39,12 +121,18 @@ class AccessRequest:
     ``readproperty``), so the PEP never guesses it. ``form_scheme`` is audit-only:
     the decision never reads it, so the same request is decided identically
     whether it would route over http, mqtt, or local.
+
+    ``arguments`` is what a limited grant checks: the action input with the TD's
+    const and default values filled (a scalar input bare) for ``invokeaction``,
+    the value for ``writeproperty``, None otherwise. It takes no part in equality
+    or the hash.
     """
 
     thing_id: str
     affordance: str
     op: str
     form_scheme: str | None = None
+    arguments: Any = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -154,7 +242,7 @@ class LocalPolicyGrantSource:
 
     Args:
         policy: ``{role_name: {(thing, affordance, op), ...}}``. affordance/op
-            may be ``"*"``.
+            may be ``"*"``; a grant from :func:`limited` bounds its arguments.
         claim: the claim that names the caller's roles (default ``"roles"``).
     """
 
@@ -249,7 +337,9 @@ class PolicyDecisionPoint:
     Holds the closed vocabulary (from :func:`build_vocabulary`) and a
     :class:`GrantSource`. Permits iff the requested tuple is in both the grant and
     the vocabulary. The double check is the point: a grant that names an operation
-    the TD never declared can never permit, wildcard or not.
+    the TD never declared can never permit, wildcard or not. When every grant
+    covering the tuple is limited, the request's arguments must also validate
+    against at least one of their schemas.
 
     Args:
         vocabulary: the closed set of grantable tuples for the Things in scope.
@@ -273,28 +363,87 @@ class PolicyDecisionPoint:
             )
 
         grant = await self.grant_source.grant_for(identity)
-        if self._granted(target, grant):
+        covering = self._covering(target, grant)
+        if not covering:
+            return Decision(
+                permit=False,
+                reason=f"grant does not include {target}",
+            )
+        limits = sorted(g[3] for g in covering if len(g) == 4)
+        if len(limits) < len(covering):
             return Decision(permit=True)
+        return _within(target, limits, request.arguments)
 
-        return Decision(
-            permit=False,
-            reason=f"grant does not include {target}",
-        )
-
-    def _granted(self, target: GrantTuple, grant: GrantSet) -> bool:
-        """Is ``target`` covered by ``grant``, honoring ``*`` wildcards?
+    def _covering(self, target: GrantTuple, grant: GrantSet) -> list[tuple[str, ...]]:
+        """The grants in ``grant`` that cover ``target``, honoring ``*`` wildcards.
 
         A grant tuple matches if each affordance/op position is ``*`` or equal.
         thing_id must match exactly (no wildcard Thing). ``target`` is already in
         the vocabulary, so a wildcard cannot widen beyond what the TD declares.
         """
         t_thing, t_aff, t_op = target
-        for g_thing, g_aff, g_op in grant:
-            if g_thing != t_thing:
-                continue
-            if g_aff not in (WILDCARD, t_aff):
-                continue
-            if g_op not in (WILDCARD, t_op):
-                continue
-            return True
-        return False
+        return [
+            g
+            for g in grant
+            if g[0] == t_thing and g[1] in (WILDCARD, t_aff) and g[2] in (WILDCARD, t_op)
+        ]
+
+
+def _within(target: GrantTuple, limits: list[str], arguments: Any) -> Decision:
+    """Permit iff ``arguments`` validate against at least one of ``limits``;
+    otherwise deny naming the first violation of the first schema. Fails closed
+    when there are no arguments to check, when they hold a number that is not
+    finite, when no validator is installed, and when a schema cannot be applied."""
+    if arguments is None:
+        return Decision(permit=False, reason=f"the grant for {target} limits arguments; none given")
+    try:
+        # optional dep, kept local so the core imports without the extra
+        from jsonschema import Draft202012Validator  # noqa: PLC0415
+    except ImportError:
+        return Decision(
+            permit=False,
+            reason=(
+                f"the grant for {target} limits arguments; checking them needs the "
+                "validate extra (pip install 'thingctx[validate]')"
+            ),
+        )
+    try:
+        if _non_finite(arguments):
+            reason = f"the grant for {target} limits arguments; one is a number that is not finite"
+            return Decision(permit=False, reason=reason)
+        schemas = [json.loads(t) for t in limits]
+        for why in map(_unusable, schemas):
+            if why is not None:
+                return Decision(
+                    permit=False, reason=f"the grant for {target} limits arguments, and {why}"
+                )
+        checked = [next(Draft202012Validator(s).iter_errors(arguments), None) for s in schemas]
+    except Exception as error:  # a schema that cannot be applied denies, never raises
+        return Decision(
+            permit=False,
+            reason=f"the grant for {target} limits arguments with a schema that fails: {error}",
+        )
+    errors = [error for error in checked if error is not None]
+    if len(errors) < len(checked):
+        return Decision(permit=True)
+    first = errors[0]
+    where = ".".join(str(part) for part in first.absolute_path)
+    return Decision(
+        permit=False,
+        reason=(
+            f"arguments outside the grant's limits for {target}: "
+            f"{where + ': ' if where else ''}{first.message}"
+        ),
+    )
+
+
+def _non_finite(value: Any) -> bool:
+    """True when ``value`` holds NaN or an infinity at any depth; JSON Schema
+    bounds do not reliably refuse them."""
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, dict):
+        return any(_non_finite(item) for item in value.values())
+    if isinstance(value, list | tuple):
+        return any(_non_finite(item) for item in value)
+    return False

@@ -22,7 +22,7 @@ MAX_TD = {
     "@context": [
         "https://www.w3.org/2022/wot/td/v1.1",
         {
-            "tc": "https://thingctx.dev/vocab#",
+            "tc": "https://thingctx.com/vocab#",
             "saref": "https://saref.etsi.org/core/",
             "s4bldg": "https://saref.etsi.org/saref4bldg/",
         },
@@ -189,7 +189,7 @@ def test_thing_metadata_is_modeled():
     assert t.uri_variables == {"p": {"type": "integer"}}
     assert t.at_type == ("s4bldg:Pump",)
     # @context prefixes are collected for JSON-LD term resolution
-    assert t.context_prefixes["tc"] == "https://thingctx.dev/vocab#"
+    assert t.context_prefixes["tc"] == "https://thingctx.com/vocab#"
     assert t.context_prefixes["saref"] == "https://saref.etsi.org/core/"
     assert t.context_prefixes["s4bldg"] == "https://saref.etsi.org/saref4bldg/"
     assert len(t.links) == 1 and t.links[0].rel == "alternate"

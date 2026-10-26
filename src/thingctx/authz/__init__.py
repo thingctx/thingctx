@@ -51,6 +51,7 @@ from thingctx.authz.pdp import (
     GrantSource,
     LocalPolicyGrantSource,
     PolicyDecisionPoint,
+    limited,
 )
 from thingctx.authz.pep import (
     AuthorizationDenied,
@@ -85,5 +86,6 @@ __all__ = [
     "from_authzen_response",
     # pep
     "guard_client",
+    "limited",
     "to_authzen_request",
 ]

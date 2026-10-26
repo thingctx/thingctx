@@ -191,6 +191,29 @@ class Authenticates(Protocol):
         pass
 
 
+@runtime_checkable
+class DeclaresSecurity(Protocol):
+    """A driver that declares, in the re-served TDs, how callers authenticate on
+    its wire. ``security_definitions`` returns TD 1.1 security scheme objects by
+    name, each active in every projected TD. An empty mapping declares nothing,
+    and the projection says ``nosec``."""
+
+    def security_definitions(self) -> dict[str, dict]:
+        pass
+
+
+@runtime_checkable
+class DeclaresUriVariables(Protocol):
+    """A driver whose forms carry URI template variables it declares once for the
+    whole Thing. ``uri_variables`` returns TD 1.1 DataSchemas by name, and each
+    projected TD carries them as its Thing level ``uriVariables``. The projection
+    adds no ``@context`` terms, so a schema names a semantic type by its full IRI.
+    An empty mapping declares nothing."""
+
+    def uri_variables(self) -> dict[str, dict]:
+        pass
+
+
 # --------------------------------------------------------------------------- #
 # The engine.
 # --------------------------------------------------------------------------- #
@@ -294,7 +317,8 @@ class Gateway:
             if op == INVOKE:
                 # A long running action is waited for, so the reply is its final
                 # state, as JSON.
-                result = await client.invoke(tool, request.payload or {}, wait=True)
+                payload = {} if request.payload is None else request.payload
+                result = await client.invoke(tool, payload, wait=True)
                 if hasattr(result, "as_dict"):
                     result = result.as_dict()
             elif op in (READ, OBSERVE):
@@ -357,13 +381,24 @@ class Gateway:
 
     def _project(self, thing: Any) -> dict:
         slug = _slug(thing)
+        declared = (
+            self._binding.security_definitions()
+            if isinstance(self._binding, DeclaresSecurity)
+            else {}
+        )
+        definitions = declared or {"bus_nosec": {"scheme": "nosec"}}
         td: dict = {
             "@context": "https://www.w3.org/2022/wot/td/v1.1",
             "id": thing.id,
             "title": thing.title or slug,
-            "securityDefinitions": {"bus_nosec": {"scheme": "nosec"}},
-            "security": ["bus_nosec"],
+            "securityDefinitions": dict(definitions),
+            "security": list(definitions),
         }
+        variables = (
+            self._binding.uri_variables() if isinstance(self._binding, DeclaresUriVariables) else {}
+        )
+        if variables:
+            td["uriVariables"] = dict(variables)
         actions: dict = {}
         for name, action in thing.actions.items():
             forms = self._binding.project_forms(thing, name, INVOKE)
@@ -373,7 +408,11 @@ class Gateway:
             td["actions"] = actions
         props: dict = {}
         for name, prop in thing.properties.items():
-            ops = ([READ] if prop.readable else []) + ([WRITE] if prop.writable else [])
+            ops = [
+                *([READ] if prop.readable else []),
+                *([WRITE] if prop.writable else []),
+                *([OBSERVE] if prop.observable else []),
+            ]
             forms = []
             for op in ops:
                 forms.extend(self._binding.project_forms(thing, name, op))

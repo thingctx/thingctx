@@ -35,9 +35,11 @@ from thingctx.thing import (
     _tool_name,
     actions_to_tools,
     fill_declared,
+    input_errors,
     is_wrapped_input,
     parse_thing,
     thing_slug,
+    value_errors,
 )
 from thingctx.trust import (
     ApprovePolicy,
@@ -516,7 +518,9 @@ class ThingClient:
         clone._approve = approve
         return clone
 
-    async def _decide(self, affordance: Any, op: str) -> tuple[Decision, AccessRequest]:
+    async def _decide(
+        self, affordance: Any, op: str, arguments: Any = None
+    ) -> tuple[Decision, AccessRequest]:
         """The PDP's decision on ``op`` for a resolved affordance object, with the
         request it judged.
 
@@ -526,7 +530,8 @@ class ThingClient:
         read the form scheme, so a multi-transport affordance hits one check
         whichever transport it would route to; ``form_scheme`` is carried for
         audit only. Runs before any binding is selected: a denied call never
-        reaches a transport.
+        reaches a transport. ``arguments`` is the action input or the written
+        value, what a limited grant checks; None for every other op.
         """
         # authz.pep imports this module, so importing the authz package at load
         # would cycle; the kernel is reached on use instead.
@@ -542,6 +547,7 @@ class ThingClient:
             affordance=affordance.name,
             op=op,
             form_scheme=(form.scheme if form is not None else None),
+            arguments=arguments,
         )
         return await self._pdp.decide(self._identity, request), request
 
@@ -579,6 +585,34 @@ class ThingClient:
             "op": request.op,
             "reason": reason,
         }
+
+    async def _invalid(
+        self,
+        affordance: WoTAction | WoTProperty,
+        op: str,
+        tool: str,
+        error: str,
+        *,
+        started: datetime,
+        arguments: Any,
+        href: str | None,
+    ) -> dict[str, Any]:
+        """Record a call the TD's schema does not allow as refused, and return
+        the envelope naming ``error``, its first mismatch."""
+        invalid = {"error": "invalid input", "tool": tool, "reason": error}
+        await self._record(
+            affordance.thing_id,
+            affordance.name,
+            op,
+            permitted=False,
+            reason=f"invalid input: {error}",
+            started=started,
+            arguments=arguments,
+            result=invalid,
+            error=None,
+            href=href,
+        )
+        return invalid
 
     async def _authorize(self, affordance: Any, op: str) -> dict[str, Any] | None:
         """Authorize ``op`` on a resolved affordance object. Returns None to
@@ -696,8 +730,11 @@ class ThingClient:
         ``queryaction``) returns an :class:`~thingctx.lifecycle.ActionStatus`
         handle; poll it with :meth:`query_action` and stop it with
         :meth:`cancel_action`. Pass ``wait=True`` to block until the action
-        reaches a terminal state and return the final status."""
-        arguments = arguments or {}
+        reaches a terminal state and return the final status.
+
+        Arguments the action's input schema does not allow are not sent; the
+        call returns ``{"error": "invalid input", ...}`` naming the first mismatch."""
+        arguments = {} if arguments is None else arguments
         if tool_name in self._media:
             return {
                 "error": f"{tool_name} is a media stream; consume it with client.frames(...)",
@@ -707,6 +744,10 @@ class ThingClient:
         if action is None:
             return {"error": f"unknown action: {tool_name}"}
         started = utc_now()
+        # A scalar or array input arrives bare from a gateway's wire, as the TD
+        # declares it; the check, the gate and the record read the wrapped shape.
+        if is_wrapped_input(action.input_schema) and not isinstance(arguments, dict):
+            arguments = {SCALAR_INPUT_KEY: arguments}
         # The TD's const and default values are in the payload the gate, the
         # approver and the record see.
         arguments = fill_declared(action.input_schema, arguments)
@@ -716,12 +757,27 @@ class ThingClient:
             else action.primary_form(prefer=self._prefer)
         )
         href = form.href if form is not None else None
+        # The TD's schema first: a grant's limits are written for the types the
+        # TD declares, so they never see a value of another type.
+        errors = input_errors(action.input_schema, arguments)
+        if errors:
+            return await self._invalid(
+                action,
+                "invokeaction",
+                tool_name,
+                errors[0],
+                started=started,
+                arguments=arguments,
+                href=href,
+            )
         # Authorize first, approve second: authorization is the access boundary
         # (may I touch this at all?), the approve gate is a trust prompt on top
         # of an allowed call. A denied call must not prompt for approval.
         reason: str | None = None
         if self._pdp is not None:
-            decision, request = await self._decide(action, "invokeaction")
+            decision, request = await self._decide(
+                action, "invokeaction", _bare_input(action, arguments)
+            )
             reason = decision.reason
             if not decision.permit:
                 return await self._refuse(
@@ -787,8 +843,7 @@ class ThingClient:
         # A scalar or array action input is projected to the model wrapped
         # under a single key (thing._project_input); unwrap it here so the
         # transport receives the bare value the TD declared, not the envelope.
-        if is_wrapped_input(action.input_schema) and isinstance(arguments, dict):
-            arguments = arguments.get(SCALAR_INPUT_KEY)
+        arguments = _bare_input(action, arguments)
         # Resolve uriVariables: {id} fills from args and leaves the body.
         filled: WoTForm
         rest: Any
@@ -1024,20 +1079,28 @@ class ThingClient:
         )
 
     async def write_property(self, name: str, value: Any) -> Any:
-        """Write a property's value. Read-only properties are rejected."""
+        """Write a property's value. Read-only properties are rejected, and a
+        value the property's schema does not allow returns
+        ``{"error": "invalid input", ...}`` naming the first mismatch."""
         prop = self._props.get(name)
         if prop is None:
             return {"error": f"unknown property: {name}"}
         started = utc_now()
         form = prop.primary_form(prefer=self._prefer)
         href = form.href if form is not None else None
+        # A read-only property has no write schema; its write is refused below.
+        errors = value_errors(prop.schema, value, name) if prop.writable else []
+        if errors:
+            return await self._invalid(
+                prop, "writeproperty", name, errors[0], started=started, arguments=value, href=href
+            )
         # Authorize before the read-only check: a read-only property has no
         # writeproperty tuple in the TD-derived vocabulary, so a write to it is
         # an authorization denial (not in vocabulary), and must surface as one
         # rather than as a capability envelope.
         reason: str | None = None
         if self._pdp is not None:
-            decision, request = await self._decide(prop, "writeproperty")
+            decision, request = await self._decide(prop, "writeproperty", value)
             reason = decision.reason
             if not decision.permit:
                 return await self._refuse(
@@ -1148,12 +1211,14 @@ class ThingClient:
                 continue
             form = self._bulk_form(thing, "writeallproperties", "writemultipleproperties")
             binding = self._registry.resolve(form) if form else None
-            # Bulk fast path only when authorization is off (see read_all_properties).
+            # Bulk fast path only when authorization is off (see read_all_properties)
+            # and every value is valid; else each write refuses or sends its own.
             if (
                 self._pdp is None
                 and form is not None
                 and binding is not None
                 and hasattr(binding, "write_all")
+                and not any(value_errors(thing.properties[k].schema, v, k) for k, v in mine.items())
             ):
                 res = await binding.write_all(thing, form, mine)
                 out.update(res if isinstance(res, dict) else {"result": res})
@@ -1191,7 +1256,10 @@ class ThingClient:
                 # Yield a single denial envelope as a stream so `async for`
                 # sees it (raise path already raised inside _authorize).
                 return _single_denial_aiter(denied)
-        form = target.primary_form(prefer=self._prefer)
+        # A property may give each operation a form of its own (TD 1.1, 5.3.1.3).
+        form = next((f for f in target.forms if op in f.op), None) or target.primary_form(
+            prefer=self._prefer
+        )
         binding = self._registry.resolve(form) if form else None
         if binding is None or not hasattr(binding, "subscribe"):
             return _empty_aiter(f"no subscribable transport for {name}")
@@ -1358,6 +1426,14 @@ async def _single_denial_aiter(envelope: Any) -> AsyncIterator[Any]:
     denial (subscribe/frames with authz_raise=False) is visible to `async for`
     rather than silently empty."""
     yield envelope
+
+
+def _bare_input(action: WoTAction, arguments: Any) -> Any:
+    """``arguments`` with a scalar or array input bare, as the TD declares it, not
+    wrapped under the single key the tool projection gives it."""
+    if is_wrapped_input(action.input_schema) and isinstance(arguments, dict):
+        return arguments.get(SCALAR_INPUT_KEY)
+    return arguments
 
 
 def to_text(value: Any) -> str:

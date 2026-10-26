@@ -44,6 +44,8 @@ from thingctx.bindings import (
 )
 from thingctx.gateways import (
     Announces,
+    DeclaresSecurity,
+    DeclaresUriVariables,
     EventMirroring,
     GatewayBinding,
     PubSubOnly,
@@ -209,6 +211,8 @@ def gateway_binding_capabilities(binding: Any) -> dict[str, bool]:
         "pubsub_only": isinstance(binding, PubSubOnly),
         "announces": isinstance(binding, Announces),
         "qos_aware": isinstance(binding, QoSAware),
+        "declares_security": isinstance(binding, DeclaresSecurity),
+        "declares_uri_variables": isinstance(binding, DeclaresUriVariables),
     }
 
 
@@ -253,4 +257,29 @@ def assert_gateway_binding_contract(binding: Any) -> None:
         _require(
             not inspect.iscoroutinefunction(binding.quality_terms),
             "quality_terms must be synchronous",
+        )
+    if isinstance(binding, DeclaresSecurity):
+        _require(
+            not inspect.iscoroutinefunction(binding.security_definitions),
+            "security_definitions must be synchronous",
+        )
+        definitions = binding.security_definitions()
+        _require(
+            isinstance(definitions, dict)
+            and all(isinstance(d, dict) and d.get("scheme") for d in definitions.values()),
+            "security_definitions() must map names to TD security scheme objects",
+        )
+    if isinstance(binding, DeclaresUriVariables):
+        _require(
+            not inspect.iscoroutinefunction(binding.uri_variables),
+            "uri_variables must be synchronous",
+        )
+        variables = binding.uri_variables()
+        _require(
+            isinstance(variables, dict)
+            and all(
+                isinstance(s, dict) and s.get("type") not in ("object", "array")
+                for s in variables.values()
+            ),
+            "uri_variables() must map names to DataSchemas that are not objects or arrays",
         )

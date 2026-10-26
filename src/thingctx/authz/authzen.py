@@ -29,7 +29,8 @@ The 1.0 Final shape (openid.github.io/authzen):
 The mapping thingctx uses:
     subject  = the validated identity (type "identity", id from sub/oid/appid)
     action   = the WoT operation (name = the op: readproperty/writeproperty/
-               invokeaction/subscribeevent)
+               invokeaction/subscribeevent; properties.arguments = the action
+               input or written value, when the request carries one)
     resource = the affordance (type = affordance kind if known else "affordance",
                id = "<thing_id>/<affordance>")
     context  = the raw claims + the form scheme, for the external PDP's own rules
@@ -65,7 +66,9 @@ def to_authzen_request(identity: Any, request: AccessRequest) -> dict:
     if isinstance(identity, dict):
         # Pass the claims as subject properties so a policy can read roles/scp/etc.
         subject["properties"] = dict(identity)
-    action = {"name": request.op}
+    action: dict[str, Any] = {"name": request.op}
+    if request.arguments is not None:
+        action["properties"] = {"arguments": request.arguments}
     resource = {
         "type": "affordance",
         "id": f"{request.thing_id}/{request.affordance}",

@@ -44,6 +44,38 @@ Every op (`readproperty`, `writeproperty`, `observeproperty`, `invokeaction`,
 `subscribeevent`) is enforced, across every transport. End to end:
 [`examples/15_authn_to_authz.py`](../examples/15_authn_to_authz.py).
 
+## Bound the arguments
+
+A grant can bound what a call sends. `limited` builds a grant whose fourth element
+is a JSON Schema: an `invokeaction` permits only an action input that validates
+against it, a `writeproperty` only a value that does.
+
+```python
+from thingctx.authz import LocalPolicyGrantSource, limited
+
+arm = "urn:demo:arm"
+box = {"properties": {"x": {"type": "number", "minimum": -0.65, "maximum": 0.65}}}
+grants = LocalPolicyGrantSource({"operator": {limited(arm, "move_to", "invokeaction", box)}})
+```
+
+The PDP checks the input after the TD's `const` and `default` values are filled,
+so it sees what the device will receive, and after the client has refused input
+the TD's own schema does not allow, so a bound only ever sees the declared types. An unlimited grant on the same operation
+still permits anything; when every covering grant is limited, the arguments must
+satisfy one of them, and a refusal names the first violation. A limited grant never
+permits an operation that carries no arguments, such as a read. Checking needs the
+`validate` extra; without it a limited grant denies. It also denies NaN and the
+infinities, and a schema that cannot be applied. `limited` refuses a numeric bound
+without a numeric `type` (`number` or `integer`) beside it, because the bound
+ignores a value that is not a number: `"99"` would pass `{"maximum": 4}`. It also
+refuses a `$ref` or `$dynamicRef`, which could hide such a bound; write the bound
+in place.
+
+The check runs in the client, so it holds whether a caller reaches the device
+directly or through a gateway, which serves through a client too. A broker cannot
+enforce it, because it never reads a payload: `acl_file` compiles a limited grant to
+the same rules as an unlimited one.
+
 ## Identity
 
 Four distinct identities, two hops, none spans both.
@@ -84,8 +116,10 @@ client = ThingClient(tds=[td], bindings=[...], pdp=pdp, identity=validated_claim
 
 Your policy receives the AuthZEN request: `input.subject` (the caller's claims),
 `input.action.name` (the WoT op: readproperty / writeproperty / invokeaction /
-observeproperty / subscribeevent), `input.resource.id` (`<thing>/<affordance>`),
-`input.context` (the form scheme). Return `{"decision": true|false}`.
+observeproperty / subscribeevent), `input.action.properties.arguments` (the action
+input or written value, when the call carries one), `input.resource.id`
+(`<thing>/<affordance>`), `input.context` (the form scheme). Return
+`{"decision": true|false}`.
 
 Point at Cedar behind an AuthZEN endpoint. The mapping is the same: `action.name`
 is the op, `resource.id` is `<thing>/<affordance>`, subject carries the claims,
@@ -151,6 +185,8 @@ protocols; the engine calls only what a driver advertises (detected with `isinst
 | `PubSubOnly` | `is_pubsub_only = True` | the transport is fire and forget with NO reply channel |
 | `Announces` | `async announce(gateway)` / `async reap()` | you announce the fleet on connect and reap on teardown (birth/death) |
 | `QoSAware` | `quality_terms() -> tuple[str, ...]` | you read per affordance quality options off the form |
+| `DeclaresSecurity` | `security_definitions() -> dict[str, dict]` | callers authenticate on your wire, and the projected TDs should say how |
+| `DeclaresUriVariables` | `uri_variables() -> dict[str, dict]` | your forms carry a URI template variable you declare once for every Thing |
 
 Protocol specific options ride in the projected form as namespaced,
 ignore if unknown vocabulary. The driver writes its own terms and reads only its
@@ -184,17 +220,125 @@ guarded gateway follows:
   subscription on an authenticated topic; the gateway checks the `subscribeevent`
   grant for that caller and mirrors only to that caller's own stream, which
   inherits the per delivery stream reauthorization.
-- A per caller guard is refused unless the broker binds connection identity (mTLS
-  or per client ACLs), attested with `broker_binds_identity=True`. A message level
-  token is not bound to the connection, so on an open broker a replayed token
-  would be a confused deputy.
+- A per caller guard is refused unless the broker keeps each login to its own
+  topic level, attested with `broker_binds_identity=True`. The gateway checks that
+  a token's `sub` is the User Name its request topic ends in, and only the broker
+  can make that name the sender's, so on an open broker a replayed token would be a
+  confused deputy.
+
+A guarded MQTT gateway's projected Thing Descriptions say how a caller
+authenticates: a header bearer scheme named `authorization`, which on an mqtt form
+is the MQTT 5 User Property of that name, sent with every request; a thingctx client
+reads the scheme and sends the token with each request. Pass the broker's own
+scheme as `bus_security`, such as `{"bus_basic": {"scheme": "basic"}}`, and the
+descriptions declare it too, so a client authenticates the connection as well. A
+guarded gateway needs that basic scheme, because every request topic ends in the
+sender's MQTT User Name:
+
+```
+<prefix>/<thing>/actions/<action>/<user>
+<prefix>/<thing>/props/<property>/read/<user>
+<prefix>/<thing>/props/<property>/write/<user>
+<prefix>/<thing>/props/<property>/observe/<user>
+<prefix>/<thing>/events/<event>/subscribe/<user>
+```
+
+Each topic names the whole operation, so a broker rule can allow a property's read
+without its write. A write carries its value as `{"value": ...}`.
+
+The descriptions declare that level once, as a Thing level URI variable typed
+`tc:MqttUserName`; a thingctx client fills it with the user name of its basic
+credential. The gateway answers on `<request>/reply`, streams an event or an
+observed property's changes on `<request>/stream` after an authorized request, and
+runs a request only when the token's `sub` is the User Name the topic ends in. A
+request carrying another login's token gets the answer a request with no token gets:
+`{"error": "authentication required", "denied": true}`.
+
+The broker holds the other half: whoever can read a request topic can read and
+replay its token. `acl_file` writes Mosquitto rules that let only gateway users read
+requests, and let each caller publish requests only under its own User Name and read
+only its own replies and streams:
+
+```python
+from pathlib import Path
+
+from thingctx.gateways.mosquitto import acl_file
+
+Path("acl").write_text(acl_file(gateways=["gw-1"], callers=["alice", "zone-rule"]))
+```
+
+Given each caller's grants, the `(thing, affordance, op)` sets the gateway's policy
+decision point holds, keyed by user name, the rules allow that caller exactly those
+operations:
+
+```python
+grants = {"alice": {("urn:demo:pump", "stop", "invokeaction")}}
+Path("acl").write_text(acl_file(gateways=["gw-1"], callers=["alice"], grants=grants))
+```
+
+Alice may then publish only `tc/pump/actions/stop/alice` and read its reply; the
+broker refuses any other request of hers before the gateway sees it. The gateway
+still decides every request it receives: the broker sees no payload, device state
+or approval, and the gateway alone keeps the record. A grant of `*` becomes a
+wildcard level; an operation the gateway does not carry over MQTT adds no rule. A
+caller not named in `grants` may send any request under its own User Name, and the
+gateway alone decides.
+
+A gateway login reads every request, token included, for the Things it may serve,
+and writes their replies, streams and retained descriptions. Given the Things each
+gateway serves, by id, the rules limit its login to them, so one gateway can neither
+read another's requests nor answer them:
+
+```python
+serves = {"gw-door": ["urn:demo:door"], "gw-agents": ["urn:demo:agent:watcher"]}
+acl_file(gateways=["gw-door", "gw-agents"], callers=["alice"], serves=serves)
+```
+
+A lone gateway not named in `serves` covers every Thing under the prefix. With more
+than one gateway, `acl_file` refuses to write rules unless `serves` names each, so
+no gateway login can read every caller's requests and the tokens in them.
+
+The rules name each user, so to add a caller, change a grant or move a Thing, write
+the file again and reload the broker. A user name or affordance name may not contain
+whitespace, `/`, `+`, `#` or `?`, and a user name may not be `reply`.
+
+To run a guarded gateway on a locked broker:
+
+- Run Mosquitto with `allow_anonymous false`, a `password_file` and the `acl_file`
+  output, then attest `broker_binds_identity=True`.
+- Serve MQTT over TLS, so no password, token or reply crosses the network in the
+  clear.
+- Give each identity one login whose user name is its token's `sub`.
+- Log the gateway in by overriding `MqttGatewayBinding.configure`
+  (`paho.username_pw_set(...)`) and build it with
+  `bus_security={"bus_basic": {"scheme": "basic"}}`.
+- Build each caller's `MqttBinding` with `credentials={"bus_basic": (user,
+  password), "bus_bearer": token}`, keyed by scheme name.
+
+The level binds the token's `sub` alone, not its issuer, so run one issuer per
+guarded gateway, or issuers whose subjects cannot collide.
 
 Reference drivers:
 
 - MQTT (`thingctx.gateways.builtin.mqtt.MqttGatewayBinding`): request/reply plus
-  event mirroring; implements `RequestReply`, `EventMirroring`, `QoSAware`.
+  event mirroring; implements `RequestReply`, `EventMirroring`, `QoSAware`,
+  `Authenticates`, `DeclaresSecurity` and `DeclaresUriVariables`.
 - MCP (`thingctx.gateways.builtin.mcp.McpGatewayBinding`): a driver whose "topics"
   are MCP tools/resources/prompts.
+
+## Close the paths around thingctx
+
+Authorization decides who may call an operation through thingctx; it cannot stop a
+client that reaches the device another way. If the broker accepts anonymous
+publishes, or the device's own stream or API is open on the network, anything on
+that network can drive or watch the device, unauthorized and unrecorded. A Thing
+Description that declares `nosec` is often the sign.
+
+Make thingctx the only way in: per client credentials and topic ACLs on the broker
+(Mosquitto's `password_file` and `acl_file`), authentication on the device's own
+endpoints, and a network that routes no other client to them. The guarded gateway
+applies the same rule on the bus: a per caller guard needs a broker that keeps each
+login to its own topic level.
 
 ## Harden the transport
 
@@ -203,6 +347,16 @@ process may do once a call is allowed. They are off or permissive by default,
 because the common case is a developer driving a device on their own LAN, and a
 default that blocks `192.168.1.50` would break it. Turn them on when the Things
 you load are not fully trusted, or when thingctx is reachable by anyone but you.
+
+### Put MQTT on TLS
+
+Use TLS whenever the broker is not on loopback: plain MQTT carries the password, the
+token in each request and every reply in the clear. Name the broker
+`mqtts://host[:port]`, port 8883 by default, in a form's href or as a gateway's
+`broker`, or pass `tls=MqttTls(ca_certs=...)` to `MqttBinding` or
+`MqttGatewayBinding`. Either verifies the broker's certificate, against the system's
+CA store unless `ca_certs` names another CA, and its hostname. A gateway on TLS
+writes `mqtts://` in the forms it projects, so its callers connect over TLS too.
 
 ### Refuse requests to private and metadata addresses
 

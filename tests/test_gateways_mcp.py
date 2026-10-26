@@ -37,7 +37,7 @@ from thingctx.gateways.builtin.mcp import McpGatewayBinding
 THING_ID = "urn:demo:pump:v1"
 
 TD = {
-    "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"tc": "https://thingctx.dev/vocab#"}],
+    "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"tc": "https://thingctx.com/vocab#"}],
     "id": THING_ID,
     "title": "Pump",
     "securityDefinitions": {"n": {"scheme": "nosec"}},
