@@ -39,7 +39,7 @@ from thingctx.bindings.builtin.exec import ExecBinding
 from thingctx.bindings.builtin.http import HttpBinding
 from thingctx.bindings.builtin.local import LocalBinding
 from thingctx.bindings.builtin.media import Frame, MediaBackend, MediaBinding, is_media_form
-from thingctx.bindings.builtin.mqtt import MqttBinding
+from thingctx.bindings.builtin.mqtt import MqttBinding, MqttTls
 from thingctx.bindings.builtin.redis import RedisBinding
 from thingctx.bindings.registry import (
     BUILTIN_BINDINGS,
@@ -74,6 +74,7 @@ __all__ = [
     "MediaConsumer",
     "MediaPublisher",
     "MqttBinding",
+    "MqttTls",
     # Contract
     "ProtocolBinding",
     "Readable",

@@ -12,6 +12,7 @@ a fake paho client.
 from __future__ import annotations
 
 import base64
+import ssl
 
 from thingctx import parse_thing
 from thingctx.auth import (
@@ -120,12 +121,16 @@ class _FakeClient:
     def __init__(self):
         self.user = None
         self.tls = None
+        self.insecure = None
 
     def username_pw_set(self, username, password=None):
         self.user = (username, password)
 
     def tls_set(self, **kw):
         self.tls = kw
+
+    def tls_insecure_set(self, value):
+        self.insecure = value
 
 
 def _td(scheme: dict) -> dict:
@@ -190,7 +195,14 @@ async def test_mqtt_binding_mtls_calls_tls_set():
     inv = MqttBinding(credentials={"urn:dev:x": cert}).with_security(thing)
     client = _FakeClient()
     await inv._apply_auth(client, "urn:dev:x")
-    assert client.tls == {"ca_certs": "ca.pem", "certfile": "c.pem", "keyfile": "k.pem"}
+    assert client.tls == {
+        "ca_certs": "ca.pem",
+        "certfile": "c.pem",
+        "keyfile": "k.pem",
+        "cert_reqs": ssl.CERT_REQUIRED,
+        "keyfile_password": None,
+    }
+    assert client.insecure is False
 
 
 # --------------------------------------------------------------------------- #

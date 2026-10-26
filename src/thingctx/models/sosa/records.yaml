@@ -8,7 +8,7 @@
 # Source: https://schema.org/docs/jsonldcontext.jsonld (schema, "@vocab": http://schema.org/)
 # Source: https://www.dublincore.org/specifications/dublin-core/dcmi-terms/ (dct)
 # Source: https://docs.ros2.org/latest/api/action_msgs/msg/GoalStatus.html (outcomes)
-id: https://thingctx.dev/schema/records
+id: https://thingctx.com/schema/records
 name: thingctx-records
 title: Observation, Actuation and Refusal
 description: >-
@@ -24,7 +24,7 @@ default_range: string
 default_prefix: thingctx
 
 prefixes:
-  thingctx: https://thingctx.dev/schema/records/
+  thingctx: https://thingctx.com/schema/records/
   linkml: https://w3id.org/linkml/
   sosa: http://www.w3.org/ns/sosa/
   prov: http://www.w3.org/ns/prov#

@@ -99,6 +99,73 @@ Enable the optional built-ins through the same registry:
 BindingRegistry.default(mqtt=True, redis=True, media=True)
 ```
 
+### MQTT forms
+
+A form's `href` is `mqtt://broker[:port]/<topic>`. The binding publishes at QoS 1 by
+default (`MqttBinding(qos=...)`); a call time `retain` wins over the form's
+`mqv:retain`.
+
+A form whose `href` is `mqtts://broker[:port]/<topic>` connects over TLS, on port
+8883 unless the href names one. `MqttBinding(tls=MqttTls(ca_certs=..., certfile=...,
+keyfile=...))` puts every connection on TLS whatever the scheme, verified against
+that CA file instead of the system's CA store, and presents that client certificate.
+The binding always verifies the broker's certificate and hostname. A
+`ClientCertificate` credential's files, and its key's password, take the place of
+the option's. `MqttGatewayBinding` takes `mqtts://host[:port]` as its broker, or the
+same `tls`, and writes `mqtts://` in the forms it projects.
+
+- **Actions.** An action with an `output` schema publishes the input to the topic
+  and awaits the reply on `<topic>/reply`. One without `output` returns
+  `{"ok": true}` once the broker acknowledges the publish at QoS 1 or more.
+- **Properties.** A read returns the value retained on the topic when the form has
+  `mqv:retain`. Otherwise it publishes an empty request and returns the answer on
+  `<topic>/reply`, the shape the MQTT gateway serves.
+- **Events and observed properties.** `subscribe` delivers each message on the
+  topic and renews the subscription on every reconnect.
+
+A request is an MQTT 5 request: it names `<topic>/reply` as its Response Topic and
+carries random Correlation Data, and the binding takes the reply that carries the
+same data back, so calls in flight on one topic each get their own answer. A reply
+without Correlation Data is taken as the answer too, so a responder that does not
+copy it back still works, but its overlapping calls cannot be told apart. Requests
+need an MQTT 5 broker; other operations connect with MQTT 3.1.1 unless enhanced
+authentication needs MQTT 5. A request's Message Expiry Interval is the binding's
+timeout, so the broker discards a request nobody took in time rather than delivering
+it late. The call fails at once, not after the timeout, when the broker reports no
+matching subscription (PUBACK reason 0x10, which Mosquitto sends) or refuses the
+publish (a reason of 0x80 or more, such as 0x87 for a topic the login may not
+write). A call that carries the caller's token in a User Property awaits its answer
+even when the action declares no output, because a responder that authorizes each
+message, as a guarded gateway does, always answers.
+
+A header bearer scheme that names its parameter, as in `{"scheme": "bearer", "in":
+"header", "name": "authorization"}`, sends the token as the MQTT 5 User Property of
+that name with every request, for a responder that authorizes each message, such as
+a guarded MQTT gateway; the connection carries the other active schemes. A bearer
+scheme that names no parameter sends the token as the connection password.
+
+A URI variable typed `tc:MqttUserName` (`https://thingctx.com/vocab#MqttUserName`)
+is set to the User Name the binding connects with, the user name of its basic
+credential, so a topic such as `tc/pump/actions/stop/{+mqttUserName}` names the
+client that sent it. A call whose connection has no such name, or one that cannot
+be a single topic level, fails before anything is sent. Supply each secret under
+its scheme's name, as in `{"bus_basic": ("alice", password), "bus_bearer": token}`;
+a secret keyed by the Thing's id is offered to every scheme, so a bearer token
+would become the User Name.
+
+The reply topic is a convention of this binding and the MQTT gateway; a Thing
+Description does not declare it. A device that serves an action with an `output`,
+or a property read without `mqv:retain`, answers on `<topic>/reply` and copies the
+request's Correlation Data into the answer.
+
+A guarded MQTT gateway's event form, and its `observeproperty` form, name the
+caller's own stream, `<request>/stream`, where `<request>` is
+`<prefix>/<thing>/events/<event>/subscribe/<user>` or
+`<prefix>/<thing>/props/<property>/observe/<user>`. The gateway streams there only
+after an authorized request on `<request>`, answered like any other request with
+`{"subscribed": true, "stream": "<request>/stream"}`. The binding subscribes to the
+stream; it does not send the request.
+
 ### Redis forms
 
 Install the optional Redis transport with `pip install 'thingctx[redis]'`. A Redis form
@@ -235,8 +302,8 @@ class GstreamerBackend:
 ```
 
 `read` yields `Frame` objects (decode); `write` consumes a frame iterator and
-pushes to `target` (encode). `options` carries the track (`video`/`audio`), any
-form hint (codec, container), and a resolved auth plan when the Thing declares
+pushes to `target` (encode). `options` carries the track (`video`/`audio`), the
+form's media hint (below), and a resolved auth plan when the Thing declares
 security. The track and auth come from the binding, so a backend never touches the
 auth layer.
 
@@ -256,6 +323,27 @@ from thingctx.testing import assert_media_backend_contract
 
 assert_media_backend_contract(GstreamerBackend())
 ```
+
+### The media hint
+
+A media form may carry `x-thingctx-media`: an object of backend options, or a string
+that names the source, read as `{"source": <string>}`. The binding hands the backend
+the hint merged with the call's arguments, and an argument wins over the hint. The
+built-in backends read these keys:
+
+| Key | Read by | Meaning |
+|---|---|---|
+| `source` | binding, page extractor | `webrtc` or `genicam` marks a live source; `youtube` sends the form to the page extractor |
+| `live` | binding | treat an http(s) source as live, as for HLS or DASH live |
+| `resolve` | page extractor | `page` resolves the href as a web page that holds the stream |
+| `timeout` | binding, PyAV | seconds to wait for data, opening and reading |
+| `av_options` | PyAV | FFmpeg options for the open, such as `{"rtsp_transport": "udp"}` |
+| `format` | PyAV, page extractor | the container for a write, or the extractor's format selector |
+| `fps`, `video_codec`, `pix_fmt`, `bitrate`, `preset`, `tune` | PyAV | encoder settings for a write; `fps` applies to frames that carry no rate |
+| `cookiefile`, `cookies_from_browser` | page extractor | cookies for a page that needs a session |
+
+`MediaBinding(allow_backend_options=False)` stops call arguments from setting
+`av_options`, `cookiefile` and `cookies_from_browser`, so only the TD's hint can.
 
 ## Packaging
 

@@ -5,6 +5,6 @@
 TD that doesn't opt in is unaffected. See extensions/README.md.
 """
 
-VOCAB_URI = "https://thingctx.dev/vocab#"
+VOCAB_URI = "https://thingctx.com/vocab#"
 
 __all__ = ["VOCAB_URI"]

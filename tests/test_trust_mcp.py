@@ -13,7 +13,7 @@ import pytest
 from thingctx import LocalBinding, ThingClient
 
 TD = {
-    "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"tc": "https://thingctx.dev/vocab#"}],
+    "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"tc": "https://thingctx.com/vocab#"}],
     "id": "urn:demo:vault:v1",
     "title": "Vault",
     "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},

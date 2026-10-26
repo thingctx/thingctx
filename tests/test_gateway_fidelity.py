@@ -96,7 +96,7 @@ def test_projection_keeps_the_affordance_as_declared():
     assert fill["description"] == "fill to a level"
     assert fill["synchronous"] is False
     assert fill["forms"] == [
-        {"href": "mqtt://bus:1883/tc/valve/actions/fill", "op": ["invokeaction"], "mqv:qos": 1}
+        {"href": "mqtt://bus:1883/tc/valve/actions/fill", "op": ["invokeaction"], "mqv:qos": "1"}
     ]
     level = td["properties"]["level"]
     assert (level["type"], level["description"], level["observable"]) == (
@@ -174,7 +174,7 @@ class FakeBroker:
         if self.retained is not None and not topic.endswith("/reply"):
             self.on_message(self, None, _Msg(json.dumps(self.retained).encode()))
 
-    def publish(self, topic, payload, qos=0, retain=False):
+    def publish(self, topic, payload, qos=0, retain=False, properties=None):
         self.publishes.append((topic, payload))
         if self.answer is not None:
             self.on_message(self, None, _Msg(json.dumps(self.answer).encode()))

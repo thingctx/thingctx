@@ -22,9 +22,14 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from conftest import AUDIENCE, ISSUER_V2
 
-from thingctx import TransportError
-from thingctx.bindings import MqttBinding
+from thingctx import ThingClient, TransportError
+from thingctx.authz import LocalPolicyGrantSource, PolicyDecisionPoint, build_vocabulary
+from thingctx.bindings import LocalBinding, MqttBinding
+from thingctx.gateways import Gateway
+from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
+from thingctx.identity import JwtGatewayGuard
 
 pytestmark = pytest.mark.network
 
@@ -109,6 +114,133 @@ async def test_live_invoke_round_trip_with_echo_responder():
     finally:
         responder.loop_stop()
         responder.disconnect()
+
+
+async def test_live_overlapping_calls_each_get_their_own_reply():
+    """Two calls in flight on one action, answered out of order by the MQTT
+    gateway: each gets its own reply, not the first one on the reply topic."""
+    from thingctx import ThingClient
+    from thingctx.bindings import LocalBinding
+    from thingctx.gateways import Gateway
+    from thingctx.gateways.builtin.mqtt import MqttGatewayBinding
+
+    async def echo(n: int, wait: float) -> dict:
+        await asyncio.sleep(wait)
+        return {"n": n}
+
+    td = {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:test:echo",
+        "title": "Echo",
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "actions": {
+            "echo": {
+                "input": {
+                    "type": "object",
+                    "properties": {"n": {"type": "integer"}, "wait": {"type": "number"}},
+                },
+                "output": {"type": "object"},
+                "forms": [{"href": "local://echo", "op": ["invokeaction"]}],
+            }
+        },
+    }
+    prefix = f"thingctx/test/{uuid.uuid4().hex}"
+    native = ThingClient(tds=[td], bindings=[LocalBinding({"echo": echo})], approve_when="never")
+    gateway = Gateway(native, MqttGatewayBinding(BROKER, prefix=prefix))
+    await gateway.start()
+    try:
+        inv = MqttBinding(qos=1, timeout=5.0)
+        action, form = _form(f"{prefix}/echo/actions/echo")
+        slow = asyncio.ensure_future(inv.invoke(action, form, {"n": 1, "wait": 1.0}))
+        await asyncio.sleep(0.3)  # the slow call is waiting before the fast one starts
+        fast = await inv.invoke(action, form, {"n": 2, "wait": 0})
+        assert (await slow, fast) == ({"n": 1}, {"n": 2})
+    finally:
+        await gateway.aclose()
+        # The gateway leaves its TD retained; clear it so the broker is left as found.
+        cleaner = _mk_paho()
+        cleaner.connect(HOST, PORT)
+        cleaner.loop_start()
+        cleaner.publish(f"{prefix}/echo/td", b"", qos=1, retain=True).wait_for_publish(5)
+        cleaner.loop_stop()
+        cleaner.disconnect()
+
+
+async def test_live_request_nobody_serves_fails_at_once():
+    # MQTT 5 lets a broker answer a publish no subscription matched with PUBACK
+    # reason 0x10 (section 3.4.2.1); Mosquitto does.
+    inv = MqttBinding(qos=1, timeout=10.0)
+    action, form = _form(f"thingctx/test/{uuid.uuid4().hex}/unserved")
+    started = time.monotonic()
+    with pytest.raises(TransportError) as ei:
+        await inv.invoke(action, form, {})
+    if "no reply" in ei.value.detail:
+        pytest.skip("this broker does not report PUBACK reason 0x10")
+    assert "no subscriber" in ei.value.detail
+    assert time.monotonic() - started < 3
+
+
+def _pump(slug: str) -> dict:
+    return {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": f"urn:test:{slug}",
+        "title": slug,
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": ["nosec_sc"],
+        "actions": {
+            "stop": {
+                "output": {"type": "object"},
+                "forms": [{"href": "local://stop", "op": ["invokeaction"]}],
+            }
+        },
+    }
+
+
+async def test_live_guarded_gateway_runs_each_request_as_its_caller(keypair):
+    prefix = f"thingctx-test-{uuid.uuid4().hex[:8]}"
+    native = _pump("pump")
+    plain = ThingClient(tds=[native], bindings=[LocalBinding()])
+    pdp = PolicyDecisionPoint(
+        vocabulary=build_vocabulary(plain.things),
+        grant_source=LocalPolicyGrantSource(
+            {"operator": {("urn:test:pump", "stop", "invokeaction")}}
+        ),
+    )
+    local = LocalBinding()
+    local.register_thing("pump", {"stop": lambda: {"by": "the pump"}})
+    guard = JwtGatewayGuard(issuers=[ISSUER_V2], audience=AUDIENCE, jwks=keypair.jwks())
+    gateway = Gateway(
+        ThingClient(tds=[native], bindings=[local], pdp=pdp),
+        MqttGatewayBinding(
+            BROKER,
+            prefix=prefix,
+            guard=guard,
+            broker_binds_identity=True,
+            bus_security={"bus_basic": {"scheme": "basic"}},
+        ),
+    )
+    await gateway.start()
+    try:
+        td = gateway.projected_tds["pump"]
+        assert td["security"] == ["bus_basic", "bus_bearer"]
+
+        async def call(roles: list[str]) -> dict:
+            token = keypair.mint(roles=roles)
+            credentials = {"bus_basic": ("caller-object-id", "unused"), "bus_bearer": token}
+            binding = MqttBinding(qos=1, timeout=5.0, credentials=credentials)
+            return await ThingClient(tds=[td], bindings=[binding]).invoke("pump__stop", {})
+
+        assert await call(["operator"]) == {"by": "the pump"}
+        assert (await call(["viewer"])).get("denied") is True
+    finally:
+        await gateway.aclose()
+        cleanup = _mk_paho()
+        cleanup.connect(HOST, PORT)
+        cleanup.loop_start()
+        cleanup.publish(f"{prefix}/pump/td", b"", qos=1, retain=True).wait_for_publish(5)
+        cleanup.loop_stop()
+        cleanup.disconnect()
 
 
 async def test_live_connection_refused_is_normalized():

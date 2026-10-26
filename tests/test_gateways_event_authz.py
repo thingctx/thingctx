@@ -17,6 +17,8 @@ and no subscribeevent check. These tests pin the fix:
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from thingctx import ThingClient
@@ -64,8 +66,18 @@ def test_guard_refused_without_broker_identity_attestation():
 
 
 def test_guard_accepted_with_attestation():
-    mb = MqttGatewayBinding("bus:1883", guard=object(), broker_binds_identity=True)
+    mb = MqttGatewayBinding(
+        "bus:1883",
+        guard=object(),
+        broker_binds_identity=True,
+        bus_security={"bus_basic": {"scheme": "basic"}},
+    )
     assert mb._guard is not None
+
+
+def test_a_guard_without_a_basic_bus_scheme_is_refused():
+    with pytest.raises(ValueError, match="needs a basic scheme"):
+        MqttGatewayBinding("bus:1883", guard=object(), broker_binds_identity=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -109,7 +121,7 @@ async def test_guarded_subscribe_denied_when_not_granted(monkeypatch):
     mb._gateway = gw  # serve() wires this; the test drives _handle_subscribe directly
     replies, mirrors = _capture(mb, monkeypatch)
     req = ServeRequest("pump", "telemetry", "subscribeevent", {}, correlation="t", identity=ALICE)
-    await mb._handle_subscribe(req, {})
+    await mb._handle_subscribe(req)
     assert mirrors == [], "a denied subscribe must NOT start a mirror"
     assert replies and replies[-1].get("denied") is True
 
@@ -130,9 +142,53 @@ async def test_guarded_subscribe_allowed_when_granted(monkeypatch):
         correlation="tc/pump/events/telemetry/subscribe",
         identity=ALICE,
     )
-    await mb._handle_subscribe(req, {})
+    await mb._handle_subscribe(req)
     assert mirrors, "a granted subscribe must start a caller-scoped mirror"
     # mirrored to the caller's own stream topic, derived from the request, not open
     stream_topic = mirrors[0][2]
     assert stream_topic.endswith("/stream")
     assert replies[-1].get("subscribed") is True
+
+
+@pytest.mark.asyncio
+async def test_a_stream_goes_under_the_request_whatever_the_request_names(monkeypatch):
+    """A subscribe request cannot choose where the gateway publishes: a stream field
+    naming another topic is ignored, and the stream is <request topic>/stream."""
+    gw = Gateway(_guarded_client(event_granted=True), MqttGatewayBinding("bus:1883"))
+    mb = gw.binding
+    mb._gateway = gw  # serve() wires this; the test drives _handle_subscribe directly
+    replies, mirrors = _capture(mb, monkeypatch)
+    topic = "tc/pump/events/telemetry/subscribe"
+    asked = {"stream": "tc/pump/td"}
+    req = ServeRequest(
+        "pump", "telemetry", "subscribeevent", asked, correlation=topic, identity=ALICE
+    )
+    await mb._handle_subscribe(req)
+    assert mirrors[0][2] == f"{topic}/stream"
+    assert replies[-1] == {"subscribed": True, "stream": f"{topic}/stream"}
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_subscribe_replaces_the_stream_instead_of_doubling_it(monkeypatch):
+    """Asking twice for the same event and stream topic keeps one mirror, so each
+    event reaches the stream once."""
+    local = LocalBinding(object())
+    vocab = build_vocabulary(_client().things)
+    grants = {"op": {(THING_ID, "telemetry", "subscribeevent")}}
+    pdp = PolicyDecisionPoint(vocabulary=vocab, grant_source=LocalPolicyGrantSource(grants))
+    gw = Gateway(ThingClient(tds=[TD], bindings=[local], pdp=pdp), MqttGatewayBinding("bus:1883"))
+    mb = gw.binding
+    mb._gateway = gw  # serve() wires this; the test drives the mirror directly
+    published = []
+    monkeypatch.setattr(mb, "_publish", lambda topic, value, **_: published.append((topic, value)))
+    topic = "tc/pump/events/telemetry/subscribe/stream"
+
+    for _ in range(2):
+        mb._start_caller_mirror("pump", "telemetry", topic, ALICE)
+        await asyncio.sleep(0.05)
+    local.emit("telemetry", {"rpm": 1})
+    await asyncio.sleep(0.05)
+    await mb.aclose()
+
+    assert published == [(topic, {"rpm": 1})]
+    assert mb._streams == {}

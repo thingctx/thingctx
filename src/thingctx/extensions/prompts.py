@@ -7,7 +7,7 @@ it yields a list of {role, content} messages.
 A TD opts in via @context + @type:
 
     "@context": ["https://www.w3.org/2022/wot/td/v1.1",
-                 {"tc": "https://thingctx.dev/vocab#"}],
+                 {"tc": "https://thingctx.com/vocab#"}],
     "actions": {
       "diagnose": {
         "@type": "tc:PromptTemplate",

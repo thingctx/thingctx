@@ -58,7 +58,14 @@ implementation appends a short deterministic suffix to keep the name unique and 
 
 **Parameters.** The tool's parameters are the action's `input` JSON Schema, without
 the properties that declare `const`; the runtime supplies those (see Resolution
-below). An action without an `input` schema accepts no arguments.
+below). Each template variable the action's form `href` names, declared in the
+action's `uriVariables` or the Thing's (the action's wins, TD 1.1 section 5.3.1.2),
+is a required parameter with its declared schema; an input property of the same name
+keeps its own schema. A variable whose schema has the `@type`
+`https://thingctx.com/vocab#MqttUserName` (`tc:MqttUserName` where the `@context`
+binds `tc` to `https://thingctx.com/vocab#`) is not a parameter; the client supplies
+it (see Resolution below). An action without an `input` schema accepts only its
+template variables.
 
 **Description.** The tool's description is the action's `description`. The OpenAI
 function format defines no output field; an action's `output` schema is therefore
@@ -107,11 +114,44 @@ action whose `input` is
 projects the parameters `timeout` and `x`, and an invocation with `x` equal to `0.4`
 is sent as `{"group": "arm", "timeout": 1, "x": 0.4}`.
 
+**The filled arguments are checked against the input schema.** Before the call is
+authorized, approved or sent, the arguments are checked against the TD 1.1
+DataSchema terms `type`, `enum`, `const`, `pattern`, `minLength`, `maxLength`,
+`minimum`, `maximum`, `required` and `properties`, through nested objects and array
+`items`; a value written to a property is checked against the property's schema the
+same way. Other terms, such as `format` and `oneOf`, are not checked, and neither are
+arguments the schema does not name, such as URI variables. A mismatch is not sent:
+the call returns `{"error": "invalid input", "tool": ..., "reason": ...}`, the
+reason naming the first mismatch, and is recorded as refused. With `x` declared
+`{"type": "number"}`, an invocation with `x` equal to `"0.4"` returns the reason
+`x: expected number, got string`.
+
 **Path variables are bound next.** Each `{name}` template variable in the form's
 `href` is replaced by the argument of the same name, which is then removed from the
 remaining arguments. An invocation of `github__createIssue` with `owner` equal to
 `my-org` and `repo` equal to `api` therefore yields the URL
 `https://api.github.com/repos/my-org/api/issues`.
+
+**A variable typed `tc:MqttUserName` is bound to the client's own MQTT User Name**,
+never to an argument: the User Name the client connects to the broker with (MQTT
+5.0, section 3.1.3.5), inserted verbatim whatever the variable's expansion, so the
+topic names the client that sent it. The request is not sent when the connection has
+no User Name, when that name cannot be one topic level (empty, `reply`, not
+printable, or containing whitespace, `/`, `+`, `#` or `?`), or when an argument took
+the variable's place. A guarded thingctx MQTT gateway declares such a variable once,
+at Thing level:
+
+```json
+"uriVariables": {"mqttUserName": {"@type": "https://thingctx.com/vocab#MqttUserName",
+                                  "type": "string", "minLength": 1}},
+"actions": {"stop": {"output": {"type": "object"},
+  "forms": [{"href": "mqtt://bus:1883/tc/pump/actions/stop/{+mqttUserName}"}]}}
+```
+
+This projects `pump__stop` with no parameters, and a client connected as `alice`
+publishes the call to `tc/pump/actions/stop/alice`. The reserved expansion
+`{+mqttUserName}` (RFC 6570, section 3.2.3) spells out that a name such as
+`carol@corp.example` stays as it is.
 
 **Remaining arguments are bound by the transport binding.** For HTTP, in accordance
 with the [WoT HTTP binding](https://www.w3.org/TR/wot-binding-templates/):
@@ -137,7 +177,8 @@ A read is issued as `GET` against the property's form. A write transmits the val
 by default as an HTTP `PUT`.
 
 An event, and an observable property, is projected to a subscription over the
-form's streaming binding: Server-Sent Events for HTTP, the named topic for MQTT.
+form's streaming binding: Server-Sent Events for HTTP, the named topic for MQTT. A
+`tc:MqttUserName` variable in that topic is bound as in Resolution above.
 
 ## Constant projection for a fleet
 
@@ -206,8 +247,9 @@ state.
 - A given agent runtime may surface only a subset of the projected operations. One
   that exposes callable tools and readable resources, for example, carries actions
   and property reads but not property writes or subscriptions.
-- Template variables are bound by name from the argument object; their individual
-  schemas are not separately enforced at this layer.
+- Template variables are bound by name from the argument object, except one typed
+  `tc:MqttUserName`; their individual schemas are not separately enforced at this
+  layer.
 - The HTTP, MQTT, local, exec, and media bindings are mapped. Other bindings,
   including CoAP and WebSocket, are not yet implemented.
 

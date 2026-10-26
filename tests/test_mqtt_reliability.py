@@ -68,7 +68,7 @@ class FakeClient:
     def subscribe(self, topic, qos=0):
         self.subscriptions.append((topic, qos))
 
-    def publish(self, topic, payload, qos=0, retain=False):
+    def publish(self, topic, payload, qos=0, retain=False, properties=None):
         self.publishes.append((topic, payload, qos, retain))
         if self.auto_reply is not None and self.on_message:
             self.on_message(self, None, _Msg(json.dumps(self.auto_reply).encode()))
@@ -354,7 +354,7 @@ async def test_connect_torn_down_and_retried_after_connack_timeout(no_sleep):
         def subscribe(self, topic, qos=0):
             pass
 
-        def publish(self, topic, payload, qos=0, retain=False):
+        def publish(self, topic, payload, qos=0, retain=False, properties=None):
             if self.on_message:
                 self.on_message(self, None, _Msg(json.dumps({"ok": True}).encode()))
             return _Info()

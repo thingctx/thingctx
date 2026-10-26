@@ -146,8 +146,15 @@ class LocalBinding:
         """Subscribe to an event / observable property. Returns an async
         iterator yielding pushed values. The device pushes with :meth:`emit`.
         ``target`` is the affordance (its ``name`` keys the subscriber list);
-        ``args`` are ignored locally (an in-process device sees every emit)."""
+        ``args`` are ignored locally (an in-process device sees every emit).
+        A Thing bound with :meth:`register_thing` is subscribed through its own
+        binding, so it pushes with that binding's ``emit`` and two Things whose
+        events share a name keep separate subscribers."""
 
+        if not isinstance(target, str):
+            sub = self._sub_for(target.thing_id)
+            if sub is not None:
+                return await sub.subscribe(target, form, args)
         name = target if isinstance(target, str) else target.name
         queue: asyncio.Queue = asyncio.Queue()
         self._subs.setdefault(name, []).append(queue)

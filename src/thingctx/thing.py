@@ -14,12 +14,19 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 
+from thingctx.extensions import VOCAB_URI
 from thingctx.validate import assert_valid_td
+
+# The @type of a URI variable that holds the MQTT User Name (MQTT 5.0, section
+# 3.1.3.5) of the client's own connection. The client fills it in, so it is never
+# a tool parameter.
+MQTT_USER_NAME = f"{VOCAB_URI}MqttUserName"
 
 
 def _text(defn: dict[str, Any], multi_key: str, single_key: str, fallback: str = "") -> str:
@@ -627,17 +634,51 @@ def _without_const(schema: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def is_mqtt_user_name(schema: Any, prefixes: dict[str, str]) -> bool:
+    """True when a URI variable's DataSchema has the @type :data:`MQTT_USER_NAME`,
+    written as that IRI or as a compact IRI whose prefix ``prefixes`` (the TD's
+    ``@context`` prefixes) binds to the thingctx vocabulary."""
+    if not isinstance(schema, dict):
+        return False
+    return MQTT_USER_NAME in {_expanded(t, prefixes) for t in _as_tuple(schema.get("@type"))}
+
+
+def _usable_user_name(name: Any) -> bool:
+    """True when ``name`` can be the MQTT User Name a guarded request topic ends
+    in: one printable topic level with no separator or wildcard (MQTT 5.0, section
+    4.7.1.1), no whitespace, no ``?``, which ends an href's path, and not ``reply``,
+    the level a gateway answers on."""
+    return (
+        isinstance(name, str)
+        and bool(name)
+        and name != "reply"
+        and name.isprintable()
+        and not any(c in "/+#?" or c.isspace() for c in name)
+    )
+
+
+def _expanded(term: str, prefixes: dict[str, str]) -> str:
+    """A compact IRI expanded through ``prefixes``; any other term as it is."""
+    prefix, sep, local = term.partition(":")
+    return prefixes[prefix] + local if sep and prefix in prefixes else term
+
+
 def _href_var_names(href: str) -> set[str]:
     """The uriVariable names an href references, e.g. {+broker}/{+topic}."""
     return {m.lstrip("+") for m in re.findall(r"\{(\+?[^}]+)\}", href)}
 
 
-def _project_action_params(action: WoTAction, thing_uri_vars: dict[str, Any]) -> dict[str, Any]:
+def _project_action_params(
+    action: WoTAction, thing_uri_vars: dict[str, Any], prefixes: dict[str, str]
+) -> dict[str, Any]:
     """The tool ``parameters`` for an action, INCLUDING the uriVariables its form
     needs. The bare input schema omits them (they live in ``uriVariables``, not
     ``input``), so a form like ``mqtt://{+broker}/{+topic}`` would leave the model
-    unable to supply the broker/topic. Fold in the action-level uriVariables plus
-    any Thing-level ones the href references, as required string properties.
+    unable to supply the broker/topic. Fold in the action level uriVariables plus
+    any Thing level ones the href references, as required properties with their
+    declared schemas (a string when none is declared). A variable typed
+    :data:`MQTT_USER_NAME` is left out: the client fills it in with the User Name
+    it connects with.
 
     A scalar/array input still wraps under SCALAR_INPUT_KEY, and its uriVariables
     sit alongside that key."""
@@ -653,7 +694,9 @@ def _project_action_params(action: WoTAction, thing_uri_vars: dict[str, Any]) ->
     for name in referenced:
         if name not in var_defs and name in (thing_uri_vars or {}):
             var_defs[name] = thing_uri_vars[name]
-    var_defs = {n: d for n, d in var_defs.items() if n in referenced}
+    var_defs = {
+        n: d for n, d in var_defs.items() if n in referenced and not is_mqtt_user_name(d, prefixes)
+    }
     if not var_defs:
         return base
     out = dict(base)
@@ -709,6 +752,129 @@ def _fill(schema: Any, value: Any) -> Any:
     if isinstance(items, dict) and isinstance(value, list):
         return [_fill(items, item) for item in value]
     return value
+
+
+def input_errors(input_schema: dict[str, Any], arguments: Any) -> list[str]:
+    """Why ``arguments`` do not match the action's input schema, one line per
+    mismatch in the order found, or ``[]`` when they match. Checks the TD 1.1
+    DataSchema terms ``type``, ``enum``, ``const``, ``pattern``, ``minLength``,
+    ``maxLength``, ``minimum``, ``maximum``, ``required`` and ``properties``, through
+    nested objects and array ``items``; any other term is not checked. Like
+    :func:`fill_declared`, it reads the wrapped shape the model sees. An argument the
+    schema does not name, such as a URI variable, is not refused."""
+    errors: list[str] = []
+    _check(_wrap_input(input_schema), arguments, "", errors)
+    return errors
+
+
+def value_errors(schema: dict[str, Any], value: Any, name: str) -> list[str]:
+    """Why ``value`` does not match the property ``name``'s schema, checked as
+    :func:`input_errors` checks an action's input."""
+    errors: list[str] = []
+    _check(schema, value, name, errors)
+    return errors
+
+
+def _is_type(value: Any, name: Any) -> bool:
+    """True when ``value`` is of the JSON type ``name``; an unknown name is not
+    the caller's to satisfy."""
+    # JSON has no NaN or infinity (RFC 8259, section 6), so neither is a number.
+    number = (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and (isinstance(value, int) or math.isfinite(value))
+    )
+    checks = {
+        "null": value is None,
+        "boolean": isinstance(value, bool),
+        "integer": number and (isinstance(value, int) or value.is_integer()),
+        "number": number,
+        "string": isinstance(value, str),
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+    }
+    return checks.get(name, True) if isinstance(name, str) else True
+
+
+def _same(a: Any, b: Any) -> bool:
+    """JSON equality: ``true`` is not ``1``, and ``1`` is ``1.0``."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b, strict=True))
+    if _is_type(a, "number") and _is_type(b, "number"):
+        return bool(a == b)
+    return type(a) is type(b) and a == b
+
+
+def _check(schema: Any, value: Any, path: str, errors: list[str]) -> None:
+    if not isinstance(schema, dict):
+        return
+    where = path or "input"
+    declared = schema.get("type")
+    names = declared if isinstance(declared, list) else [declared] if declared else []
+    if names and not any(_is_type(value, n) for n in names):
+        errors.append(f"{where}: expected {' or '.join(map(str, names))}, got {_json_type(value)}")
+        return
+    if "const" in schema and not _same(value, schema["const"]):
+        errors.append(f"{where}: must be {json.dumps(schema['const'])}")
+    enum = schema.get("enum")
+    if isinstance(enum, list) and not any(_same(value, e) for e in enum):
+        errors.append(f"{where}: must be one of {json.dumps(enum)}")
+    if _is_type(value, "number"):
+        low, high = schema.get("minimum"), schema.get("maximum")
+        if _is_type(low, "number") and value < low:
+            errors.append(f"{where}: {value} is below the minimum {low}")
+        if _is_type(high, "number") and value > high:
+            errors.append(f"{where}: {value} is above the maximum {high}")
+    elif isinstance(value, str):
+        _check_string(schema, value, where, errors)
+    elif isinstance(value, dict):
+        required = schema.get("required")
+        errors.extend(
+            f"{_at(path, name)}: required, and missing"
+            for name in (required if isinstance(required, list) else [])
+            if name not in value
+        )
+        props = schema.get("properties")
+        for name, sub in (props if isinstance(props, dict) else {}).items():
+            if name in value:
+                _check(sub, value[name], _at(path, name), errors)
+    elif isinstance(value, list) and isinstance(schema.get("items"), dict):
+        for i, item in enumerate(value):
+            _check(schema["items"], item, f"{where}[{i}]", errors)
+
+
+def _check_string(schema: dict[str, Any], value: str, where: str, errors: list[str]) -> None:
+    # A string's length counts Unicode code points (TD 1.1, StringSchema), as len does.
+    shortest, longest = schema.get("minLength"), schema.get("maxLength")
+    if isinstance(shortest, int) and len(value) < shortest:
+        errors.append(f"{where}: shorter than {shortest} characters")
+    if isinstance(longest, int) and len(value) > longest:
+        errors.append(f"{where}: longer than {longest} characters")
+    pattern = schema.get("pattern")
+    if isinstance(pattern, str):
+        # The TD writes an ECMA 262 pattern; one Python cannot compile goes unchecked.
+        try:
+            matched = re.search(pattern, value) is not None
+        except re.error:
+            return
+        if not matched:
+            errors.append(f"{where}: does not match the pattern {pattern}")
+
+
+def _at(path: str, name: str) -> str:
+    return f"{path}.{name}" if path else name
+
+
+def _json_type(value: Any) -> str:
+    """The JSON type name of ``value``."""
+    for name in ("null", "boolean", "integer", "number", "string", "object", "array"):
+        if _is_type(value, name):
+            return name
+    return type(value).__name__
 
 
 # The tool-name namespace separator. A double underscore, NOT a dot.
@@ -778,7 +944,9 @@ def actions_to_tools(
                     "function": {
                         "name": name,
                         "description": desc,
-                        "parameters": _project_action_params(action, thing.uri_variables),
+                        "parameters": _project_action_params(
+                            action, thing.uri_variables, thing.context_prefixes
+                        ),
                     },
                 }
             )

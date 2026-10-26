@@ -121,10 +121,73 @@ def test_projection_carries_mqv_vocab_not_engine_fields():
     _project(gw)
     form = gw.projected_tds["pump"]["properties"]["rpm"]["forms"][0]
     assert form["href"] == "mqtt://bus:1883/tc/pump/props/rpm"
-    assert form["mqv:qos"] == 1  # driver's own namespaced vocab
+    assert form["mqv:qos"] == "1"  # driver's own namespaced vocab
     assert "mqv:retain" in form
     # the engine replaced native security with the bus scheme
     assert gw.projected_tds["pump"]["security"] == ["bus_nosec"]
+
+
+@pytest.mark.parametrize("qos", [0, 1, 2])
+def test_projected_qos_is_the_string_the_mqtt_binding_schema_allows(qos):
+    # The WoT MQTT binding's schema types mqv:qos as a string: "0", "1" or "2".
+    gw = Gateway(_client(), MqttGatewayBinding("bus:1883", qos=qos))
+    _project(gw)
+    td = gw.projected_tds["pump"]
+    forms = [
+        f
+        for kind in ("actions", "properties", "events")
+        for a in td.get(kind, {}).values()
+        for f in a["forms"]
+    ]
+    assert forms
+    assert {f["mqv:qos"] for f in forms} == {str(qos)}
+
+
+class _Templated:
+    """A driver whose forms end in a variable it declares once for every Thing."""
+
+    scheme = "tmpl"
+
+    def project_forms(self, thing, affordance, op):
+        return [{"href": f"tmpl://bus/{affordance}/{{+caller}}", "op": [op]}]
+
+    def uri_variables(self):
+        return {"caller": {"type": "string", "@type": "https://example.org/vocab#Caller"}}
+
+    async def serve(self, engine):
+        return None
+
+    async def aclose(self):
+        return None
+
+
+def test_a_driver_declares_uri_variables_once_for_the_thing():
+    from thingctx.testing import assert_gateway_binding_contract, gateway_binding_capabilities
+    from thingctx.validate import validate_semantics, validate_td
+
+    driver = _Templated()
+    assert_gateway_binding_contract(driver)
+    assert gateway_binding_capabilities(driver)["declares_uri_variables"] is True
+    gw = Gateway(_client(), driver)
+    _project(gw)
+    td = gw.projected_tds["pump"]
+    assert td["uriVariables"] == driver.uri_variables()
+    assert td["@context"] == "https://www.w3.org/2022/wot/td/v1.1"
+    assert validate_td(td) == [] and validate_semantics(td) == []
+    plain = Gateway(_client(), MqttGatewayBinding("bus:1883"))
+    _project(plain)
+    assert "uriVariables" not in plain.projected_tds["pump"]
+
+
+def test_the_kit_refuses_an_object_uri_variable():
+    from thingctx.testing import assert_gateway_binding_contract
+
+    class Nested(_Templated):
+        def uri_variables(self):
+            return {"caller": {"type": "object"}}
+
+    with pytest.raises(AssertionError, match="not objects or arrays"):
+        assert_gateway_binding_contract(Nested())
 
 
 # --------------------------------------------------------------------------- #

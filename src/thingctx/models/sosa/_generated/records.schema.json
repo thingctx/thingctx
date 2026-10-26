@@ -324,7 +324,7 @@
             "type": "string"
         }
     },
-    "$id": "https://thingctx.dev/schema/records",
+    "$id": "https://thingctx.com/schema/records",
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "additionalProperties": true,
     "metamodel_version": "1.11.0",

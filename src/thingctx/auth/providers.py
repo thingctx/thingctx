@@ -121,11 +121,14 @@ class StaticBearerAuth(BaseAuth):
         return getattr(scheme, "scheme", None) == "bearer"
 
     async def resolve(self, ctx: AuthContext) -> Credential | None:
+        """The token from a string or a token response's ``access_token``; None for
+        any other secret, such as a (user, password) pair, so its text is never sent
+        as a token."""
         cred = ctx.credential
         token = cred.get("access_token") if isinstance(cred, dict) else cred
-        if not token:
+        if not isinstance(token, str) or not token:
             return None
-        return BearerToken(token=Secret(str(token)))
+        return BearerToken(token=Secret(token))
 
 
 class BasicAuth(BaseAuth):

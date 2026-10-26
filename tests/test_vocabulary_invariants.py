@@ -178,6 +178,9 @@ BINDING_TERMS: dict[str, str] = {
     "htv:methodName": "W3C HTTP Vocabulary in RDF 1.0, http:methodName",
     # The WoT MQTT binding's own term.
     "mqv:retain": "WoT MQTT Binding Template, mqv:retain",
+    # Ours, read off a URI variable's DataSchema @type rather than a form member: the
+    # variable holds the client's MQTT User Name (MQTT 5.0, section 3.1.3.5).
+    "tc:MqttUserName": "ours: https://thingctx.com/vocab#MqttUserName",
     # The rosbridge binding reads no prefixed term. It uses TD 1.1 fields and the href.
 }
 
